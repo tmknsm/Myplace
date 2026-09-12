@@ -243,11 +243,13 @@ img, svg { max-width: 100%; }
   grid-template-columns: 1.15fr 0.85fr;
   grid-template-areas:
     "head map"
+    "notice map"
     "dossier map";
   gap: 28px;
   align-items: start;
 }
 .property-head { grid-area: head; }
+.property-notice { grid-area: notice; }
 .dossier { grid-area: dossier; }
 .map-panel { grid-area: map; }
 .property-head h1 {
@@ -504,20 +506,21 @@ th { color: var(--muted); font-weight: 500; }
   }
   .hero-copy .lede { display: none; }
   .hero-search { order: 3; margin: 0; }
+  .hero-copy .meta-line { order: 4; margin-top: 8px; }
   .hero-map {
-    order: 4;
+    order: 5;
     min-height: 0;
-    height: 46dvh;
-    max-height: 420px;
+    height: 48dvh;
+    max-height: 440px;
     box-shadow: none;
   }
-  .hero-copy .meta-line { order: 5; }
 
   .property-layout {
     grid-template-columns: 1fr;
     grid-template-areas:
       "head"
       "map"
+      "notice"
       "dossier";
     gap: 18px;
   }

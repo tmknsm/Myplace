@@ -11,7 +11,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     api.meta().then((m) => setDev(m.devMailbox)).catch(() => undefined);
   }, []);
-  const headerSearch = location.pathname !== "/";
+  const headerSearch = location.pathname !== "/" && !/^\/(signin|dev|admin)/.test(location.pathname);
   return (
     <>
       {dev && (
@@ -123,10 +123,6 @@ function PropertyPageView() {
               </Link>
             )}
           </div>
-          <div className="notice">
-            Demonstration records for Columbia County. Not an official assessor extract.
-            Every important fact shows its source.
-          </div>
         </div>
         <div className="map-panel">
           <ParcelMap
@@ -136,6 +132,10 @@ function PropertyPageView() {
             onSelect={(next) => { window.location.href = `/property/${next}`; }}
             zoom={16}
           />
+        </div>
+        <div className="notice property-notice">
+          Demonstration records for Columbia County. Not an official assessor extract.
+          Every important fact shows its source.
         </div>
         <div className="dossier">
           <section className="section">
