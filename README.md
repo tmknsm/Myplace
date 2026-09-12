@@ -2,13 +2,13 @@
 
 A living property record for New York. V1 covers **Columbia County** with a source-aware public dossier, owner-maintained layer, and a production-looking ownership claim flow.
 
-> Every New York property, organized in one place. Know what’s official, what’s changed, and add what only you know.
-
 Owner verification is **manual review** in this V1. The claim UI, emails, and admin desk are the production experience. Locally, those emails land in a development mailbox instead of Postmark.
 
 ## What V1 includes
 
-- Searchable demonstration parcels for Columbia County
+- The **2025 NYS ORPTS local assessment roll** for Columbia County (~36,800 parcels) via [Open Data NY](https://data.ny.gov/Government-Finance/Property-Assessment-Data-from-Local-Assessment-Rol/7vem-aaz7)
+- 2024→2025 assessment and owner-of-record changes as property events
+- Map shapes from OpenStreetMap when an address matches, otherwise an approximate NY East grid rectangle
 - Mapbox-ready map (OpenFreeMap locally; optional Mapbox token later)
 - Public property page with provenance, unknown, inferred, and conflicting states
 - Email sign-in codes
@@ -16,9 +16,8 @@ Owner verification is **manual review** in this V1. The claim UI, emails, and ad
 - Admin claim review
 - Owner record, document vault (`private` / `property_transferable`), and handoff invitation
 - Immutable property event history
-- Postgres + PostGIS schema designed for later NY adapters
 
-Columbia County does not authorize public redistribution of official parcel geometry through the NYS tax-parcel service. The seed is a **demonstration dataset** along real streets, labeled as such in the UI. It is not an assessor extract.
+Columbia County is **not** in the NYS public tax-parcel redistribution program and sells countywide shapefiles under a data-sharing agreement. This app does **not** scrape county GIS. Official lot lines are absent; facts come from the statewide roll ORPTS already publishes.
 
 ## Stack
 
@@ -45,7 +44,8 @@ psql -d myplace_test -c "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSIO
 
 cp .env.example .env
 npm install
-npm run setup
+npm run setup   # migrate + import the ORPTS roll (needs network)
+# npm run db:seed   # optional tiny synthetic set if you are offline
 npm test
 npm run dev
 ```
@@ -62,7 +62,7 @@ API: [http://localhost:8787](http://localhost:8787)
 
 ## Local development flow
 
-1. Search `441 Warren Street` or click a parcel on the map.
+1. Search `441 Warren` or click a parcel on the map. That Hudson address is a real 2025 roll row.
 2. Sign in with any email. Open **Mailbox** in the local-development bar, read the code, return to sign-in.
 3. Claim the property. The wizard is the production UI.
 4. Open **Admin review**, verify the claim.

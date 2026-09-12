@@ -68,13 +68,13 @@ function HomePage() {
         <div className="kicker">New York</div>
         <h1>Columbia County</h1>
         <p className="lede">
-          What is official, what changed, and what only you know.
+          The 2025 assessment roll, with sources on every fact.
         </p>
         <div className="hero-search">
           <SearchBox />
         </div>
         <p className="meta-line">
-          {count ?? "—"} parcels
+          {count ?? "—"} parcels from NYS ORPTS
         </p>
       </div>
       <div className="hero-map">
@@ -139,8 +139,9 @@ function PropertyPageView() {
           />
         </div>
         <div className="notice property-notice">
-          Demonstration records for Columbia County. Not an official assessor extract.
-          Every important fact shows its source.
+          Assessment facts are from the 2025 NYS ORPTS local assessment roll.
+          Map shapes are OpenStreetMap footprints or an approximate grid location —
+          not Columbia County tax-map polygons, which the county does not redistribute.
         </div>
         <div className="dossier">
           <section className="section">

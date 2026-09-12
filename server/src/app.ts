@@ -58,7 +58,7 @@ app.get("/api/meta", async (c) => {
     product: "Myplace",
     coverage: "Columbia County, New York",
     propertyCount: count[0]?.n ?? 0,
-    demonstration: true,
+    demonstration: !(await sql`SELECT 1 FROM sources WHERE source_id = 'src_orpts' LIMIT 1`).length,
     ownerVerification: "manual_review",
     devMailbox: isDevExperience(),
     vocab: FIELD_VOCAB,

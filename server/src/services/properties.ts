@@ -59,8 +59,8 @@ export async function loadPropertyPage(propertyId: string) {
     historic_archive: "Limited",
   };
 
-  const earliest = await sql<{ created_at: Date }[]>`
-    SELECT MIN(created_at) AS created_at FROM property_events WHERE property_id = ${propertyId}
+  const earliest = await sql<{ effective_at: Date | null }[]>`
+    SELECT MIN(effective_at) AS effective_at FROM property_events WHERE property_id = ${propertyId}
   `;
 
   return {
@@ -69,8 +69,8 @@ export async function loadPropertyPage(propertyId: string) {
     events,
     maintainers,
     coverage,
-    historyNote: earliest[0]?.created_at
-      ? `Known digital records currently date back to ${new Date(earliest[0].created_at).getFullYear()}.`
+    historyNote: earliest[0]?.effective_at
+      ? `Known digital records currently date back to ${new Date(earliest[0].effective_at).getFullYear()}.`
       : "No attributable digital events have been recorded yet.",
   };
 }
@@ -99,7 +99,7 @@ export async function searchProperties(query: string, limit = 12) {
   `;
 }
 
-export async function parcelsInBbox(west: number, south: number, east: number, north: number, limit = 400) {
+export async function parcelsInBbox(west: number, south: number, east: number, north: number, limit = 1500) {
   const sql = getSql();
   const rows = await sql<{ property_id: string; formatted: string | null; geojson: unknown }[]>`
     SELECT
