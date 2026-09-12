@@ -1,43 +1,53 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type PropertyPage, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { eventLabel, FactRow, ParcelMap, SearchBox } from "./components";
 
 function Layout({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
+  const location = useLocation();
   const [dev, setDev] = useState(false);
   useEffect(() => {
     api.meta().then((m) => setDev(m.devMailbox)).catch(() => undefined);
   }, []);
+  const headerSearch = location.pathname !== "/";
   return (
     <>
       {dev && (
         <div className="devbar">
-          <span>Local development</span>
           <Link to="/dev/mailbox">Mailbox</Link>
-          <Link to="/admin">Admin review</Link>
-          <span>Owner verification is manual review — the UI is the production flow.</span>
+          <Link to="/admin">Admin</Link>
+          <span className="wide-only">Manual review · production UI</span>
         </div>
       )}
       <header className="topbar">
-        <Link to="/" className="brand">
-          <strong>Myplace</strong>
-          <span>New York record</span>
-        </Link>
-        <SearchBox compact />
-        <nav className="top-links">
-          <Link to="/map">Map</Link>
-          {user?.is_admin && <Link to="/admin">Admin</Link>}
-          {user ? (
-            <>
-              <Link to="/account">{user.display_name || user.primary_email}</Link>
-              <button className="btn secondary" onClick={() => signOut()}>Sign out</button>
-            </>
-          ) : (
-            <Link className="btn" to="/signin">Sign in</Link>
-          )}
-        </nav>
+        <div className="topbar-main">
+          <Link to="/" className="brand">
+            <strong>Myplace</strong>
+            <span>New York record</span>
+          </Link>
+          <div className="header-search wide-only">
+            <SearchBox compact />
+          </div>
+          <nav className="top-links">
+            <Link to="/map">Map</Link>
+            {user?.is_admin && <Link to="/admin" className="wide-only">Admin</Link>}
+            {user ? (
+              <>
+                <Link to="/account">{user.display_name ? user.display_name.split(" ")[0] : "Account"}</Link>
+                <button className="btn secondary" onClick={() => signOut()}>Sign out</button>
+              </>
+            ) : (
+              <Link className="btn" to="/signin">Sign in</Link>
+            )}
+          </nav>
+        </div>
+        {headerSearch && (
+          <div className="header-search narrow-only">
+            <SearchBox />
+          </div>
+        )}
       </header>
       {children}
     </>
@@ -59,7 +69,7 @@ function HomePage() {
           Know what is official, what changed, and add what only you know.
           Unknown is allowed. Conflict is preserved.
         </p>
-        <div style={{ margin: "22px 0 18px" }}>
+        <div className="hero-search">
           <SearchBox autoFocus />
         </div>
         <p className="meta-line">
@@ -76,7 +86,7 @@ function HomePage() {
 function MapPage() {
   const navigate = useNavigate();
   return (
-    <div className="hero-map" style={{ minHeight: "calc(100vh - 70px)", margin: 0, border: 0 }}>
+    <div className="map-page">
       <ParcelMap zoom={11} onSelect={(id) => navigate(`/property/${id}`)} />
     </div>
   );
@@ -100,24 +110,33 @@ function PropertyPageView() {
   return (
     <div className="page wide">
       <div className="property-layout">
-        <div className="dossier">
+        <div className="property-head">
           <div className="kicker">{property.municipality}, {property.county} County</div>
           <h1>{property.formatted ?? "Untitled parcel"}</h1>
           <p className="meta-line mono">{property.sbl} · SWIS {property.swis}</p>
-          <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
+          <div className="action-row">
             {viewer.maintainer ? (
-              <a className="btn" href={`/property/${property.property_id}/manage`}>Maintain owner record</a>
+              <Link className="btn" to={`/property/${property.property_id}/manage`}>Maintain owner record</Link>
             ) : (
-              <a className="btn" href={user ? `/property/${property.property_id}/claim` : `/signin?next=/property/${property.property_id}/claim`}>
+              <Link className="btn" to={user ? `/property/${property.property_id}/claim` : `/signin?next=/property/${property.property_id}/claim`}>
                 Claim this property
-              </a>
+              </Link>
             )}
           </div>
-          <div className="notice" style={{ marginTop: 18 }}>
+          <div className="notice">
             Demonstration records for Columbia County. Not an official assessor extract.
             Every important fact shows its source.
           </div>
-
+        </div>
+        <div className="map-panel">
+          <ParcelMap
+            selectedId={property.property_id}
+            selectedGeometry={property.geojson}
+            onSelect={(next) => { window.location.href = `/property/${next}`; }}
+            zoom={16}
+          />
+        </div>
+        <div className="dossier">
           <section className="section">
             <h2>Overview</h2>
             {facts("overview").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
@@ -150,16 +169,6 @@ function PropertyPageView() {
               ))}
             </ol>
           </section>
-        </div>
-        <div>
-          <div className="map-panel">
-            <ParcelMap
-              selectedId={property.property_id}
-              selectedGeometry={property.geojson}
-              onSelect={(next) => { window.location.href = `/property/${next}`; }}
-              zoom={16}
-            />
-          </div>
         </div>
       </div>
     </div>
@@ -212,7 +221,7 @@ function ClaimPage() {
   return (
     <div className="page wizard">
       <div className="kicker">Ownership verification</div>
-      <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 460, fontSize: 42 }}>Claim {address}</h1>
+      <h1 className="display">Claim {address}</h1>
       <div className="steps">
         {["Property", "Method", "Evidence", "Attest"].map((label, i) => (
           <span key={label} className={step === i + 1 ? "on" : ""}>{i + 1}. {label}</span>
@@ -235,7 +244,7 @@ function ClaimPage() {
               </button>
             ))}
           </div>
-          <div style={{ marginTop: 18, display: "flex", gap: 10 }}>
+          <div className="action-row">
             <button className="btn secondary" onClick={() => setStep(1)}>Back</button>
             <button className="btn" onClick={() => setStep(3)}>Continue</button>
           </div>
@@ -249,7 +258,7 @@ function ClaimPage() {
             <input className="field" type="file" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
           </label>
           {files.map((file) => <div key={file.name} className="meta-line">{file.name}</div>)}
-          <div style={{ marginTop: 18, display: "flex", gap: 10 }}>
+          <div className="action-row">
             <button className="btn secondary" onClick={() => setStep(2)}>Back</button>
             <button className="btn" onClick={() => setStep(4)}>Continue</button>
           </div>
@@ -266,7 +275,7 @@ function ClaimPage() {
             <span>I attest that I am a current owner or authorized representative of {address}, and that the documents I uploaded are genuine.</span>
           </label>
           {error && <p className="error">{error}</p>}
-          <div style={{ marginTop: 18, display: "flex", gap: 10 }}>
+          <div className="action-row">
             <button className="btn secondary" onClick={() => setStep(3)}>Back</button>
             <button type="button" className="btn" data-testid="claim-submit" disabled={!attested || busy} onClick={submit}>
               {busy ? "Submitting…" : "Submit for review"}
@@ -299,7 +308,7 @@ function ClaimStatusPage() {
   return (
     <div className="page wizard">
       <div className="kicker">Claim status</div>
-      <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 460, fontSize: 40 }}>{claim.formatted ?? "Property claim"}</h1>
+      <h1 className="display">{claim.formatted ?? "Property claim"}</h1>
       <p className="meta-line">Reference {claim.claim_id} · {METHODS.find((m) => m.id === claim.method)?.title}</p>
       <div className="status-rail">
         <div className="done">Submitted {claim.submitted_at ? new Date(claim.submitted_at).toLocaleString() : ""}</div>
@@ -362,7 +371,7 @@ function ManagePage() {
   return (
     <div className="page wide">
       <div className="kicker">Owner maintainer</div>
-      <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 460 }}>{data.property.formatted}</h1>
+      <h1 className="display">{data.property.formatted}</h1>
       <div className="manage-grid">
         <div className="side-nav">
           {([["record", "Property record"], ["documents", "Documents"], ["history", "Record history"], ["handoff", "Handoff"]] as const).map(([key, label]) => (
@@ -397,6 +406,7 @@ function ManagePage() {
                 await api.upload(id, file, { documentType: "owner_record", visibility: "private", transferability: "property_transferable" });
                 load();
               }} />
+              <div className="table-scroll">
               <table>
                 <thead><tr><th>File</th><th>Visibility</th><th>Transfer</th></tr></thead>
                 <tbody>
@@ -420,6 +430,7 @@ function ManagePage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </>
           )}
           {tab === "history" && (
@@ -469,7 +480,7 @@ function SignInPage() {
   return (
     <div className="page wizard">
       <div className="kicker">Sign in</div>
-      <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 460, fontSize: 42 }}>Enter your email</h1>
+      <h1 className="display">Enter your email</h1>
       <p>We’ll send a six-digit code. No password.</p>
       <label className="stack">
         <span>Email</span>
@@ -554,6 +565,7 @@ function AdminPage() {
       <div className="kicker">Records desk</div>
       <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 460 }}>Ownership claims</h1>
       <p className="meta-line">V1 verification is a human review of submitted evidence. Automated identity proofing is not enabled.</p>
+      <div className="table-scroll">
       <table>
         <thead><tr><th>Property</th><th>Claimant</th><th>Method</th><th></th></tr></thead>
         <tbody>
@@ -567,6 +579,7 @@ function AdminPage() {
           ))}
         </tbody>
       </table>
+      </div>
       {claims.length === 0 && <p>No pending claims.</p>}
     </div>
   );
@@ -608,7 +621,7 @@ function AdminClaimPage() {
         <span>Reviewer note</span>
         <textarea className="field" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
-      <div style={{ display: "flex", gap: 10 }}>
+      <div className="action-row">
         <button type="button" className="btn" data-testid="verify-owner" onClick={async () => {
           await api.reviewClaim(claim.claim_id, "verified", note);
           navigate("/admin");
@@ -628,7 +641,7 @@ function MailboxPage() {
   const load = () => api.mailbox().then((d) => setEmails(d.emails));
   useEffect(() => { load().catch(() => undefined); }, []);
   return (
-    <div className="mailbox">
+    <div className={`mailbox ${current ? "has-mail" : ""}`}>
       <div className="mail-list">
         {emails.map((email) => (
           <button
@@ -646,6 +659,9 @@ function MailboxPage() {
         ))}
       </div>
       <div className="mail-body">
+        {current && (
+          <button type="button" className="mail-back narrow-only" onClick={() => setCurrent(null)}>Inbox</button>
+        )}
         {current ? (
           <iframe className="mail-frame" title={current.subject} srcDoc={current.html} />
         ) : (

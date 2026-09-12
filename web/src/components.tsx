@@ -25,11 +25,15 @@ export function SearchBox({ compact = false, autoFocus = false }: { compact?: bo
   }, [q]);
 
   return (
-    <div className="top-search" style={compact ? undefined : { position: "relative", maxWidth: "100%" }}>
+    <div className={`search-wrap ${compact ? "is-compact" : ""}`} style={compact ? undefined : { position: "relative", maxWidth: "100%" }}>
       <input
         className="search-box"
         value={q}
         autoFocus={autoFocus}
+        enterKeyHint="search"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
         placeholder="Search address, SBL, or municipality"
         onChange={(e) => setQ(e.target.value)}
         onFocus={() => hits.length && setOpen(true)}
@@ -153,8 +157,13 @@ export function ParcelMap({
       void loadParcels();
     });
     map.on("moveend", () => { void loadParcels(); });
+    const onResize = () => map.resize();
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
     mapRef.current = map;
     return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
       map.remove();
       mapRef.current = null;
     };
