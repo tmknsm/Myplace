@@ -108,17 +108,17 @@ function PropertyPageView() {
   if (!data) return <div className="page">Loading record…</div>;
   const { property, viewer } = data;
   const facts = (group: string) => property.facts.filter((f) => f.group === group);
+  const title = property.formatted?.split(",")[0] ?? "Untitled parcel";
+  const locality = property.formatted?.includes(",")
+    ? property.formatted.slice(property.formatted.indexOf(",") + 1).trim()
+    : null;
   return (
     <div className="page wide">
       <div className="property-layout">
         <div className="property-head">
           <div className="kicker">{property.municipality}</div>
-          <h1>{(property.formatted ?? "Untitled parcel").split(",")[0]}</h1>
-          <p className="meta-line mono">
-            {(property.formatted ?? "").includes(",")
-              ? `${property.formatted!.slice(property.formatted!.indexOf(",") + 1).trim()} · ${property.sbl}`
-              : property.sbl}
-          </p>
+          <h1>{title}</h1>
+          <p className="meta-line mono">{[locality, property.sbl].filter(Boolean).join(" · ")}</p>
           <div className="action-row">
             {viewer.maintainer ? (
               <Link className="btn" to={`/property/${property.property_id}/manage`}>Maintain owner record</Link>
