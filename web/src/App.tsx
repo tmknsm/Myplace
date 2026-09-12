@@ -36,7 +36,7 @@ function Layout({ children }: { children: React.ReactNode }) {
             {user ? (
               <>
                 <Link to="/account">{user.display_name ? user.display_name.split(" ")[0] : "Account"}</Link>
-                <button className="btn secondary" onClick={() => signOut()}>Sign out</button>
+                <button className="btn secondary wide-only" onClick={() => signOut()}>Sign out</button>
               </>
             ) : (
               <Link className="btn" to="/signin">Sign in</Link>
@@ -70,14 +70,14 @@ function HomePage() {
           Unknown is allowed. Conflict is preserved.
         </p>
         <div className="hero-search">
-          <SearchBox autoFocus />
+          <SearchBox />
         </div>
         <p className="meta-line">
           {count ?? "—"} demonstration parcels · claiming is free · verification is reviewed
         </p>
       </div>
       <div className="hero-map">
-        <ParcelMap onSelect={(id) => navigate(`/property/${id}`)} />
+        <ParcelMap embedded onSelect={(id) => navigate(`/property/${id}`)} />
       </div>
     </div>
   );
@@ -130,6 +130,7 @@ function PropertyPageView() {
         </div>
         <div className="map-panel">
           <ParcelMap
+            embedded
             selectedId={property.property_id}
             selectedGeometry={property.geojson}
             onSelect={(next) => { window.location.href = `/property/${next}`; }}
@@ -221,7 +222,8 @@ function ClaimPage() {
   return (
     <div className="page wizard">
       <div className="kicker">Ownership verification</div>
-      <h1 className="display">Claim {address}</h1>
+      <h1 className="display">Claim this property</h1>
+      <p className="meta-line">{address}</p>
       <div className="steps">
         {["Property", "Method", "Evidence", "Attest"].map((label, i) => (
           <span key={label} className={step === i + 1 ? "on" : ""}>{i + 1}. {label}</span>
@@ -270,7 +272,7 @@ function ClaimPage() {
             <span>Anything the reviewer should know</span>
             <textarea className="field" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </label>
-          <label style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <label className="attest">
             <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} />
             <span>I attest that I am a current owner or authorized representative of {address}, and that the documents I uploaded are genuine.</span>
           </label>
@@ -484,12 +486,31 @@ function SignInPage() {
       <p>We’ll send a six-digit code. No password.</p>
       <label className="stack">
         <span>Email</span>
-        <input className="field" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input
+          className="field"
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          autoCapitalize="none"
+          autoCorrect="off"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
       </label>
       {sent && (
         <label className="stack">
           <span>Code</span>
-          <input className="field" value={code} onChange={(e) => setCode(e.target.value)} placeholder="000000" />
+          <input
+            className="field otp"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]*"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            placeholder="000000"
+          />
         </label>
       )}
       {error && <p className="error">{error}</p>}
@@ -519,7 +540,7 @@ function SignInPage() {
 }
 
 function AccountPage() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const [properties, setProperties] = useState<{ property_id: string; formatted: string | null }[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   useEffect(() => {
@@ -532,6 +553,10 @@ function AccountPage() {
     <div className="page">
       <div className="kicker">Account</div>
       <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 460 }}>{user.display_name || user.primary_email}</h1>
+      <p className="meta-line">{user.primary_email}</p>
+      <div className="action-row narrow-only">
+        <button className="btn secondary" onClick={() => signOut()}>Sign out</button>
+      </div>
       <section className="section">
         <h2>Properties you maintain</h2>
         {properties.length === 0 && <p className="meta-line">None yet. Claim a property from its public page.</p>}

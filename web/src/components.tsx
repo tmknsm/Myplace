@@ -30,11 +30,13 @@ export function SearchBox({ compact = false, autoFocus = false }: { compact?: bo
         className="search-box"
         value={q}
         autoFocus={autoFocus}
+        type="search"
+        inputMode="search"
         enterKeyHint="search"
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
-        placeholder="Search address, SBL, or municipality"
+        placeholder="Address, SBL, or town"
         onChange={(e) => setQ(e.target.value)}
         onFocus={() => hits.length && setOpen(true)}
         onKeyDown={(e) => {
@@ -83,12 +85,14 @@ export function ParcelMap({
   onSelect,
   center = [-73.77, 42.29],
   zoom = 10.2,
+  embedded = false,
 }: {
   selectedId?: string;
   selectedGeometry?: { type: string; coordinates: number[][][] } | null;
   onSelect?: (id: string) => void;
   center?: [number, number];
   zoom?: number;
+  embedded?: boolean;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -105,8 +109,10 @@ export function ParcelMap({
       center,
       zoom,
       attributionControl: { compact: true },
+      cooperativeGestures: embedded,
+      touchPitch: false,
     });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }), "top-right");
     const loadParcels = async () => {
       if (!map.getSource("parcels") || map.getZoom() < 13) {
         const source = map.getSource("parcels") as maplibregl.GeoJSONSource | undefined;
