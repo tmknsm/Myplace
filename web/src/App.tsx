@@ -27,9 +27,11 @@ function Layout({ children }: { children: React.ReactNode }) {
             <i className="mark" aria-hidden="true" />
             <strong>Myplace</strong>
           </Link>
-          <div className="header-search wide-only">
-            <SearchBox compact />
-          </div>
+          {headerSearch && (
+            <div className="header-search wide-only">
+              <SearchBox compact />
+            </div>
+          )}
           <nav className="top-links">
             <Link to="/map">Map</Link>
             {user?.is_admin && <Link to="/admin" className="wide-only">Admin</Link>}
@@ -111,8 +113,12 @@ function PropertyPageView() {
       <div className="property-layout">
         <div className="property-head">
           <div className="kicker">{property.municipality}</div>
-          <h1>{property.formatted ?? "Untitled parcel"}</h1>
-          <p className="meta-line mono">{property.sbl}</p>
+          <h1>{(property.formatted ?? "Untitled parcel").split(",")[0]}</h1>
+          <p className="meta-line mono">
+            {(property.formatted ?? "").includes(",")
+              ? `${property.formatted!.slice(property.formatted!.indexOf(",") + 1).trim()} · ${property.sbl}`
+              : property.sbl}
+          </p>
           <div className="action-row">
             {viewer.maintainer ? (
               <Link className="btn" to={`/property/${property.property_id}/manage`}>Maintain owner record</Link>
@@ -229,7 +235,7 @@ function ClaimPage() {
   return (
     <div className="page wizard">
       <div className="kicker">Claim</div>
-      <h1 className="display">This is yours?</h1>
+      <h1 className="display">Claim this property</h1>
       <p className="meta-line">{address}</p>
       <div className="steps">
         {["Property", "Method", "Evidence", "Attest"].map((label, i) => (
