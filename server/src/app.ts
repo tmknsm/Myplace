@@ -75,7 +75,13 @@ app.post("/api/auth/request-code", async (c) => {
     SELECT 1 FROM auth_codes
     WHERE email = ${email} AND created_at > now() - interval '30 seconds'
   `;
-  if (recent.length) return c.json({ error: "Wait a moment before requesting another code." }, 429);
+  if (recent.length && config.isProduction) {
+    return c.json({ error: "Wait a moment before requesting another code." }, 429);
+  }
+  await sql`
+    UPDATE auth_codes SET consumed_at = now()
+    WHERE email = ${email} AND consumed_at IS NULL AND purpose = 'signin'
+  `;
 
   const code = randomCode();
   await sql`

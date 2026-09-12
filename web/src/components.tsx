@@ -53,6 +53,26 @@ export function SearchBox({ compact = false, autoFocus = false }: { compact?: bo
 
 const STYLE = "https://tiles.openfreemap.org/styles/positron";
 
+function applySelection(
+  map: maplibregl.Map,
+  geometry?: { type: string; coordinates: number[][][] } | null,
+) {
+  const source = map.getSource("selected") as maplibregl.GeoJSONSource | undefined;
+  if (!source || !geometry) return;
+  source.setData({
+    type: "FeatureCollection",
+    features: [{ type: "Feature", properties: {}, geometry }],
+  });
+  const ring = geometry.coordinates[0];
+  if (!ring?.[0]) return;
+  const lngs = ring.map((point) => point[0]!);
+  const lats = ring.map((point) => point[1]!);
+  map.fitBounds(
+    [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+    { padding: 48, maxZoom: 16, duration: 0 },
+  );
+}
+
 export function ParcelMap({
   selectedId,
   selectedGeometry,
@@ -68,6 +88,10 @@ export function ParcelMap({
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const onSelectRef = useRef(onSelect);
+  const geometryRef = useRef(selectedGeometry);
+  onSelectRef.current = onSelect;
+  geometryRef.current = selectedGeometry;
 
   useEffect(() => {
     if (!ref.current || mapRef.current) return;
@@ -79,42 +103,8 @@ export function ParcelMap({
       attributionControl: { compact: true },
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    map.on("load", () => {
-      map.addSource("parcels", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-      map.addLayer({
-        id: "parcel-fill",
-        type: "fill",
-        source: "parcels",
-        paint: { "fill-color": "#b4532a", "fill-opacity": 0.14 },
-      });
-      map.addLayer({
-        id: "parcel-line",
-        type: "line",
-        source: "parcels",
-        paint: { "line-color": "#8a3b1c", "line-width": 1.1 },
-      });
-      map.addSource("selected", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
-      map.addLayer({
-        id: "selected-fill",
-        type: "fill",
-        source: "selected",
-        paint: { "fill-color": "#b4532a", "fill-opacity": 0.28 },
-      });
-      map.addLayer({
-        id: "selected-line",
-        type: "line",
-        source: "selected",
-        paint: { "line-color": "#1b1814", "line-width": 2.2 },
-      });
-      map.on("click", "parcel-fill", (event) => {
-        const id = event.features?.[0]?.properties?.property_id;
-        if (id && onSelect) onSelect(String(id));
-      });
-      map.on("mouseenter", "parcel-fill", () => { map.getCanvas().style.cursor = "pointer"; });
-      map.on("mouseleave", "parcel-fill", () => { map.getCanvas().style.cursor = ""; });
-    });
     const loadParcels = async () => {
-      if (map.getZoom() < 13) {
+      if (!map.getSource("parcels") || map.getZoom() < 13) {
         const source = map.getSource("parcels") as maplibregl.GeoJSONSource | undefined;
         source?.setData({ type: "FeatureCollection", features: [] });
         return;
@@ -125,46 +115,60 @@ export function ParcelMap({
       const source = map.getSource("parcels") as maplibregl.GeoJSONSource | undefined;
       source?.setData(data as unknown as ParcelCollection);
     };
-    map.on("moveend", loadParcels);
-    map.on("load", loadParcels);
-    mapRef.current = map;
-    map.once("load", () => {
-      if (selectedGeometry) {
-        const source = map.getSource("selected") as maplibregl.GeoJSONSource | undefined;
-        source?.setData({
-          type: "FeatureCollection",
-          features: [{ type: "Feature", properties: {}, geometry: selectedGeometry }],
-        });
-      }
+    map.on("load", () => {
+      map.resize();
+      map.addSource("parcels", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer({
+        id: "parcel-fill",
+        type: "fill",
+        source: "parcels",
+        paint: { "fill-color": "#b4532a", "fill-opacity": 0.18 },
+      });
+      map.addLayer({
+        id: "parcel-line",
+        type: "line",
+        source: "parcels",
+        paint: { "line-color": "#8a3b1c", "line-width": 1.2 },
+      });
+      map.addSource("selected", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addLayer({
+        id: "selected-fill",
+        type: "fill",
+        source: "selected",
+        paint: { "fill-color": "#b4532a", "fill-opacity": 0.32 },
+      });
+      map.addLayer({
+        id: "selected-line",
+        type: "line",
+        source: "selected",
+        paint: { "line-color": "#1b1814", "line-width": 2.2 },
+      });
+      map.on("click", "parcel-fill", (event) => {
+        const id = event.features?.[0]?.properties?.property_id;
+        if (id) onSelectRef.current?.(String(id));
+      });
+      map.on("mouseenter", "parcel-fill", () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "parcel-fill", () => { map.getCanvas().style.cursor = ""; });
+      applySelection(map, geometryRef.current);
+      void loadParcels();
     });
+    map.on("moveend", () => { void loadParcels(); });
+    mapRef.current = map;
     return () => {
       map.remove();
       mapRef.current = null;
     };
+    // Initialize once for this mount. Camera updates come from applySelection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map?.getSource("selected")) return;
-    const source = map.getSource("selected") as maplibregl.GeoJSONSource;
-    if (selectedGeometry) {
-      source.setData({
-        type: "FeatureCollection",
-        features: [{ type: "Feature", properties: {}, geometry: selectedGeometry }],
-      });
-      const [ring] = selectedGeometry.coordinates;
-      if (ring?.[0]) {
-        const lngs = ring.map((p) => p[0]!);
-        const lats = ring.map((p) => p[1]!);
-        map.fitBounds(
-          [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-          { padding: 60, maxZoom: 17, duration: 600 },
-        );
-      }
-    }
+    if (!map?.isStyleLoaded()) return;
+    applySelection(map, selectedGeometry);
   }, [selectedId, selectedGeometry]);
 
-  return <div ref={ref} className="maplibre-map" />;
+  return <div ref={ref} className="map-shell" />;
 }
 
 export function FactRow({ fact }: { fact: Fact }) {

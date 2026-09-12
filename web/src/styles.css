@@ -325,8 +325,16 @@ th { color: var(--muted); font-weight: 500; }
   border: 1px solid var(--rule);
 }
 
-.map-panel { min-height: 420px; border: 1px solid var(--rule); position: relative; }
-.maplibre-map, .maplibregl-map { position: absolute; inset: 0; }
+.map-panel {
+  height: 560px;
+  border: 1px solid var(--rule);
+  position: sticky;
+  top: 88px;
+  align-self: start;
+  overflow: hidden;
+}
+.map-shell { position: absolute; inset: 0; }
+.hero-map .map-shell, .hero-map .maplibregl-map { position: absolute; inset: 0; }
 .maplibregl-ctrl-attrib { font-size: 10px; }
 
 .account-chip { font-size: 13px; color: var(--muted); }

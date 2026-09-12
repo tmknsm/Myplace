@@ -222,7 +222,7 @@ function ClaimPage() {
       {step === 1 && (
         <>
           <p>You are asking to become the owner maintainer of this record. Official government facts stay public. You will control the owner-maintained layer and documents.</p>
-          <button className="btn" onClick={() => setStep(2)}>This is my property</button>
+          <button type="button" className="btn" data-testid="claim-confirm" onClick={() => setStep(2)}>This is my property</button>
         </>
       )}
       {step === 2 && (
@@ -268,7 +268,7 @@ function ClaimPage() {
           {error && <p className="error">{error}</p>}
           <div style={{ marginTop: 18, display: "flex", gap: 10 }}>
             <button className="btn secondary" onClick={() => setStep(3)}>Back</button>
-            <button className="btn" disabled={!attested || busy} onClick={submit}>
+            <button type="button" className="btn" data-testid="claim-submit" disabled={!attested || busy} onClick={submit}>
               {busy ? "Submitting…" : "Submit for review"}
             </button>
           </div>
@@ -562,7 +562,7 @@ function AdminPage() {
               <td>{claim.formatted}</td>
               <td>{claim.primary_email}</td>
               <td>{claim.method}</td>
-              <td><a href={`/admin/claims/${claim.claim_id}`}>Review</a></td>
+              <td><Link to={`/admin/claims/${claim.claim_id}`}>Review</Link></td>
             </tr>
           ))}
         </tbody>
@@ -574,21 +574,22 @@ function AdminPage() {
 
 function AdminClaimPage() {
   const { claimId } = useParams();
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
   const navigate = useNavigate();
   const [claim, setClaim] = useState<Claim | null>(null);
   const [docs, setDocs] = useState<Doc[]>([]);
   const [note, setNote] = useState("");
-  if (!user?.is_admin) return <Navigate to="/signin?next=/admin" replace />;
 
   useEffect(() => {
-    if (!claimId) return;
+    if (!claimId || !user?.is_admin) return;
     api.claim(claimId).then((d) => {
       setClaim(d.claim);
       setDocs(d.documents);
     });
-  }, [claimId]);
+  }, [claimId, user]);
 
+  if (!ready) return <div className="page">Loading…</div>;
+  if (!user?.is_admin) return <Navigate to="/signin?next=/admin" replace />;
   if (!claim) return <div className="page">Loading…</div>;
   return (
     <div className="page wizard">
@@ -608,7 +609,7 @@ function AdminClaimPage() {
         <textarea className="field" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
       <div style={{ display: "flex", gap: 10 }}>
-        <button className="btn" onClick={async () => {
+        <button type="button" className="btn" data-testid="verify-owner" onClick={async () => {
           await api.reviewClaim(claim.claim_id, "verified", note);
           navigate("/admin");
         }}>Verify owner</button>
