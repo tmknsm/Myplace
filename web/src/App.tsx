@@ -24,8 +24,8 @@ function Layout({ children }: { children: React.ReactNode }) {
       <header className="topbar">
         <div className="topbar-main">
           <Link to="/" className="brand">
+            <i className="mark" aria-hidden="true" />
             <strong>Myplace</strong>
-            <span>New York record</span>
           </Link>
           <div className="header-search wide-only">
             <SearchBox compact />
@@ -36,10 +36,10 @@ function Layout({ children }: { children: React.ReactNode }) {
             {user ? (
               <>
                 <Link to="/account">{user.display_name ? user.display_name.split(" ")[0] : "Account"}</Link>
-                <button className="btn secondary wide-only" onClick={() => signOut()}>Sign out</button>
+                <button className="text-btn wide-only" onClick={() => signOut()}>Sign out</button>
               </>
             ) : (
-              <Link className="btn" to="/signin">Sign in</Link>
+              <Link to="/signin">Sign in</Link>
             )}
           </nav>
         </div>
@@ -63,17 +63,16 @@ function HomePage() {
   return (
     <div className="hero">
       <div className="hero-copy">
-        <div className="kicker">Columbia County · demonstration V1</div>
-        <h1>Every property, organized in one place.</h1>
+        <div className="kicker">New York</div>
+        <h1>Columbia County</h1>
         <p className="lede">
-          Know what is official, what changed, and add what only you know.
-          Unknown is allowed. Conflict is preserved.
+          What is official, what changed, and what only you know.
         </p>
         <div className="hero-search">
           <SearchBox />
         </div>
         <p className="meta-line">
-          {count ?? "—"} demonstration parcels · claiming is free · verification is reviewed
+          {count ?? "—"} parcels
         </p>
       </div>
       <div className="hero-map">
@@ -111,9 +110,9 @@ function PropertyPageView() {
     <div className="page wide">
       <div className="property-layout">
         <div className="property-head">
-          <div className="kicker">{property.municipality}, {property.county} County</div>
+          <div className="kicker">{property.municipality}</div>
           <h1>{property.formatted ?? "Untitled parcel"}</h1>
-          <p className="meta-line mono">{property.sbl} · SWIS {property.swis}</p>
+          <p className="meta-line mono">{property.sbl}</p>
           <div className="action-row">
             {viewer.maintainer ? (
               <Link className="btn" to={`/property/${property.property_id}/manage`}>Maintain owner record</Link>
@@ -140,35 +139,43 @@ function PropertyPageView() {
         <div className="dossier">
           <section className="section">
             <h2>Overview</h2>
-            {facts("overview").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
+            <div className="group">
+              {facts("overview").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
+            </div>
           </section>
           <section className="section">
             <h2>Location & services</h2>
-            {facts("location").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
+            <div className="group">
+              {facts("location").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
+            </div>
           </section>
           <section className="section">
             <h2>Rules & environment</h2>
-            {facts("rules").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
+            <div className="group">
+              {facts("rules").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
+            </div>
           </section>
           <section className="section">
             <h2>Records</h2>
-            <div className="coverage">
+            <div className="group coverage">
               {Object.entries(property.coverage).map(([key, value]) => (
                 <div key={key}><span>{key.replace("_", " ")}</span> {value}</div>
               ))}
             </div>
           </section>
           <section className="section">
-            <h2>Record history</h2>
-            <p className="meta-line">{property.historyNote} This is known attributable events, not a complete house history.</p>
-            <ol className="timeline">
-              {property.events.map((event) => (
-                <li key={event.event_id}>
-                  <strong>{eventLabel(event.event_type)}</strong>
-                  <small>{new Date(event.effective_at ?? event.created_at).toLocaleDateString()}</small>
-                </li>
-              ))}
-            </ol>
+            <h2>History</h2>
+            <p className="meta-line" style={{ margin: "0 4px 10px" }}>{property.historyNote}</p>
+            <div className="group">
+              <ol className="timeline">
+                {property.events.map((event) => (
+                  <li key={event.event_id}>
+                    <strong>{eventLabel(event.event_type)}</strong>
+                    <small>{new Date(event.effective_at ?? event.created_at).toLocaleDateString()}</small>
+                  </li>
+                ))}
+              </ol>
+            </div>
           </section>
         </div>
       </div>
@@ -221,8 +228,8 @@ function ClaimPage() {
 
   return (
     <div className="page wizard">
-      <div className="kicker">Ownership verification</div>
-      <h1 className="display">Claim this property</h1>
+      <div className="kicker">Claim</div>
+      <h1 className="display">This is yours?</h1>
       <p className="meta-line">{address}</p>
       <div className="steps">
         {["Property", "Method", "Evidence", "Attest"].map((label, i) => (
@@ -436,14 +443,16 @@ function ManagePage() {
             </>
           )}
           {tab === "history" && (
-            <ol className="timeline">
-              {data.property.events.map((event) => (
-                <li key={event.event_id}>
-                  <strong>{eventLabel(event.event_type)}</strong>
-                  <small>{new Date(event.effective_at ?? event.created_at).toLocaleString()}</small>
-                </li>
-              ))}
-            </ol>
+            <div className="group">
+              <ol className="timeline">
+                {data.property.events.map((event) => (
+                  <li key={event.event_id}>
+                    <strong>{eventLabel(event.event_type)}</strong>
+                    <small>{new Date(event.effective_at ?? event.created_at).toLocaleString()}</small>
+                  </li>
+                ))}
+              </ol>
+            </div>
           )}
           {tab === "handoff" && (
             <>
@@ -481,9 +490,9 @@ function SignInPage() {
 
   return (
     <div className="page wizard">
-      <div className="kicker">Sign in</div>
-      <h1 className="display">Enter your email</h1>
-      <p>We’ll send a six-digit code. No password.</p>
+      <div className="kicker">Welcome</div>
+      <h1 className="display">Sign in</h1>
+      <p className="meta-line">A six-digit code. No password.</p>
       <label className="stack">
         <span>Email</span>
         <input
@@ -552,26 +561,30 @@ function AccountPage() {
   return (
     <div className="page">
       <div className="kicker">Account</div>
-      <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 460 }}>{user.display_name || user.primary_email}</h1>
+      <h1 className="display">{user.display_name || user.primary_email}</h1>
       <p className="meta-line">{user.primary_email}</p>
       <div className="action-row narrow-only">
         <button className="btn secondary" onClick={() => signOut()}>Sign out</button>
       </div>
       <section className="section">
-        <h2>Properties you maintain</h2>
-        {properties.length === 0 && <p className="meta-line">None yet. Claim a property from its public page.</p>}
-        {properties.map((p) => (
-          <div key={p.property_id}><a href={`/property/${p.property_id}/manage`}>{p.formatted}</a></div>
-        ))}
+        <h2>Properties</h2>
+        <div className="group">
+          {properties.length === 0 && <div className="row"><span className="meta-line">None yet</span></div>}
+          {properties.map((p) => (
+            <a className="row" key={p.property_id} href={`/property/${p.property_id}/manage`}>{p.formatted}</a>
+          ))}
+        </div>
       </section>
       <section className="section">
         <h2>Claims</h2>
-        {claims.map((claim) => (
-          <div key={claim.claim_id}>
-            <a href={`/property/${claim.property_id}/claim/${claim.claim_id}`}>{claim.formatted}</a>
-            <span className={`badge ${claim.status}`}>{claim.status}</span>
-          </div>
-        ))}
+        <div className="group">
+          {claims.map((claim) => (
+            <a className="row" key={claim.claim_id} href={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
+              <span>{claim.formatted}</span>
+              <span className={`badge ${claim.status}`}>{claim.status}</span>
+            </a>
+          ))}
+        </div>
       </section>
     </div>
   );
@@ -588,7 +601,7 @@ function AdminPage() {
   return (
     <div className="page">
       <div className="kicker">Records desk</div>
-      <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 460 }}>Ownership claims</h1>
+      <h1 className="display">Ownership claims</h1>
       <p className="meta-line">V1 verification is a human review of submitted evidence. Automated identity proofing is not enabled.</p>
       <div className="table-scroll">
       <table>
@@ -632,7 +645,7 @@ function AdminClaimPage() {
   return (
     <div className="page wizard">
       <div className="kicker">Review claim</div>
-      <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 460 }}>{claim.formatted}</h1>
+      <h1 className="display">{claim.formatted}</h1>
       <p>Method: {claim.method} · Status: {claim.status}</p>
       <section className="section">
         <h2>Evidence</h2>

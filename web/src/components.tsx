@@ -36,7 +36,7 @@ export function SearchBox({ compact = false, autoFocus = false }: { compact?: bo
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
-        placeholder="Address, SBL, or town"
+        placeholder="Find a property"
         onChange={(e) => setQ(e.target.value)}
         onFocus={() => hits.length && setOpen(true)}
         onKeyDown={(e) => {
@@ -132,26 +132,26 @@ export function ParcelMap({
         id: "parcel-fill",
         type: "fill",
         source: "parcels",
-        paint: { "fill-color": "#b4532a", "fill-opacity": 0.18 },
+        paint: { "fill-color": "#e23b32", "fill-opacity": 0.14 },
       });
       map.addLayer({
         id: "parcel-line",
         type: "line",
         source: "parcels",
-        paint: { "line-color": "#8a3b1c", "line-width": 1.2 },
+        paint: { "line-color": "#e23b32", "line-width": 1 },
       });
       map.addSource("selected", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({
         id: "selected-fill",
         type: "fill",
         source: "selected",
-        paint: { "fill-color": "#b4532a", "fill-opacity": 0.32 },
+        paint: { "fill-color": "#e23b32", "fill-opacity": 0.28 },
       });
       map.addLayer({
         id: "selected-line",
         type: "line",
         source: "selected",
-        paint: { "line-color": "#1b1814", "line-width": 2.2 },
+        paint: { "line-color": "#1d1d1f", "line-width": 1.8 },
       });
       map.on("click", "parcel-fill", (event) => {
         const id = event.features?.[0]?.properties?.property_id;
