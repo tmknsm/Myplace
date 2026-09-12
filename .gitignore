@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+data/documents
+data/uploads
+*.log
+.DS_Store
+web/dist
+.vite
+coverage

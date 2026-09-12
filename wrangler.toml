@@ -1,0 +1,14 @@
+name = "myplace"
+main = "server/src/worker.ts"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+APP_ORIGIN = "https://example.com"
+DEV_MAILBOX = "false"
+
+# Bind Hyperdrive, R2, and secrets in the Cloudflare dashboard:
+# - HYPERDRIVE
+# - DOCUMENTS_BUCKET
+# - SESSION_SECRET
+# - DATABASE_URL (local / preview only)
