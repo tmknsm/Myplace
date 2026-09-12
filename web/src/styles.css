@@ -662,7 +662,7 @@ tr:last-child td { border-bottom: 0; }
   .coverage { grid-template-columns: 1fr; }
   .coverage div { border-right: 0; }
   .method-grid, .card-grid { grid-template-columns: 1fr; }
-  .action-row .btn { flex: 1 1 140px; }
+  .wizard .action-row .btn { flex: 1 1 140px; }
   .manage-grid { grid-template-columns: 1fr; gap: 16px; }
   .side-nav {
     flex-direction: row;
@@ -690,8 +690,8 @@ tr:last-child td { border-bottom: 0; }
   .mail-frame { min-height: 65dvh; }
   .display { font-size: 28px; }
   .section { margin-top: 24px; }
-  .manage-grid .btn { width: 100%; }
-  .wizard > .btn { width: 100%; margin-top: 8px; }
+  .manage-grid .btn,
+  .wizard > .btn { margin-top: 8px; }
 }
 
 @media (max-width: 420px) {
