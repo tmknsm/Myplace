@@ -236,7 +236,7 @@ img, svg { max-width: 100%; }
   flex-wrap: wrap;
   margin: 16px 0 0;
 }
-.property-head .notice { margin-top: 16px; }
+.property-notice { margin: 0; }
 
 .property-layout {
   display: grid;
