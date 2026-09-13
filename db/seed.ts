@@ -1,7 +1,10 @@
-import postgres from "postgres";
-import { createHash } from "node:crypto";
-import { FIELD_VOCAB } from "../server/src/vocab.ts";
 import greeneFixture from "./fixtures/greene-catskill.json" with { type: "json" };
+import { connect, seedAdmin, seedVocabulary, upsertSources, wipePropertyTables } from "./lib.ts";
+
+/**
+ * Offline sample seed: 92 sketched Columbia parcels and a 68-parcel Village of Catskill
+ * extract of official Greene lot lines. `npm run db:import` loads the real counties.
+ */
 
 type GreeneFeature = {
   n: number;
@@ -32,16 +35,10 @@ type GreeneFeature = {
   geometry: { type: string; coordinates: unknown };
 };
 
-const url = process.env.DATABASE_URL ?? "postgres://ubuntu:myplace@localhost:5432/myplace";
-const sql = postgres(url, { max: 1 });
-const secret = process.env.SESSION_SECRET ?? "dev-insecure-change-me";
+const sql = connect();
 
 function ulidish(prefix: string, n: number): string {
   return `${prefix}_${String(n).padStart(26, "0")}`;
-}
-
-function hashCode(email: string, code: string): string {
-  return createHash("sha256").update(`${secret}:${email}:${code}`).digest("hex");
 }
 
 function polygon(lng: number, lat: number, w = 0.00028, h = 0.0002, skew = 0): number[][] {
@@ -276,35 +273,10 @@ async function assertField(
 }
 
 async function main() {
-  await sql`DELETE FROM emails`;
-  await sql`DELETE FROM handoff_invitations`;
-  await sql`DELETE FROM contribution_assertions`;
-  await sql`DELETE FROM contributions`;
-  await sql`DELETE FROM documents`;
-  await sql`DELETE FROM property_maintainers`;
-  await sql`DELETE FROM ownership_claims`;
-  await sql`DELETE FROM property_events`;
-  await sql`DELETE FROM assertions`;
-  await sql`DELETE FROM property_addresses`;
-  await sql`DELETE FROM property_geometries`;
-  await sql`DELETE FROM parcel_identities`;
-  await sql`DELETE FROM source_snapshots`;
-  await sql`DELETE FROM properties`;
-  await sql`DELETE FROM field_vocabulary`;
-  await sql`DELETE FROM sources`;
-  await sql`DELETE FROM auth_codes`;
-  await sql`DELETE FROM sessions`;
-  await sql`DELETE FROM user_emails`;
-  await sql`DELETE FROM users`;
+  await wipePropertyTables(sql);
+  await seedVocabulary(sql);
 
-  for (const [index, field] of FIELD_VOCAB.entries()) {
-    await sql`
-      INSERT INTO field_vocabulary (field_key, label, group_key, value_type, layer, sort_order)
-      VALUES (${field.key}, ${field.label}, ${field.group}, ${field.valueType}, ${field.layer}, ${index})
-    `;
-  }
-
-  const sources = [
+  await upsertSources(sql, [
     {
       id: "src_county_roll",
       name: "Columbia County assessment roll (demonstration)",
@@ -368,35 +340,13 @@ async function main() {
       license: "Official tax-map polygons. Greene County authorized public redistribution.",
       coverage: "Village of Catskill sample from the 2025 NYS Tax Parcels Public dataset",
     },
-  ];
-
-  for (const source of sources) {
-    await sql`
-      INSERT INTO sources (
-        source_id, name, authority, source_type, jurisdiction, license_notes, coverage,
-        last_checked_at, last_success_at, health_status, schema_version
-      ) VALUES (
-        ${source.id}, ${source.name}, ${source.authority}, ${source.type}, ${source.jurisdiction},
-        ${source.license}, ${source.coverage},
-        now(), now(), 'healthy', 'v1'
-      )
-    `;
-  }
+  ]);
 
   await sql`
     INSERT INTO source_snapshots (snapshot_id, source_id, notes)
     VALUES ('snp_seed_2026', 'src_county_gis', 'Local V1 seed generated 2026-09-12')
   `;
-
-  const adminId = "usr_admin_local_000000000000";
-  await sql`
-    INSERT INTO users (user_id, primary_email, email_verified_at, display_name, is_admin)
-    VALUES (${adminId}, 'admin@myplace.local', now(), 'Records desk', true)
-  `;
-  await sql`
-    INSERT INTO user_emails (user_email_id, user_id, email, verified_at)
-    VALUES ('uem_admin_local_000000000000', ${adminId}, 'admin@myplace.local', now())
-  `;
+  await seedAdmin(sql);
 
   const parcels = [...featured, ...generated()];
   for (const parcel of parcels) {
@@ -499,12 +449,6 @@ async function main() {
       )
     `;
   }
-
-  // Stable local admin sign-in code for tests and first-run convenience.
-  await sql`
-    INSERT INTO auth_codes (code_id, email, code_hash, purpose, expires_at)
-    VALUES ('code_admin_seed', 'admin@myplace.local', ${hashCode("admin@myplace.local", "000000")}, 'signin', now() + interval '365 days')
-  `;
 
   await seedGreene();
 
