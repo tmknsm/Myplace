@@ -13,7 +13,7 @@ Owner verification is **manual review** in this V1. The claim UI, emails, and ad
 - Mapbox-ready map (OpenFreeMap locally; optional Mapbox token later)
 - Property profile: cover photo hero, key facts, and every official fact with provenance, unknown, inferred, and conflicting states
 - Email sign-in codes
-- Claim this property wizard + claim status
+- Claim this property wizard + claim status for unclaimed parcels; once a property has a verified owner, transfer happens through their handoff invitation
 - Admin claim review
 - Owner layer on the same profile: about, photos, improvements, and home systems are public by default and can be made private field by field; the document vault (`private` / `property_transferable`) and handoff invitation stay owner-only
 - Immutable property event history

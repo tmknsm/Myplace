@@ -183,7 +183,7 @@ export function DebugSheet({ onClose }: { onClose: () => void }) {
 
         <section className="sheet-section">
           <h3>Fake claim</h3>
-          <p>Open any property and press <strong>Claim this property</strong>. The PIN is</p>
+          <p>Open an unclaimed property and press <strong>Claim this property</strong>. The PIN is</p>
           <div className="pin-display">{state ? state.pin.split("").join(" ") : "· · · ·"}</div>
           <p className="meta-line">
             Signed in as {user ? <strong>{user.primary_email}</strong> : <>nobody — a correct PIN signs you in as <strong>{state?.debugOwnerEmail ?? "the debug owner"}</strong></>}.

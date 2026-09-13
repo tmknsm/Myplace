@@ -329,7 +329,7 @@ test("cover photo is served publicly while private photos stay behind sign-in", 
   expect(covers.map((d: { document_id: string }) => d.document_id)).toEqual([privateId]);
 });
 
-test("former owner loses maintainer access after a new verified claim", async () => {
+test("former owner loses maintainer access after a handoff claim is verified", async () => {
   await seedProperty();
   const firstCookie = await signIn("seller@example.com");
   const firstClaim = await app.request("http://localhost/api/properties/prop_test/claims", {
@@ -345,7 +345,20 @@ test("former owner loses maintainer access after a new verified claim", async ()
     body: JSON.stringify({ decision: "verified" }),
   });
 
+  const unsolicited = await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: await signIn("stranger@example.com") },
+    body: JSON.stringify({ method: "tax_bill", attestationAccepted: true }),
+  });
+  expect(unsolicited.status).toBe(409);
+
   const buyerCookie = await signIn("buyer@example.com");
+  const handoff = await app.request("http://localhost/api/properties/prop_test/handoff", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: firstCookie },
+    body: JSON.stringify({ email: "buyer@example.com" }),
+  });
+  expect(handoff.status).toBe(201);
   const secondClaim = await app.request("http://localhost/api/properties/prop_test/claims", {
     method: "POST",
     headers: { "content-type": "application/json", cookie: buyerCookie },

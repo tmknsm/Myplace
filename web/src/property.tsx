@@ -303,13 +303,17 @@ export function PropertyPageView() {
                   Owner-maintained record
                 </span>
               )}
-              <div className="action-row compact">
-                {viewer.openClaim ? (
-                  <Link className="btn secondary" to={`/property/${id}/claim/${viewer.openClaim.claim_id}`}>Claim under review</Link>
-                ) : (
-                  <button type="button" className={`btn ${maintained ? "secondary" : ""}`} data-testid="claim-button" onClick={startClaim}>Claim this property</button>
-                )}
-              </div>
+              {(!maintained || viewer.openClaim || viewer.invitation?.role === "owner") && (
+                <div className="action-row compact">
+                  {viewer.openClaim ? (
+                    <Link className="btn secondary" to={`/property/${id}/claim/${viewer.openClaim.claim_id}`}>Claim under review</Link>
+                  ) : (
+                    <button type="button" className="btn" data-testid="claim-button" onClick={startClaim}>
+                      {viewer.invitation?.role === "owner" ? "Continue handoff" : "Claim this property"}
+                    </button>
+                  )}
+                </div>
+              )}
               {!maintained && !viewer.openClaim && (
                 <p className="meta-line profile-nudge">No verified owner yet. Claiming unlocks photos, systems, and the story of this place.</p>
               )}
@@ -376,7 +380,7 @@ export function PropertyPageView() {
         <div className="profile-main">
           {toast && <div className="toast" role="status">{toast}</div>}
 
-          {viewer.invitation && !owner && (
+          {viewer.invitation && !owner && viewer.invitation.role === "co_owner" && (
             <div className="banner">
               <div>
                 <strong>{viewer.invitation.invited_by_name ?? "A maintainer"}</strong> invited you to co-maintain this record.
@@ -386,6 +390,15 @@ export function PropertyPageView() {
                 showToast("You are now a co-owner maintainer of this record.");
                 await load();
               }}>Accept invitation</button>
+            </div>
+          )}
+
+          {viewer.invitation && !owner && viewer.invitation.role === "owner" && !viewer.openClaim && (
+            <div className="banner">
+              <div>
+                <strong>{viewer.invitation.invited_by_name ?? "The current owner"}</strong> invited you to take over this record.
+              </div>
+              <button type="button" className="btn" onClick={startClaim}>Continue handoff</button>
             </div>
           )}
 

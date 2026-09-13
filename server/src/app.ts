@@ -369,6 +369,18 @@ app.post("/api/properties/:id/claims", async (c) => {
   `;
   if (existing[0]) return c.json({ error: "You already have an open claim for this property.", claimId: existing[0].claim_id }, 409);
 
+  const alreadyOwned = await sql`
+    SELECT 1 FROM property_maintainers
+    WHERE property_id = ${propertyId} AND revoked_at IS NULL
+    LIMIT 1
+  `;
+  if (alreadyOwned[0]) {
+    const invite = await pendingInvitationFor(propertyId, user.primary_email);
+    if (invite?.role !== "owner") {
+      return c.json({ error: "This property already has a verified owner. A transfer starts when they invite you from the handoff section." }, 409);
+    }
+  }
+
   const claimId = id("clm");
   await sql`
     INSERT INTO ownership_claims (
