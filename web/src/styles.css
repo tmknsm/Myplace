@@ -87,6 +87,13 @@ img, svg { max-width: 100%; }
   z-index: 20;
   border-bottom: 0;
   padding-top: env(safe-area-inset-top);
+  /* The header keeps its full layout height after the search row tucks away;
+     without this, that leftover box sits on top of the docked chips and eats taps. */
+  pointer-events: none;
+}
+.topbar-main,
+.header-search {
+  pointer-events: auto;
 }
 .topbar-main {
   display: flex;
@@ -1458,7 +1465,7 @@ table small { display: block; }
   .profile-grid .profile-nav-wrap {
     position: sticky;
     top: var(--topbar-height, calc(52px + env(safe-area-inset-top)));
-    z-index: 15;
+    z-index: 21;
     margin: 0 calc(-1 * var(--pad));
     min-width: 0;
   }
