@@ -1,0 +1,318 @@
+import { useEffect, useMemo, useState } from "react";
+import { api, type Doc, type PropertyPage, type Viewer } from "./api";
+import { dateLabel, DOCUMENT_TYPE_LABEL, fileSize, fileUrl, isImage, type Toast } from "./property-shared";
+
+/**
+ * Sections only a maintainer sees: the document vault, open disputes,
+ * co-maintainers, notification preferences, and handoff. They sit at the
+ * bottom of the profile under the "Owner tools" heading.
+ */
+
+const PREFERENCE_LABEL: Record<string, { label: string; help: string }> = {
+  contribution_requests: { label: "Contribution requests", help: "Someone proposes a change to this record." },
+  ownership_security: { label: "Ownership & security", help: "Claims, handoffs, and maintainer changes. Always sent." },
+  official_changes: { label: "Official record changes", help: "Assessment, sale, permit, or parcel updates from a source." },
+  property_digest: { label: "Property digest", help: "A summary of what changed around this property." },
+};
+
+const OPTION_LABEL: Record<string, string> = {
+  immediate: "Immediately",
+  daily: "Daily",
+  weekly: "Weekly",
+  monthly: "Monthly",
+  off: "Off",
+};
+
+// ---------------------------------------------------------------------------
+// Documents
+// ---------------------------------------------------------------------------
+
+export function DocumentsSection({
+  propertyId,
+  documents,
+  documentTypes,
+  onChange,
+  toast,
+}: {
+  propertyId: string;
+  documents: Doc[];
+  documentTypes: string[];
+  onChange: () => Promise<void> | void;
+  toast: Toast;
+}) {
+  const [type, setType] = useState("survey");
+  const [busy, setBusy] = useState(false);
+  const files = documents.filter((doc) => !isImage(doc));
+  const transferable = files.filter((doc) => doc.transferability === "property_transferable");
+  const personal = files.filter((doc) => doc.transferability !== "property_transferable");
+
+  const upload = async (list: FileList | null) => {
+    const items = Array.from(list ?? []);
+    if (!items.length) return;
+    setBusy(true);
+    try {
+      for (const file of items) await api.upload(propertyId, file, { documentType: type });
+      toast(`${items.length} document${items.length === 1 ? "" : "s"} added to the vault.`);
+      await onChange();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const table = (rows: Doc[]) => (
+    <div className="table-scroll">
+      <table>
+        <thead><tr><th>Document</th><th>Type</th><th>Visibility</th><th>On handoff</th><th></th></tr></thead>
+        <tbody>
+          {rows.map((doc) => (
+            <tr key={doc.document_id}>
+              <td>
+                <a href={fileUrl(doc)} target="_blank" rel="noreferrer">{doc.original_filename}</a>
+                <small className="meta-line">{fileSize(doc.byte_size)}{doc.created_at ? ` · ${dateLabel(doc.created_at)}` : ""}</small>
+              </td>
+              <td>
+                <select className="mini-select" value={doc.document_type} onChange={async (event) => { await api.patchDocument(doc.document_id, { documentType: event.target.value }); await onChange(); }}>
+                  {documentTypes.filter((key) => key !== "photo").map((key) => <option key={key} value={key}>{DOCUMENT_TYPE_LABEL[key] ?? key}</option>)}
+                </select>
+              </td>
+              <td>
+                <select className="mini-select" value={doc.visibility ?? "private"} onChange={async (event) => { await api.patchDocument(doc.document_id, { visibility: event.target.value }); await onChange(); }}>
+                  <option value="private">Private</option>
+                  <option value="property_transferable">Visible on transfer</option>
+                  <option value="public">Public</option>
+                </select>
+              </td>
+              <td>
+                <select className="mini-select" value={doc.transferability ?? "personal"} onChange={async (event) => { await api.patchDocument(doc.document_id, { transferability: event.target.value }); await onChange(); }}>
+                  <option value="property_transferable">Goes with the property</option>
+                  <option value="personal">Stays with me</option>
+                </select>
+              </td>
+              <td>
+                <button type="button" className="text-link danger" onClick={async () => { await api.deleteDocument(doc.document_id); await onChange(); }}>Remove</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <section className="section" id="documents">
+      <div className="section-head">
+        <h2>Documents</h2>
+      </div>
+      <p className="meta-line section-note">
+        Surveys, permits, plans, and manuals go with the property when it changes hands. Mortgage, insurance, and personal notes stay with you. Nothing here is public unless you say so.
+      </p>
+      <div className="group form-card upload-card">
+        <label className="stack">
+          <span>Document type</span>
+          <select className="field" value={type} onChange={(event) => setType(event.target.value)} data-testid="document-type">
+            {documentTypes.filter((key) => key !== "photo").map((key) => <option key={key} value={key}>{DOCUMENT_TYPE_LABEL[key] ?? key}</option>)}
+          </select>
+        </label>
+        <label className={`btn file-btn ${busy ? "is-busy" : ""}`}>
+          {busy ? "Uploading…" : "Choose files"}
+          <input type="file" multiple disabled={busy} data-testid="document-input" onChange={(event) => { void upload(event.target.files); event.target.value = ""; }} />
+        </label>
+      </div>
+      {files.length === 0 && <div className="group empty-card">The vault is empty. A survey or the last permit is a good first upload.</div>}
+      {transferable.length > 0 && (
+        <>
+          <h3 className="subhead">Goes with the property</h3>
+          {table(transferable)}
+        </>
+      )}
+      {personal.length > 0 && (
+        <>
+          <h3 className="subhead">Stays with you</h3>
+          {table(personal)}
+        </>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Disputes, maintainers, notifications, handoff
+// ---------------------------------------------------------------------------
+
+export function DisputesSection({ disputes, onChange, toast }: { disputes: PropertyPage["disputes"]; onChange: () => Promise<void> | void; toast: Toast }) {
+  return (
+    <section className="section" id="disputes">
+      <h2>Open disputes</h2>
+      <p className="meta-line section-note">Official facts you have flagged. A reviewer resolves each one; the official value stays visible meanwhile.</p>
+      <div className="group">
+        {disputes.map((dispute) => (
+          <div key={dispute.contributionId} className="row">
+            <div>
+              <strong>{dispute.label}</strong>
+              <div className="meta-line">
+                {dispute.proposedValue !== null && dispute.proposedValue !== "" ? <>Proposed: {String(dispute.proposedValue)}. </> : null}
+                {dispute.note ? `“${dispute.note}” ` : ""}
+                {dateLabel(dispute.createdAt)}
+              </div>
+            </div>
+            <button type="button" className="text-link" onClick={async () => {
+              await api.withdrawContribution(dispute.contributionId);
+              toast("Dispute withdrawn.");
+              await onChange();
+            }}>Withdraw</button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function MaintainersSection({
+  propertyId,
+  maintainers,
+  invitations,
+  viewer,
+  currentUserId,
+  onChange,
+  toast,
+}: {
+  propertyId: string;
+  maintainers: PropertyPage["maintainers"];
+  invitations: PropertyPage["invitations"];
+  viewer: Viewer;
+  currentUserId: string | null;
+  onChange: () => Promise<void> | void;
+  toast: Toast;
+}) {
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pending = invitations.filter((invitation) => invitation.role === "co_owner");
+  return (
+    <section className="section" id="maintainers">
+      <h2>Maintainers</h2>
+      <p className="meta-line section-note">People who can maintain this record with you. Co-owners see everything you see. Maintainer rights end when ownership transfers.</p>
+      <div className="group">
+        {maintainers.map((maintainer) => (
+          <div key={maintainer.maintainer_id} className="row">
+            <div>
+              <strong>{maintainer.display_name || maintainer.primary_email}{maintainer.user_id === currentUserId ? " (you)" : ""}</strong>
+              <div className="meta-line">{maintainer.primary_email} · {maintainer.role === "co_owner" ? "co-owner" : "owner"} · since {dateLabel(maintainer.verified_at)}</div>
+            </div>
+            {viewer.role === "owner" && maintainer.role === "co_owner" && maintainer.user_id !== currentUserId && (
+              <button type="button" className="text-link danger" onClick={async () => {
+                await api.removeMaintainer(propertyId, maintainer.maintainer_id);
+                toast("Co-owner removed.");
+                await onChange();
+              }}>Remove</button>
+            )}
+          </div>
+        ))}
+        {pending.map((invitation) => (
+          <div key={invitation.invitation_id} className="row">
+            <div>
+              <strong>{invitation.invited_email}</strong>
+              <div className="meta-line">Invitation sent {dateLabel(invitation.created_at)} · waiting to accept</div>
+            </div>
+            <button type="button" className="text-link" onClick={async () => {
+              await api.cancelInvitation(invitation.invitation_id);
+              await onChange();
+            }}>Cancel</button>
+          </div>
+        ))}
+      </div>
+      <form className="inline-form" onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError(null);
+        try {
+          await api.inviteCoOwner(propertyId, email);
+          toast(`Invitation sent to ${email}.`);
+          setEmail("");
+          await onChange();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Could not invite");
+        } finally {
+          setBusy(false);
+        }
+      }}>
+        <input className="field" type="email" placeholder="Invite a co-owner by email" value={email} onChange={(event) => setEmail(event.target.value)} data-testid="invite-email" />
+        <button type="submit" className="btn secondary" disabled={busy || !email.includes("@")}>{busy ? "Sending…" : "Invite"}</button>
+      </form>
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
+export function NotificationsSection({ propertyId, preferences, options, toast }: { propertyId: string; preferences: Record<string, string>; options: Record<string, string[]>; toast: Toast }) {
+  const [prefs, setPrefs] = useState(preferences);
+  useEffect(() => setPrefs(preferences), [preferences]);
+  const keys = useMemo(() => Object.keys(PREFERENCE_LABEL), []);
+  return (
+    <section className="section" id="notifications">
+      <h2>Email notifications</h2>
+      <p className="meta-line section-note">Delivered through Postmark. Ownership and security notices cannot be turned off.</p>
+      <div className="group">
+        {keys.map((key) => {
+          const choices = options[key] ?? [prefs[key] ?? "immediate"];
+          return (
+            <div key={key} className="row">
+              <div>
+                <strong>{PREFERENCE_LABEL[key]?.label ?? key}</strong>
+                <div className="meta-line">{PREFERENCE_LABEL[key]?.help}</div>
+              </div>
+              <select
+                className="mini-select"
+                value={prefs[key] ?? choices[0]}
+                disabled={choices.length < 2}
+                data-testid={`pref-${key}`}
+                onChange={async (event) => {
+                  const next = { ...prefs, [key]: event.target.value };
+                  setPrefs(next);
+                  const saved = await api.savePreferences(propertyId, { [key]: event.target.value });
+                  setPrefs(saved.preferences);
+                  toast("Notification preference saved.");
+                }}
+              >
+                {choices.map((choice) => <option key={choice} value={choice}>{OPTION_LABEL[choice] ?? choice}</option>)}
+              </select>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+export function HandoffSection({ propertyId, toast, onChange }: { propertyId: string; toast: Toast; onChange: () => Promise<void> | void }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <section className="section" id="handoff">
+      <h2>Handoff</h2>
+      <p className="meta-line section-note">
+        Selling? Invite the buyer to claim this property. Once they are verified, your maintainer access ends. Documents marked “goes with the property” transfer; personal documents never do.
+      </p>
+      <form className="inline-form" onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError(null);
+        try {
+          await api.handoff(propertyId, email);
+          toast(`Handoff invitation sent to ${email}.`);
+          setEmail("");
+          await onChange();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Could not send invitation");
+        } finally {
+          setBusy(false);
+        }
+      }}>
+        <input className="field" type="email" placeholder="Buyer’s email" value={email} onChange={(event) => setEmail(event.target.value)} />
+        <button type="submit" className="btn secondary" disabled={busy || !email.includes("@")}>{busy ? "Sending…" : "Send handoff invitation"}</button>
+      </form>
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
+}

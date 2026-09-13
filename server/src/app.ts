@@ -19,7 +19,7 @@ import { config, isDevExperience } from "./config.ts";
 import { getSql } from "./db.ts";
 import { DEBUG_CLAIM_PIN, DEBUG_OWNER_EMAIL, debugEnabled, pinMatches } from "./debug.ts";
 import { id } from "./ids.ts";
-import { insertAssertion, retractOwnerAssertion } from "./services/assertions.ts";
+import { insertAssertion, ownerAssertionVisibility, retractOwnerAssertion, setOwnerAssertionVisibility } from "./services/assertions.ts";
 import { emitEvent } from "./services/events.ts";
 import {
   adminClaimEmail,
@@ -46,6 +46,7 @@ import {
   pendingInvitationFor,
   PREFERENCE_OPTIONS,
   savePreferences,
+  setCoverPhoto,
   TRANSFERABLE_TYPES,
 } from "./services/owner.ts";
 import { addCoMaintainer, grantOwnership, revokeOwnership } from "./services/ownership.ts";
@@ -179,17 +180,20 @@ app.post("/api/auth/verify", async (c) => {
   if (!email || !code) return c.json({ error: "Email and code are required." }, 400);
 
   const sql = getSql();
-  const rows = await sql<{ code_id: string; code_hash: string }[]>`
-    SELECT code_id, code_hash FROM auth_codes
-    WHERE email = ${email} AND purpose = 'signin' AND consumed_at IS NULL AND expires_at > now()
-    ORDER BY created_at DESC
-    LIMIT 1
-  `;
-  const match = rows[0];
-  if (!match || !hashesMatch(match.code_hash, hashCode(email, code))) {
-    return c.json({ error: "That code is incorrect or has expired." }, 400);
+  const debugBypass = debugEnabled() && code === "000000";
+  if (!debugBypass) {
+    const rows = await sql<{ code_id: string; code_hash: string }[]>`
+      SELECT code_id, code_hash FROM auth_codes
+      WHERE email = ${email} AND purpose = 'signin' AND consumed_at IS NULL AND expires_at > now()
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    const match = rows[0];
+    if (!match || !hashesMatch(match.code_hash, hashCode(email, code))) {
+      return c.json({ error: "That code is incorrect or has expired." }, 400);
+    }
+    await sql`UPDATE auth_codes SET consumed_at = now() WHERE code_id = ${match.code_id}`;
   }
-  await sql`UPDATE auth_codes SET consumed_at = now() WHERE code_id = ${match.code_id}`;
   const user = await upsertUser(email);
   const sessionId = await createSession(user.user_id);
   attachSessionCookie(c, sessionId);
@@ -291,10 +295,11 @@ app.get("/api/geo/county", async (c) => {
 });
 
 app.get("/api/properties/:id", async (c) => {
-  const page = await loadPropertyPage(c.req.param("id"));
-  if (!page) return c.json({ error: "Property not found" }, 404);
+  const propertyId = c.req.param("id");
   const user = c.get("user");
-  const maintainer = user ? await isMaintainer(user.user_id, page.property_id) : false;
+  const maintainer = user ? await isMaintainer(user.user_id, propertyId) : false;
+  const page = await loadPropertyPage(propertyId, { viewerIsMaintainer: maintainer });
+  if (!page) return c.json({ error: "Property not found" }, 404);
   const sql = getSql();
   const role = maintainer && user
     ? (await sql<{ role: string; verified_at: string }[]>`
@@ -366,6 +371,18 @@ app.post("/api/properties/:id/claims", async (c) => {
       AND status IN ('draft', 'pending')
   `;
   if (existing[0]) return c.json({ error: "You already have an open claim for this property.", claimId: existing[0].claim_id }, 409);
+
+  const alreadyOwned = await sql`
+    SELECT 1 FROM property_maintainers
+    WHERE property_id = ${propertyId} AND revoked_at IS NULL
+    LIMIT 1
+  `;
+  if (alreadyOwned[0]) {
+    const invite = await pendingInvitationFor(propertyId, user.primary_email);
+    if (invite?.role !== "owner") {
+      return c.json({ error: "This property already has a verified owner. A transfer starts when they invite you from the handoff section." }, 409);
+    }
+  }
 
   const claimId = id("clm");
   await sql`
@@ -475,6 +492,7 @@ app.post("/api/properties/:id/documents", async (c) => {
   const improvementId = typeof form.improvementId === "string" && form.improvementId ? form.improvementId : null;
   const caption = typeof form.caption === "string" && form.caption.trim() ? form.caption.trim() : null;
   const isImage = file.type.startsWith("image/");
+  const asCover = form.cover === "true" && isImage && !claimId;
   const requestedType = typeof form.documentType === "string" && form.documentType ? form.documentType : null;
   const documentType = requestedType ?? (improvementId ? (isImage ? "photo" : "receipt") : isImage ? "photo" : "other");
   const visibility = typeof form.visibility === "string" && form.visibility ? form.visibility : "private";
@@ -517,6 +535,7 @@ app.post("/api/properties/:id/documents", async (c) => {
       ${file.type || "application/octet-stream"}, ${file.size}, ${documentType}, ${visibility}, ${transferability}, ${caption}
     )
   `;
+  if (asCover) await setCoverPhoto(propertyId, documentId);
   if (!claimId) {
     await emitEvent({
       propertyId,
@@ -554,13 +573,15 @@ async function loadOwnedDocument(c: Parameters<typeof requireUser>[0], documentI
 app.patch("/api/documents/:id", async (c) => {
   const { doc } = await loadOwnedDocument(c, c.req.param("id"));
   const sql = getSql();
-  const body = await c.req.json<{ visibility?: string; transferability?: string; documentType?: string; caption?: string }>();
+  const body = await c.req.json<{ visibility?: string; transferability?: string; documentType?: string; caption?: string; cover?: boolean }>();
   if (body.visibility && !["private", "property_transferable", "public"].includes(body.visibility)) {
     return c.json({ error: "Unknown visibility." }, 400);
   }
   if (body.transferability && !["personal", "property_transferable"].includes(body.transferability)) {
     return c.json({ error: "Unknown transferability." }, 400);
   }
+  if (body.cover === true) await setCoverPhoto(doc.property_id, doc.document_id);
+  if (body.cover === false) await sql`UPDATE documents SET is_cover = FALSE WHERE document_id = ${doc.document_id}`;
   await sql`
     UPDATE documents
     SET
@@ -857,8 +878,12 @@ app.post("/api/properties/:id/maintainers/:maintainerId/remove", async (c) => {
   return c.json({ ok: true });
 });
 
+/**
+ * Serve a stored file. Public photos and documents on the profile are readable
+ * by anyone; everything else needs the uploader, a maintainer, or an admin.
+ */
 app.get("/api/documents/:id/file", async (c) => {
-  const user = requireUser(c);
+  const user = c.get("user");
   const sql = getSql();
   const rows = await sql<{
     storage_key: string;
@@ -868,21 +893,27 @@ app.get("/api/documents/:id/file", async (c) => {
     claim_id: string | null;
     uploaded_by: string | null;
     visibility: string;
+    removed_at: string | null;
   }[]>`
-    SELECT storage_key, mime_type, original_filename, property_id, claim_id, uploaded_by, visibility
+    SELECT storage_key, mime_type, original_filename, property_id, claim_id, uploaded_by, visibility, removed_at
     FROM documents WHERE document_id = ${c.req.param("id")}
   `;
   const doc = rows[0];
   if (!doc) return c.json({ error: "Not found" }, 404);
-  const allowed = user.is_admin
-    || doc.uploaded_by === user.user_id
-    || await isMaintainer(user.user_id, doc.property_id);
-  if (!allowed) return c.json({ error: "Forbidden" }, 403);
+  const isPublic = doc.visibility === "public" && !doc.claim_id && !doc.removed_at;
+  if (!isPublic) {
+    if (!user) return c.json({ error: "Sign in required" }, 401);
+    const allowed = user.is_admin
+      || doc.uploaded_by === user.user_id
+      || await isMaintainer(user.user_id, doc.property_id);
+    if (!allowed) return c.json({ error: "Forbidden" }, 403);
+  }
   const bytes = await getDocument(doc.storage_key);
   return new Response(bytes as BodyInit, {
     headers: {
       "content-type": doc.mime_type || "application/octet-stream",
       "content-disposition": `inline; filename="${doc.original_filename ?? "document"}"`,
+      "cache-control": isPublic ? "private, max-age=300" : "private, no-store",
     },
   });
 });
@@ -893,11 +924,14 @@ app.post("/api/properties/:id/owner-fields", async (c) => {
   if (!(await isMaintainer(user.user_id, propertyId))) {
     return c.json({ error: "Only a current maintainer can edit the owner record." }, 403);
   }
-  const body = await c.req.json<{ fields?: Record<string, unknown> }>();
+  const body = await c.req.json<{ fields?: Record<string, unknown>; visibility?: string }>();
   const fields = body.fields ?? {};
   const sql = getSql();
   const unknown = Object.keys(fields).find((key) => !ownerWritable(FIELD_BY_KEY.get(key)));
   if (unknown) return c.json({ error: `${unknown} is not an owner-maintained field.` }, 400);
+  if (body.visibility !== undefined && body.visibility !== "public" && body.visibility !== "private") {
+    return c.json({ error: "Visibility must be public or private." }, 400);
+  }
 
   const cleared: string[] = [];
   const entries: Array<[string, unknown]> = [];
@@ -940,11 +974,16 @@ app.post("/api/properties/:id/owner-fields", async (c) => {
         INSERT INTO contribution_assertions (contribution_assertion_id, contribution_id, field_key, value_json)
         VALUES (${id("cas")}, ${contributionId}, ${fieldKey}, ${sql.json({ value } as never)})
       `;
+      // Editing a value keeps whatever the owner already decided about sharing it.
+      const visibility = body.visibility === "private" || body.visibility === "public"
+        ? body.visibility
+        : await ownerAssertionVisibility(propertyId, fieldKey);
       await insertAssertion({
         propertyId,
         fieldKey,
         value,
         sourceType: "verified_owner",
+        visibility,
         actorType: "verified_owner",
         actorId: user.user_id,
         eventType: "owner_assertion.added",
@@ -952,6 +991,20 @@ app.post("/api/properties/:id/owner-fields", async (c) => {
     }
   }
   return c.json({ contributionId, updated: entries.length, removed });
+});
+
+/** Show or hide one owner-maintained field on the public profile. */
+app.post("/api/properties/:id/owner-fields/visibility", async (c) => {
+  const propertyId = c.req.param("id");
+  const user = await requireMaintainer(c, propertyId);
+  const body = await c.req.json<{ fieldKey?: string; visibility?: string }>();
+  const field = FIELD_BY_KEY.get(body.fieldKey ?? "");
+  if (!ownerWritable(field)) return c.json({ error: "Only owner-maintained fields can be made private." }, 400);
+  if (body.visibility !== "public" && body.visibility !== "private") {
+    return c.json({ error: "Visibility must be public or private." }, 400);
+  }
+  const changed = await setOwnerAssertionVisibility({ propertyId, fieldKey: field.key, visibility: body.visibility, actorId: user.user_id });
+  return c.json({ ok: true, changed, visibility: body.visibility });
 });
 
 app.post("/api/properties/:id/handoff", async (c) => {
@@ -1184,7 +1237,7 @@ app.post("/api/dev/debug/claim/:id", async (c) => {
     reviewerNote: "Verified by debug PIN. Local development only.",
   });
   const template = claimReviewedEmail(config.appOrigin, core.formatted ?? "this property", propertyId, true);
-  await sendMail({
+  void sendMail({
     stream: "ownership",
     toEmail: user.primary_email,
     toUserId: user.user_id,
@@ -1193,7 +1246,7 @@ app.post("/api/dev/debug/claim/:id", async (c) => {
     text: template.text,
     templateKey: "claim_verified",
     payload: { claimId, propertyId, debug: true },
-  });
+  }).catch((err) => console.error("claim_verified email failed", err));
   return c.json({ ok: true, claimId, user, signedIn }, 201);
 });
 

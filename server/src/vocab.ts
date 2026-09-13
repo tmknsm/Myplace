@@ -4,6 +4,7 @@ export type FieldGroup =
   | "location"
   | "rules"
   | "records"
+  | "profile"
   | "owner";
 
 export interface FieldDef {
@@ -65,6 +66,8 @@ export const FIELD_VOCAB: FieldDef[] = [
   { key: "historic.district", label: "Historic district", group: "rules", layer: "official", valueType: "string" },
   { key: "env.remedial", label: "DEC remedial / brownfield", group: "rules", layer: "official", valueType: "string" },
   { key: "env.bulk_storage", label: "DEC bulk storage", group: "rules", layer: "official", valueType: "string" },
+  // The profile group is prose the owner writes about the place itself.
+  { key: "profile.summary", label: "About this place", group: "profile", layer: "owner", valueType: "string" },
   { key: "roof.type", label: "Roof", group: "owner", layer: "owner", valueType: "string" },
   { key: "roof.year", label: "Roof year", group: "owner", layer: "owner", valueType: "number" },
   { key: "heating", label: "Heating", group: "owner", layer: "owner", valueType: "string" },

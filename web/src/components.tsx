@@ -292,6 +292,7 @@ export function eventLabel(type: string): string {
     "ownership.co_maintainer_added": "Co-owner joined the record",
     "owner_assertion.added": "Owner record updated",
     "owner_assertion.removed": "Owner record entry cleared",
+    "owner_assertion.visibility_changed": "Owner changed what is shared publicly",
     "assertion.disputed": "Owner disputed an official fact",
     "contribution.withdrawn": "Dispute withdrawn",
     "contribution.accepted": "Contribution accepted",

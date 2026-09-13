@@ -18,6 +18,15 @@
   --radius-sm: 10px;
   --pad: 22px;
   --tap: 44px;
+  --topbar-pad-bottom: 24px;
+  --profile-nav-pad-y: 16px;
+  /* Docked tabs sit 10px (brand row padding) + this below the brand links: 16px, matching the bottom. */
+  --profile-nav-pad-top: 6px;
+  /* Height of the header's narrow-screen search row (0 where the search lives in the brand row). */
+  --search-row-height: calc(var(--topbar-height, 0px) - var(--topbar-main-height, var(--topbar-height, 0px)));
+  /* Frosted chrome shared by the top nav and anything that docks under it. */
+  --chrome-fill: color-mix(in srgb, var(--canvas) 78%, transparent);
+  --chrome-blur: saturate(1.4) blur(20px);
 }
 
 * { box-sizing: border-box; }
@@ -28,12 +37,14 @@ html {
 html, body, #root { min-height: 100%; }
 body {
   margin: 0;
+  /* Lets the header chrome animate against the profile grid's view timeline. */
+  timeline-scope: --profile-grid;
   background: var(--canvas);
   color: var(--ink);
   font-family: var(--font);
   font-size: 16px;
   line-height: 1.47;
-  overflow-x: hidden;
+  overflow-x: clip;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -45,21 +56,50 @@ img, svg { max-width: 100%; }
 .narrow-only { display: none; }
 .action-row.narrow-only { display: none; }
 
+/*
+ * The header's frosted glass is a separate sheet stacked beneath it (and beneath
+ * anything that docks under the header) so it can grow to cover both as one
+ * continuous blur. A single surface is the only way to avoid a visible seam:
+ * two abutting backdrop-filters each blur only their own bounds, so content
+ * crossing the boundary reads as a hard edge even with identical fills.
+ */
+.chrome-glass {
+  position: sticky;
+  top: 0;
+  height: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+.chrome-glass::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--topbar-height, 0px);
+  background: var(--chrome-fill);
+  backdrop-filter: var(--chrome-blur);
+  -webkit-backdrop-filter: var(--chrome-blur);
+}
 .topbar {
   position: sticky;
   top: 0;
   z-index: 20;
-  border-bottom: 1px solid var(--hairline);
-  background: color-mix(in srgb, var(--canvas) 78%, transparent);
-  backdrop-filter: saturate(1.4) blur(20px);
-  -webkit-backdrop-filter: saturate(1.4) blur(20px);
+  border-bottom: 0;
   padding-top: env(safe-area-inset-top);
+  /* The header keeps its full layout height after the search row tucks away;
+     without this, that leftover box sits on top of the docked chips and eats taps. */
+  pointer-events: none;
+}
+.topbar-main,
+.header-search {
+  pointer-events: auto;
 }
 .topbar-main {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 10px max(var(--pad), env(safe-area-inset-right)) 10px max(var(--pad), env(safe-area-inset-left));
+  padding: 10px max(var(--pad), env(safe-area-inset-right)) var(--topbar-pad-bottom) max(var(--pad), env(safe-area-inset-left));
 }
 .brand {
   text-decoration: none;
@@ -128,7 +168,7 @@ img, svg { max-width: 100%; }
 .page.wide { max-width: 1120px; }
 
 .display,
-.property-head h1,
+.profile-head h1,
 .hero-copy h1 {
   font-weight: 650;
   letter-spacing: -0.03em;
@@ -285,27 +325,8 @@ img, svg { max-width: 100%; }
   flex-wrap: wrap;
   margin: 16px 0 0;
 }
-.property-notice { margin: 0; }
+.property-notice { margin: 0 0 12px; }
 
-.property-layout {
-  display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
-  grid-template-areas:
-    "head map"
-    "notice map"
-    "dossier map";
-  gap: 22px;
-  align-items: start;
-}
-.property-head { grid-area: head; }
-.property-notice { grid-area: notice; }
-.dossier { grid-area: dossier; }
-.map-panel { grid-area: map; }
-.property-head h1 {
-  font-size: clamp(28px, 4vw, 34px);
-  line-height: 1.12;
-  margin: 4px 0 6px;
-}
 .meta-line {
   color: var(--muted);
   font-size: 14px;
@@ -520,7 +541,7 @@ label.stack span { display: block; margin-bottom: 6px; font-size: 13px; color: v
   grid-template-columns: 200px 1fr;
   gap: 24px;
 }
-.side-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 84px; }
+.side-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: calc(var(--topbar-height, 84px) - 1px); }
 .side-nav button, .side-nav a {
   background: none;
   border: 0;
@@ -579,19 +600,18 @@ tr:last-child td { border-bottom: 0; }
   box-shadow: var(--shadow);
 }
 
-.map-panel {
-  height: 560px;
-  position: sticky;
-  top: 80px;
-  align-self: start;
+.map-card {
+  height: 340px;
+  position: relative;
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: var(--radius);
   box-shadow: var(--shadow);
   background: var(--surface);
+  margin-bottom: 12px;
 }
 .map-shell { position: absolute; inset: 0; }
 .map-canvas { position: absolute; inset: 0; }
-.hero-map .map-shell, .map-page .map-shell, .map-panel .map-shell { position: absolute; inset: 0; }
+.hero-map .map-shell, .map-page .map-shell, .map-card .map-shell, .profile-hero .map-shell { position: absolute; inset: 0; }
 .map-legend {
   position: absolute;
   left: 12px;
@@ -726,8 +746,290 @@ tr:last-child td { border-bottom: 0; }
   margin-bottom: 6px;
 }
 
+/* ---- Property profile ---------------------------------------------------- */
+.profile { padding-top: 0; }
+/* Break out of .page so the hero runs edge to edge directly under the topbar. */
+.profile-hero-band {
+  width: 100vw;
+  margin: 0 calc(50% - 50vw) 22px;
+  background: var(--surface-2);
+  border-radius: 24px 24px 0 0;
+  overflow: hidden;
+}
+.profile-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px 40px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.profile-title { min-width: 0; flex: 1 1 420px; }
+.profile-head h1 {
+  font-size: clamp(34px, 5.4vw, 56px);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  margin: 6px 0 10px;
+}
+.profile-meta {
+  color: var(--muted);
+  font-size: 15px;
+  margin: 0;
+}
+.profile-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 0 1 auto;
+  padding-bottom: 6px;
+}
+.profile-actions .action-row.compact { margin-top: 2px; }
+.profile-nudge { max-width: 34ch; margin: 0; font-size: 13px; }
+
+.profile-hero {
+  position: relative;
+  margin: 0;
+  overflow: hidden;
+  background: var(--surface-2);
+  width: 100%;
+  height: clamp(320px, 56vh, 640px);
+  border-radius: 24px 24px 0 0;
+}
+.profile-hero.is-map { height: clamp(320px, 50vh, 560px); }
+.hero-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+.hero-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hero-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 48px max(var(--pad), calc((100vw - 1120px) / 2 + var(--pad))) 16px;
+  margin: 0;
+  color: #fff;
+  background: linear-gradient(to top, rgba(29, 29, 31, 0.55), rgba(29, 29, 31, 0));
+  pointer-events: none;
+}
+.profile-hero.is-map .hero-overlay { background: none; padding-top: 14px; }
+.hero-side { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.hero-side > * { pointer-events: auto; }
+.hero-caption {
+  font-size: 14px;
+  font-weight: 500;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+  overflow-wrap: anywhere;
+}
+.hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 560;
+  text-decoration: none;
+}
+.hero-pill:hover { background: var(--surface); }
+.hero-pill.quiet { color: var(--ink-soft); font-weight: 500; }
+.hero-pill.warn { color: var(--warn); }
+.hero-cta { box-shadow: 0 8px 24px rgba(226, 59, 50, 0.28); }
+.profile-hero .maplibregl-ctrl-bottom-right { bottom: 0; }
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-top: 16px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.stat {
+  padding: 14px 18px 13px;
+  border-right: 1px solid var(--hairline);
+  min-width: 0;
+}
+.stat:last-child { border-right: 0; }
+.stat span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 3px;
+}
+.stat strong {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.stat strong small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+.stat .badge { margin: 4px 0 0; font-style: normal; }
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+  margin-top: 32px;
+  /* Its top edge is where the tabs sit inline. Insetting both scrollport edges
+     to the header's bottom makes `cover 0` the moment the tabs touch the header,
+     and each px of `cover` thereafter one px of the tabs' travel upward. */
+  view-timeline: --profile-grid block;
+  view-timeline-inset: var(--topbar-height, 0px) calc(100% - var(--topbar-height, 0px));
+}
+.profile-nav-wrap { position: sticky; top: var(--topbar-height, 84px); min-width: 0; }
+.profile-nav { position: static; top: auto; }
+.profile-nav a { font-size: 14px; }
+.profile-main { min-width: 0; }
+.profile-main > .section:first-child,
+.profile-main > .toast + .section,
+.profile-main > .banner + .section { margin-top: 0; }
+.profile .section { margin-top: 36px; scroll-margin-top: calc(var(--topbar-height, 84px) + var(--profile-nav-height, 0px) + 12px); }
+.profile .section h2 {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0 0 6px;
+}
+.profile .section-head { align-items: center; margin-bottom: 6px; }
+.profile .section-note { margin-bottom: 12px; }
+.profile .subhead { margin-top: 20px; }
+
+.owner-tools-head {
+  margin-top: 56px;
+  padding-top: 28px;
+  border-top: 1px solid var(--hairline);
+  scroll-margin-top: calc(var(--topbar-height, 84px) + var(--profile-nav-height, 0px) + 12px);
+}
+.owner-tools-head h2 {
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  margin: 4px 0 6px;
+}
+.owner-tools-head .meta-line { margin: 0; max-width: 60ch; }
+.owner-tools-head + .section { margin-top: 24px; }
+
+/* Checklist */
+.checklist-card { padding: 16px 18px 14px; }
+.checklist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.checklist-head strong { display: block; font-size: 20px; font-weight: 650; letter-spacing: -0.02em; margin-top: 2px; }
+.progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+  margin: 14px 0 10px;
+}
+.progress i { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width 300ms ease; }
+.checklist-card .meta-line { margin-bottom: 12px; }
+.completeness-grid button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: left;
+  min-height: 24px;
+}
+.completeness-grid button:hover { color: var(--accent); }
+.completeness-grid button:hover i { border-color: var(--accent); }
+
+/* About */
+.about-card { padding: 18px 20px 14px; }
+.about-text {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  max-width: 68ch;
+  overflow-wrap: anywhere;
+}
+.about-foot { margin-top: 10px; display: flex; gap: 12px; }
+.about-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.about-empty p { margin: 0; max-width: 56ch; }
+.about-editor textarea { font-size: 16px; line-height: 1.5; }
+
+/* Visibility chip */
+.vis-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 2px 8px 2px 6px;
+  min-height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 560;
+  vertical-align: middle;
+  cursor: pointer;
+}
+.vis-chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.vis-chip.is-private { background: #f8efe0; color: var(--warn); }
+.vis-chip.is-private i { background: var(--warn); }
+.vis-chip:hover { box-shadow: inset 0 0 0 1px var(--hairline); }
+.vis-chip:disabled { opacity: 0.5; cursor: wait; }
+.section-head .vis-chip { margin-left: 0; }
+.fact.is-private { background: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--surface-2) 45%, transparent) 10px 11px); }
+.improvement-card.is-private,
+.photo-card.is-private { box-shadow: var(--shadow), inset 0 0 0 1.5px #f1dfc2; }
+
+/* Lightbox */
+.lightbox { background: rgba(29, 29, 31, 0.86); flex-direction: row; gap: 12px; }
+.lightbox .modal-close { position: fixed; top: max(14px, env(safe-area-inset-top)); right: 14px; background: rgba(255, 255, 255, 0.14); color: #fff; }
+.lightbox-figure { margin: 0; max-width: min(1200px, 92vw); display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.lightbox-figure img { max-width: 100%; max-height: 82vh; border-radius: 14px; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4); object-fit: contain; }
+.lightbox-figure figcaption { color: #fff; text-align: center; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.lightbox-figure figcaption .meta-line { color: rgba(255, 255, 255, 0.7); }
+.lightbox-step {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 28px;
+  line-height: 1;
+}
+.lightbox-step:hover { background: rgba(255, 255, 255, 0.24); }
+
 /* ---- Owner state on the property page -------------------------------- */
-.owner-chip-row { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
 .owner-chip {
   display: inline-flex;
   align-items: center;
@@ -909,17 +1211,49 @@ tr:last-child td { border-bottom: 0; }
 .file-chips i { color: var(--muted); font-style: normal; }
 .file-chips small { color: var(--muted); font-size: 12px; }
 
-.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.photo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.photo-grid.featured > .photo-card:first-child { grid-column: span 2; grid-row: span 2; }
+.photo-grid.featured > .photo-card:first-child .photo-open { height: 100%; aspect-ratio: auto; min-height: 100%; }
 .photo-card {
   margin: 0;
   background: var(--surface);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
-.photo-card a { display: block; aspect-ratio: 4 / 3; background: var(--surface-2); }
+.photo-open {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  border: 0;
+  background: var(--surface-2);
+  cursor: zoom-in;
+  flex: 1 1 auto;
+}
 .photo-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-flag {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.photo-flag.private { left: auto; right: 10px; color: var(--warn); }
 .photo-card figcaption { padding: 10px 12px; font-size: 13px; color: var(--ink-soft); }
+.photo-tools { flex-wrap: wrap; }
+.photo-tool-links { display: inline-flex; gap: 10px; align-items: center; margin-left: auto; }
+.photo-tool-links .text-link { margin-left: 0; white-space: nowrap; }
 .caption-input {
   width: 100%;
   border: 0;
@@ -1078,7 +1412,7 @@ table small { display: block; }
   .topbar-main { gap: 10px; padding: 10px var(--pad); }
   .brand { min-width: 0; }
   .header-search.narrow-only {
-    padding: 0 max(var(--pad), env(safe-area-inset-right)) 10px max(var(--pad), env(safe-area-inset-left));
+    padding: 0 max(var(--pad), env(safe-area-inset-right)) var(--topbar-pad-bottom) max(var(--pad), env(safe-area-inset-left));
   }
   .top-links { gap: 14px; }
 
@@ -1109,22 +1443,129 @@ table small { display: block; }
     max-height: 440px;
   }
 
-  .property-layout {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "head"
-      "map"
-      "notice"
-      "dossier";
-    gap: 16px;
+  .profile { padding-top: 0; }
+  .profile-hero-band { margin-bottom: 16px; }
+  .profile-head { gap: 14px; margin-bottom: 14px; align-items: flex-start; }
+  .profile-head h1 { font-size: clamp(30px, 9vw, 40px); margin: 4px 0 8px; }
+  .profile-actions { width: 100%; padding-bottom: 0; }
+  .profile-actions .action-row.compact { width: 100%; }
+  .profile-actions .btn { flex: 1 1 140px; }
+  .profile-hero { height: clamp(240px, 42dvh, 420px); }
+  .profile-hero.is-map { height: clamp(240px, 40dvh, 380px); }
+  .hero-overlay { padding: 40px var(--pad) 12px; flex-wrap: wrap; }
+  .hero-side:last-child { margin-left: auto; }
+  .stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat { padding: 12px 14px; border-bottom: 1px solid var(--hairline); }
+  .stat:nth-child(2n) { border-right: 0; }
+  .stat:nth-last-child(-n + 2):nth-child(odd),
+  .stat:last-child { border-bottom: 0; }
+  .stat strong { font-size: 17px; }
+  /* 22px original grid gap + the 16px that used to be nav padding-top. */
+  .profile-grid { grid-template-columns: 1fr; gap: 12px; margin-top: 38px; min-width: 0; }
+  .profile-grid .profile-nav-wrap {
+    position: sticky;
+    top: var(--topbar-height, calc(52px + env(safe-area-inset-top)));
+    z-index: 21;
+    margin: 0 calc(-1 * var(--pad));
+    min-width: 0;
   }
-  .map-panel {
-    position: relative;
+  /*
+   * Fallback docking (no scroll-driven animations): the header's glass sheet
+   * grows to cover the tabs, so header and tab bar share one uninterrupted
+   * blur. The class flips while only canvas sits behind the bar (38px of margin
+   * above it, 12px below), so the swap itself changes no pixels.
+   */
+  html.nav-docked .chrome-glass::before {
+    height: calc(var(--topbar-height, 0px) + var(--profile-nav-height, 0px));
+  }
+  /* Until the dock class lands (at most a frame late), the bar frosts itself. */
+  .profile-grid .profile-nav-wrap::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--chrome-fill);
+    backdrop-filter: var(--chrome-blur);
+    -webkit-backdrop-filter: var(--chrome-blur);
+    pointer-events: none;
+  }
+  html.nav-docked .profile-grid .profile-nav-wrap::before { display: none; }
+  .profile-grid .profile-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    position: static;
     top: auto;
-    height: 42dvh;
-    min-height: 260px;
-    max-height: 360px;
+    gap: 6px;
+    margin: 0;
+    padding: 0 var(--pad) var(--profile-nav-pad-y);
+    min-width: 0;
+    background: none;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
+  .profile-grid .profile-nav::-webkit-scrollbar { display: none; }
+  .profile-grid .profile-nav a {
+    padding: 8px 12px;
+    white-space: nowrap;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    min-height: 36px;
+    font-size: 13px;
+  }
+  .profile-grid .profile-nav a.on { color: #fff; background: var(--ink); box-shadow: none; }
+  .profile .section { margin-top: 28px; scroll-margin-top: calc(var(--topbar-height, 112px) + var(--profile-nav-height, 68px)); }
+  .owner-tools-head { margin-top: 40px; scroll-margin-top: calc(var(--topbar-height, 112px) + var(--profile-nav-height, 68px)); }
+
+  /*
+   * Search hand-off. The tabs stick under the brand row, not under the whole
+   * header, so on the way there they travel through the search row's slot. A
+   * view timeline on the profile grid (whose top edge is the tabs' inline
+   * position) measures that travel: 0 when the tabs touch the header's bottom,
+   * 1 when they reach the brand row. The search row slides up behind the brand
+   * row and the glass sheet's bottom follows the tabs, all as compositor-driven
+   * transforms. No script runs per frame, and nothing lags the scroll.
+   */
+  @supports (animation-timeline: view()) {
+    .profile-grid { margin-top: calc(38px - var(--profile-nav-pad-top)); }
+    .profile-grid .profile-nav-wrap {
+      top: var(--topbar-main-height, calc(64px + env(safe-area-inset-top)));
+      padding-top: var(--profile-nav-pad-top);
+    }
+    /* The single sheet covers the tabs throughout; no interim glass of their own. */
+    .profile-grid .profile-nav-wrap::before { display: none; }
+    .chrome-glass::before {
+      /* Constant size once docking begins (a one-off step), then only translates. */
+      animation: chrome-sheet-grow both, chrome-sheet-slide both;
+      animation-timing-function: steps(1, jump-start), linear;
+      animation-timeline: --profile-grid;
+      animation-range: cover 0px cover var(--search-row-height);
+    }
+    .topbar .header-search.narrow-only {
+      animation: search-row-tuck linear both;
+      animation-timeline: --profile-grid;
+      animation-range: cover 0px cover var(--search-row-height);
+    }
+    .profile .section { scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
+    .owner-tools-head { scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
+  }
+  @keyframes chrome-sheet-grow {
+    from { height: var(--topbar-height, 0px); }
+    to { height: calc(var(--topbar-height, 0px) + var(--profile-nav-height, 0px)); }
+  }
+  @keyframes chrome-sheet-slide {
+    from { transform: translateY(0); }
+    to { transform: translateY(calc(-1 * var(--search-row-height))); }
+  }
+  @keyframes search-row-tuck {
+    from { transform: translateY(0); clip-path: inset(0 0 0 0); }
+    to { transform: translateY(calc(-1 * var(--search-row-height))); clip-path: inset(var(--search-row-height) 0 0 0); }
+  }
+  .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .photo-grid.featured > .photo-card:first-child { grid-column: span 2; grid-row: auto; }
+  .photo-grid.featured > .photo-card:first-child .photo-open { aspect-ratio: 16 / 10; min-height: 0; }
+  .map-card { height: 260px; }
+  .lightbox { gap: 6px; padding: 8px; }
+  .lightbox-step { width: 36px; height: 36px; font-size: 22px; }
   .map-page { height: calc(100dvh - 8.5rem); }
   .fact { grid-template-columns: 1fr; gap: 3px; padding: 14px 16px; }
   .coverage { grid-template-columns: 1fr; }
@@ -1166,7 +1607,6 @@ table small { display: block; }
   .sheet { width: 100%; }
   .modal { padding: 22px 18px 18px; }
   .pin-cell { height: 56px; font-size: 26px; }
-  .photo-grid { grid-template-columns: repeat(2, 1fr); }
   .upload-card .file-btn { width: 100%; }
 }
 

@@ -11,7 +11,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body && !(init.body instanceof FormData) && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
-  const res = await fetch(path, { ...init, headers, credentials: "include" });
+  const res = await fetch(path, { cache: "no-store", ...init, headers, credentials: "include" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, data.error || res.statusText);
   return data as T;
@@ -69,13 +69,18 @@ export const api = {
     return request<{ documentId: string }>(`/api/properties/${propertyId}/documents`, { method: "POST", body: form });
   },
   documents: (id: string) => request<{ documents: Doc[] }>(`/api/properties/${id}/documents`),
-  patchDocument: (id: string, body: { visibility?: string; transferability?: string; documentType?: string; caption?: string | null }) =>
+  patchDocument: (id: string, body: { visibility?: string; transferability?: string; documentType?: string; caption?: string | null; cover?: boolean }) =>
     request<{ ok: boolean }>(`/api/documents/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteDocument: (id: string) => request<{ ok: boolean }>(`/api/documents/${id}`, { method: "DELETE" }),
-  saveOwnerFields: (id: string, fields: Record<string, unknown>) =>
+  saveOwnerFields: (id: string, fields: Record<string, unknown>, visibility?: FieldVisibility) =>
     request<{ contributionId: string | null; updated: number; removed: number }>(`/api/properties/${id}/owner-fields`, {
       method: "POST",
-      body: JSON.stringify({ fields }),
+      body: JSON.stringify(visibility ? { fields, visibility } : { fields }),
+    }),
+  setFieldVisibility: (id: string, fieldKey: string, visibility: FieldVisibility) =>
+    request<{ ok: boolean; changed: number; visibility: FieldVisibility }>(`/api/properties/${id}/owner-fields/visibility`, {
+      method: "POST",
+      body: JSON.stringify({ fieldKey, visibility }),
     }),
   createImprovement: (id: string, body: ImprovementInput) =>
     request<{ improvement: Improvement }>(`/api/properties/${id}/improvements`, { method: "POST", body: JSON.stringify(body) }),
@@ -103,7 +108,7 @@ export const api = {
     }),
   debugState: () => request<DebugState>("/api/dev/debug/state"),
   debugClaim: (id: string, pin: string) =>
-    request<{ ok: boolean; claimId?: string; alreadyMaintainer?: boolean; user: User; signedIn: boolean }>(`/api/dev/debug/claim/${id}`, {
+    request<DebugClaimResult>(`/api/dev/debug/claim/${id}`, {
       method: "POST",
       body: JSON.stringify({ pin }),
     }),
@@ -187,6 +192,7 @@ export interface Dispute {
 }
 
 export type FactStatus = "available" | "unknown" | "conflicting" | "inferred" | "owner_reported";
+export type FieldVisibility = "public" | "private";
 
 export interface Fact {
   fieldKey: string;
@@ -196,6 +202,8 @@ export interface Fact {
   status: FactStatus;
   value: unknown;
   display: string | null;
+  /** How the owner's current value is shared. Null when the owner has not written one. */
+  visibility?: FieldVisibility | null;
   assertions: Array<{
     assertionId: string;
     value: unknown;
@@ -238,6 +246,14 @@ export interface Invitation {
   invited_email: string;
   role: string;
   created_at: string;
+}
+
+export interface DebugClaimResult {
+  ok: boolean;
+  claimId?: string;
+  alreadyMaintainer?: boolean;
+  signedIn: boolean;
+  user: User;
 }
 
 export interface DebugState {
@@ -312,6 +328,7 @@ export interface Doc {
   transferability?: string;
   caption?: string | null;
   improvement_id?: string | null;
+  is_cover?: boolean;
   byte_size: number;
   created_at: string;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type DebugState } from "./api";
+import { api, type DebugClaimResult, type DebugState } from "./api";
 import { useAuth } from "./auth";
 
 /**
@@ -37,7 +37,7 @@ export function PinClaimModal({
   propertyId: string;
   address: string;
   onClose: () => void;
-  onClaimed: () => void;
+  onClaimed: (result: DebugClaimResult) => void;
 }) {
   const { user, refresh } = useAuth();
   const [pin, setPin] = useState("");
@@ -61,8 +61,10 @@ export function PinClaimModal({
     setError(null);
     try {
       const result = await api.debugClaim(propertyId, candidate);
-      if (result.signedIn) await refresh();
-      onClaimed();
+      // Flip the property into the owner profile immediately. Auth refresh and
+      // a background reload can lag on a cold hosted database; don't block the UI.
+      onClaimed(result);
+      if (result.signedIn) void refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not claim");
       setPin("");
@@ -181,7 +183,7 @@ export function DebugSheet({ onClose }: { onClose: () => void }) {
 
         <section className="sheet-section">
           <h3>Fake claim</h3>
-          <p>Open any property and press <strong>Claim this property</strong>. The PIN is</p>
+          <p>Open an unclaimed property and press <strong>Claim this property</strong>. The PIN is</p>
           <div className="pin-display">{state ? state.pin.split("").join(" ") : "· · · ·"}</div>
           <p className="meta-line">
             Signed in as {user ? <strong>{user.primary_email}</strong> : <>nobody — a correct PIN signs you in as <strong>{state?.debugOwnerEmail ?? "the debug owner"}</strong></>}.
@@ -244,7 +246,7 @@ export function DebugSheet({ onClose }: { onClose: () => void }) {
             <Link to="/admin" onClick={onClose}>Admin review desk</Link>
             <Link to="/signin" onClick={onClose}>Sign in as someone else</Link>
           </div>
-          <p className="meta-line">Admin: <code>admin@myplace.local</code>, code <code>000000</code> after <code>db:seed</code>.</p>
+          <p className="meta-line">Sign-in shortcut: any email, code <code>000000</code>. Admin: <code>admin@myplace.local</code>.</p>
         </section>
       </aside>
     </div>

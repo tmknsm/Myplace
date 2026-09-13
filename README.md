@@ -11,11 +11,11 @@ Owner verification is **manual review** in this V1. The claim UI, emails, and ad
 - Every parcel in Columbia (≈36.8k) and Greene (≈38.4k) counties, imported from public New York sources by `npm run db:import`
 - Parcel lot lines served as PostGIS vector tiles (`/api/tiles/{z}/{x}/{y}.mvt`), colored by how trustworthy they are
 - Mapbox-ready map (OpenFreeMap locally; optional Mapbox token later)
-- Public property page with provenance, unknown, inferred, and conflicting states
+- Property profile: cover photo hero, key facts, and every official fact with provenance, unknown, inferred, and conflicting states
 - Email sign-in codes
-- Claim this property wizard + claim status
+- Claim this property wizard + claim status for unclaimed parcels; once a property has a verified owner, transfer happens through their handoff invitation
 - Admin claim review
-- Owner record, document vault (`private` / `property_transferable`), and handoff invitation
+- Owner layer on the same profile: about, photos, improvements, and home systems are public by default and can be made private field by field; the document vault (`private` / `property_transferable`) and handoff invitation stay owner-only
 - Immutable property event history
 - Postgres + PostGIS schema designed for later NY adapters
 

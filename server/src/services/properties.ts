@@ -33,11 +33,15 @@ export async function loadPropertyCore(propertyId: string): Promise<PropertyCore
   return rows[0] ?? null;
 }
 
-export async function loadPropertyPage(propertyId: string) {
+/**
+ * Everything the property page needs. Maintainers see the whole owner layer;
+ * everyone else sees only the owner contributions marked public.
+ */
+export async function loadPropertyPage(propertyId: string, options: { viewerIsMaintainer?: boolean } = {}) {
   const core = await loadPropertyCore(propertyId);
   if (!core) return null;
   const sql = getSql();
-  const facts = assembleFacts(await loadAssertionRows(propertyId));
+  const facts = assembleFacts(await loadAssertionRows(propertyId, { includePrivate: options.viewerIsMaintainer ?? false }));
   const events = await sql`
     SELECT event_id, event_type, actor_type, payload_json, effective_at, created_at
     FROM property_events

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary } from "./api";
 import { useAuth } from "./auth";
@@ -13,10 +13,33 @@ function Layout({ children }: { children: React.ReactNode }) {
   const meta = useMeta();
   const [debugOpen, setDebugOpen] = useState(false);
   const headerSearch = location.pathname !== "/" && !/^\/(signin|dev|admin)/.test(location.pathname);
+  const topbarRef = useRef<HTMLElement | null>(null);
   useEffect(() => setDebugOpen(false), [location.pathname]);
+  useEffect(() => {
+    const node = topbarRef.current;
+    if (!node) return;
+    const sync = () => {
+      // Keep the fraction: rounding either way opens a hairline gap or tucks
+      // whatever docks beneath the header under its edge.
+      const rect = node.getBoundingClientRect();
+      const main = node.querySelector(".topbar-main")?.getBoundingClientRect();
+      document.documentElement.style.setProperty("--topbar-height", `${rect.height}px`);
+      // Bottom of the brand row; on narrow screens the search row sits below it.
+      document.documentElement.style.setProperty("--topbar-main-height", `${main ? main.bottom - rect.top : rect.height}px`);
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(node);
+    window.addEventListener("resize", sync);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, [headerSearch, user, meta?.debug]);
   return (
     <>
-      <header className="topbar">
+      <div className="chrome-glass" aria-hidden="true" />
+      <header className="topbar" ref={topbarRef}>
         <div className="topbar-main">
           <Link to="/" className="brand">
             <i className="mark" aria-hidden="true" />
@@ -136,10 +159,18 @@ function ClaimPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [address, setAddress] = useState("this property");
+  const [blocked, setBlocked] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    api.property(id).then((d) => setAddress(d.property.formatted ?? "this property"));
+    api.property(id).then((d) => {
+      setAddress(d.property.formatted ?? "this property");
+      const alreadyOwned = d.property.maintainers.length > 0;
+      const invited = d.viewer.invitation?.role === "owner";
+      if (alreadyOwned && !invited && !d.viewer.maintainer) {
+        setBlocked("This property already has a verified owner. A transfer starts when they invite you from the handoff section.");
+      }
+    });
   }, [id]);
 
   if (!user) return <Navigate to={`/signin?next=/property/${id}/claim`} replace />;
@@ -166,19 +197,28 @@ function ClaimPage() {
       <div className="kicker">Claim</div>
       <h1 className="display">Claim this property</h1>
       <p className="meta-line">{address}</p>
-      <div className="steps">
-        {["Property", "Method", "Evidence", "Attest"].map((label, i) => (
-          <span key={label} className={step === i + 1 ? "on" : ""}>{i + 1}. {label}</span>
-        ))}
-      </div>
+      {!blocked && (
+        <div className="steps">
+          {["Property", "Method", "Evidence", "Attest"].map((label, i) => (
+            <span key={label} className={step === i + 1 ? "on" : ""}>{i + 1}. {label}</span>
+          ))}
+        </div>
+      )}
 
-      {step === 1 && (
+      {blocked && (
+        <>
+          <p>{blocked}</p>
+          <p><Link className="btn secondary" to={`/property/${id}`}>Back to the property</Link></p>
+        </>
+      )}
+
+      {!blocked && step === 1 && (
         <>
           <p>You are asking to become the owner maintainer of this record. Official government facts stay public. You will control the owner-maintained layer and documents.</p>
           <button type="button" className="btn" data-testid="claim-confirm" onClick={() => setStep(2)}>This is my property</button>
         </>
       )}
-      {step === 2 && (
+      {!blocked && step === 2 && (
         <>
           <div className="method-grid">
             {METHODS.map((item) => (
@@ -194,7 +234,7 @@ function ClaimPage() {
           </div>
         </>
       )}
-      {step === 3 && (
+      {!blocked && step === 3 && (
         <>
           <p>Upload clear copies. These stay private and are used only for review.</p>
           <label className="stack">
@@ -208,7 +248,7 @@ function ClaimPage() {
           </div>
         </>
       )}
-      {step === 4 && (
+      {!blocked && step === 4 && (
         <>
           <label className="stack">
             <span>Anything the reviewer should know</span>
