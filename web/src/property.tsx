@@ -559,7 +559,7 @@ export function PropertyPageView() {
       </div>
 
       {lightbox !== null && photos[lightbox] && (
-        <Lightbox photos={photos} index={lightbox} onIndex={setLightbox} onClose={() => setLightbox(null)} />
+        <PhotoLightbox photos={photos} index={lightbox} owner={owner} onIndex={setLightbox} onClose={() => setLightbox(null)} onChange={load} toast={showToast} />
       )}
 
       {pinOpen && (
@@ -694,36 +694,6 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
           </a>
         ))}
       </nav>
-    </div>
-  );
-}
-
-function Lightbox({ photos, index, onIndex, onClose }: { photos: Doc[]; index: number; onIndex: (next: number) => void; onClose: () => void }) {
-  const photo = photos[index]!;
-  const step = useCallback((delta: number) => {
-    onIndex((index + delta + photos.length) % photos.length);
-  }, [index, onIndex, photos.length]);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-      if (event.key === "ArrowRight") step(1);
-      if (event.key === "ArrowLeft") step(-1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, step]);
-  return (
-    <div className="modal-backdrop lightbox" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} role="dialog" aria-modal="true" aria-label="Photo viewer">
-      <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>×</button>
-      {photos.length > 1 && <button type="button" className="lightbox-step prev" aria-label="Previous photo" onClick={() => step(-1)}>‹</button>}
-      <figure className="lightbox-figure">
-        <img src={fileUrl(photo)} alt={photo.caption ?? photo.original_filename} />
-        <figcaption>
-          {photo.caption && <strong>{photo.caption}</strong>}
-          <span className="meta-line">{index + 1} of {photos.length}{photo.created_at ? ` · ${dateLabel(photo.created_at)}` : ""}</span>
-        </figcaption>
-      </figure>
-      {photos.length > 1 && <button type="button" className="lightbox-step next" aria-label="Next photo" onClick={() => step(1)}>›</button>}
     </div>
   );
 }
@@ -1375,20 +1345,7 @@ function ImprovementCard({
       </div>
       {item.notes && <p className="improvement-notes">{item.notes}</p>}
       {images.length > 0 && (
-        <div className="photo-strip">
-          {images.map((doc) => (
-            <a key={doc.document_id} className="photo-thumb" href={fileUrl(doc)} target="_blank" rel="noreferrer">
-              <img src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} loading="lazy" />
-              {owner && (
-                <button type="button" className="thumb-remove" aria-label="Remove photo" onClick={async (event) => {
-                  event.preventDefault();
-                  await api.deleteDocument(doc.document_id);
-                  await onChange();
-                }}>×</button>
-              )}
-            </a>
-          ))}
-        </div>
+        <ImprovementPhotos images={images} owner={owner} onChange={onChange} toast={toast} />
       )}
       {files.length > 0 && (
         <ul className="file-chips">
@@ -1440,6 +1397,167 @@ function ImprovementCard({
 // ---------------------------------------------------------------------------
 // Photos
 // ---------------------------------------------------------------------------
+
+function PhotoLightbox({
+  photos,
+  index,
+  owner,
+  onIndex,
+  onClose,
+  onChange,
+  toast,
+}: {
+  photos: Doc[];
+  index: number;
+  owner: boolean;
+  onIndex: (next: number) => void;
+  onClose: () => void;
+  onChange: () => Promise<void> | void;
+  toast: (message: string) => void;
+}) {
+  const photo = photos[index];
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+
+  const step = useCallback((delta: number) => {
+    if (!photos.length) return;
+    onIndex((index + delta + photos.length) % photos.length);
+    setConfirm(false);
+  }, [index, onIndex, photos.length]);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowRight") step(1);
+      if (event.key === "ArrowLeft") step(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose, step]);
+
+  if (!photo) return null;
+
+  const replace = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      await api.replaceDocument(photo.document_id, file);
+      toast("Photo updated.");
+      await onChange();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await api.deleteDocument(photo.document_id);
+      toast("Photo deleted.");
+      await onChange();
+      if (photos.length <= 1) onClose();
+      else onIndex(Math.min(index, photos.length - 2));
+    } finally {
+      setBusy(false);
+      setConfirm(false);
+    }
+  };
+
+  return (
+    <div
+      className="modal-backdrop lightbox"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Photo"
+    >
+      <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>×</button>
+      {photos.length > 1 && <button type="button" className="lightbox-step prev" aria-label="Previous photo" onClick={() => step(-1)}>‹</button>}
+      <figure className="lightbox-figure">
+        <img src={fileUrl(photo)} alt={photo.caption ?? photo.original_filename} />
+        <figcaption>
+          {photo.caption && <strong>{photo.caption}</strong>}
+          <span className="meta-line">{photos.length > 1 ? `${index + 1} of ${photos.length}` : ""}{photo.created_at ? `${photos.length > 1 ? " · " : ""}${dateLabel(photo.created_at)}` : ""}</span>
+          {owner && (
+            <div className="lightbox-actions">
+              <label className={`btn secondary file-btn ${busy ? "is-busy" : ""}`}>
+                {busy ? "Saving…" : "Change"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={busy}
+                  data-testid="photo-replace"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    void replace(file);
+                  }}
+                />
+              </label>
+              {confirm ? (
+                <span className="confirm-inline lightbox-confirm">
+                  Delete this photo?
+                  <button type="button" className="btn danger" disabled={busy} onClick={() => void remove()}>Delete</button>
+                  <button type="button" className="btn secondary" disabled={busy} onClick={() => setConfirm(false)}>Keep</button>
+                </span>
+              ) : (
+                <button type="button" className="btn danger" disabled={busy} data-testid="photo-delete" onClick={() => setConfirm(true)}>Delete</button>
+              )}
+            </div>
+          )}
+        </figcaption>
+      </figure>
+      {photos.length > 1 && <button type="button" className="lightbox-step next" aria-label="Next photo" onClick={() => step(1)}>›</button>}
+    </div>
+  );
+}
+
+function ImprovementPhotos({
+  images,
+  owner,
+  onChange,
+  toast,
+}: {
+  images: Doc[];
+  owner: boolean;
+  onChange: () => Promise<void> | void;
+  toast: (message: string) => void;
+}) {
+  const [open, setOpen] = useState<number | null>(null);
+  return (
+    <>
+      <div className="photo-strip">
+        {images.map((doc, index) => (
+          <button
+            key={doc.document_id}
+            type="button"
+            className="photo-thumb"
+            onClick={() => setOpen(index)}
+            aria-label={doc.caption ?? doc.original_filename}
+          >
+            <img src={fileUrl(doc)} alt="" loading="lazy" />
+          </button>
+        ))}
+      </div>
+      {open !== null && images[open] && (
+        <PhotoLightbox
+          photos={images}
+          index={open}
+          owner={owner}
+          onIndex={setOpen}
+          onClose={() => setOpen(null)}
+          onChange={onChange}
+          toast={toast}
+        />
+      )}
+    </>
+  );
+}
 
 function PhotosSection({
   owner,

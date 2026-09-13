@@ -495,7 +495,9 @@ app.post("/api/properties/:id/documents", async (c) => {
   const asCover = form.cover === "true" && isImage && !claimId;
   const requestedType = typeof form.documentType === "string" && form.documentType ? form.documentType : null;
   const documentType = requestedType ?? (improvementId ? (isImage ? "photo" : "receipt") : isImage ? "photo" : "other");
-  const visibility = typeof form.visibility === "string" && form.visibility ? form.visibility : "private";
+  const visibility = typeof form.visibility === "string" && form.visibility
+    ? form.visibility
+    : (documentType === "photo" || isImage ? "public" : "private");
   const transferability = typeof form.transferability === "string" && form.transferability
     ? form.transferability
     : TRANSFERABLE_TYPES.has(documentType) ? "property_transferable" : "personal";
@@ -601,6 +603,39 @@ app.delete("/api/documents/:id", async (c) => {
   await emitEvent({
     propertyId: doc.property_id,
     eventType: "document.removed",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { document_id: doc.document_id, document_type: doc.document_type },
+  });
+  return c.json({ ok: true });
+});
+
+app.post("/api/documents/:id/file", async (c) => {
+  const { user, doc } = await loadOwnedDocument(c, c.req.param("id"));
+  const form = await c.req.parseBody();
+  const file = form.file;
+  if (!(file instanceof File)) return c.json({ error: "Choose a file to upload." }, 400);
+  if (file.size > 15 * 1024 * 1024) return c.json({ error: "Files must be 15 MB or smaller." }, 400);
+  const key = documentKey(doc.property_id, doc.document_id, file.name);
+  await putDocument(key, new Uint8Array(await file.arrayBuffer()));
+  const sql = getSql();
+  const isImage = file.type.startsWith("image/");
+  await sql`
+    UPDATE documents
+    SET
+      storage_key = ${key},
+      original_filename = ${file.name},
+      mime_type = ${file.type || "application/octet-stream"},
+      byte_size = ${file.size},
+      document_type = CASE
+        WHEN document_type = 'photo' OR ${isImage} THEN 'photo'
+        ELSE document_type
+      END
+    WHERE document_id = ${doc.document_id}
+  `;
+  await emitEvent({
+    propertyId: doc.property_id,
+    eventType: isImage || doc.document_type === "photo" ? "photo.replaced" : "document.replaced",
     actorType: "verified_owner",
     actorId: user.user_id,
     payload: { document_id: doc.document_id, document_type: doc.document_type },
@@ -883,7 +918,6 @@ app.post("/api/properties/:id/maintainers/:maintainerId/remove", async (c) => {
  * by anyone; everything else needs the uploader, a maintainer, or an admin.
  */
 app.get("/api/documents/:id/file", async (c) => {
-  const user = c.get("user");
   const sql = getSql();
   const rows = await sql<{
     storage_key: string;
@@ -900,19 +934,25 @@ app.get("/api/documents/:id/file", async (c) => {
   `;
   const doc = rows[0];
   if (!doc) return c.json({ error: "Not found" }, 404);
+  // The property page lists public photos and documents to every visitor, so the
+  // file behind them must be readable without a session too. Everything else stays
+  // behind the maintainer / uploader / admin check.
   const isPublic = doc.visibility === "public" && !doc.claim_id && !doc.removed_at;
   if (!isPublic) {
-    if (!user) return c.json({ error: "Sign in required" }, 401);
+    const user = requireUser(c);
     const allowed = user.is_admin
       || doc.uploaded_by === user.user_id
       || await isMaintainer(user.user_id, doc.property_id);
     if (!allowed) return c.json({ error: "Forbidden" }, 403);
   }
   const bytes = await getDocument(doc.storage_key);
-  return new Response(bytes as BodyInit, {
+  const body = bytes instanceof Uint8Array ? Uint8Array.from(bytes) : new Uint8Array(bytes);
+  const filename = (doc.original_filename ?? "document").replace(/["\r\n]/g, "_");
+  return new Response(body as BodyInit, {
     headers: {
       "content-type": doc.mime_type || "application/octet-stream",
-      "content-disposition": `inline; filename="${doc.original_filename ?? "document"}"`,
+      "content-disposition": `inline; filename="${filename}"`,
+      "content-length": String(body.byteLength),
       "cache-control": isPublic ? "private, max-age=300" : "private, no-store",
     },
   });

@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import postgres from "postgres";
 import { isHostedDatabase } from "../../db/safety.ts";
@@ -38,6 +41,7 @@ beforeEach(async () => {
   await sql`DELETE FROM handoff_invitations`;
   await sql`DELETE FROM contribution_assertions`;
   await sql`DELETE FROM contributions`;
+  await sql`DELETE FROM document_blobs`;
   await sql`DELETE FROM documents`;
   await sql`DELETE FROM property_improvements`;
   await sql`DELETE FROM property_maintainers`;
@@ -443,6 +447,92 @@ test("former owner loses maintainer access after a handoff claim is verified", a
     headers: { cookie: buyerCookie },
   });
   expect((await buyerNow.json()).properties).toHaveLength(1);
+});
+
+test("public photos are served to visitors; private ones stay gated", async () => {
+  process.env.DOCUMENT_ROOT = mkdtempSync(join(tmpdir(), "myplace-docs-"));
+  await seedProperty();
+  const ownerCookie = await signIn("owner@example.com");
+  const claim = await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ method: "tax_bill", attestationAccepted: true }),
+  });
+  const { claimId } = await claim.json();
+  const adminCookie = await signIn("admin@example.com", true);
+  await app.request(`http://localhost/api/admin/claims/${claimId}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: adminCookie },
+    body: JSON.stringify({ decision: "verified" }),
+  });
+
+  const upload = async (name: string, visibility: string) => {
+    const form = new FormData();
+    form.append("file", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])], name, { type: "image/jpeg" }));
+    form.append("documentType", "photo");
+    form.append("visibility", visibility);
+    const res = await app.request("http://localhost/api/properties/prop_test/documents", {
+      method: "POST",
+      headers: { cookie: ownerCookie },
+      body: form,
+    });
+    expect(res.status).toBe(201);
+    return (await res.json()).documentId as string;
+  };
+  const publicId = await upload("IMG_9526.jpeg", "public");
+  const privateId = await upload("IMG_6526.jpeg", "private");
+  const form = new FormData();
+  form.append("file", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 4, 5, 6])], "yard.jpeg", { type: "image/jpeg" }));
+  form.append("documentType", "photo");
+  const defaulted = await app.request("http://localhost/api/properties/prop_test/documents", {
+    method: "POST",
+    headers: { cookie: ownerCookie },
+    body: form,
+  });
+  expect(defaulted.status).toBe(201);
+  const defaultId = (await defaulted.json()).documentId as string;
+
+  // A visitor (no session) sees the public photo on the page and can load its file.
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(page.property.documents.map((d: { document_id: string; visibility?: string }) => [d.document_id, d.visibility])).toEqual([
+    [defaultId, "public"],
+    [publicId, "public"],
+  ]);
+  const anonymousPublic = await app.request(`http://localhost/api/documents/${publicId}/file`);
+  expect(anonymousPublic.status).toBe(200);
+  expect(anonymousPublic.headers.get("content-type")).toBe("image/jpeg");
+  expect((await anonymousPublic.arrayBuffer()).byteLength).toBe(7);
+
+  const anonymousPrivate = await app.request(`http://localhost/api/documents/${privateId}/file`);
+  expect(anonymousPrivate.status).toBe(401);
+  const strangerCookie = await signIn("stranger@example.com");
+  const strangerPrivate = await app.request(`http://localhost/api/documents/${privateId}/file`, { headers: { cookie: strangerCookie } });
+  expect(strangerPrivate.status).toBe(403);
+  const ownerPrivate = await app.request(`http://localhost/api/documents/${privateId}/file`, { headers: { cookie: ownerCookie } });
+  expect(ownerPrivate.status).toBe(200);
+
+  // Bytes are in Postgres, so a tunnel on another machine can still serve them.
+  process.env.DOCUMENT_ROOT = mkdtempSync(join(tmpdir(), "myplace-empty-"));
+  const fromDb = await app.request(`http://localhost/api/documents/${publicId}/file`);
+  expect(fromDb.status).toBe(200);
+  expect((await fromDb.arrayBuffer()).byteLength).toBe(7);
+
+  const replaceForm = new FormData();
+  replaceForm.append("file", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 8, 7, 6, 5])], "yard.jpeg", { type: "image/jpeg" }));
+  const anonymousReplace = await app.request(`http://localhost/api/documents/${publicId}/file`, { method: "POST", body: replaceForm });
+  expect(anonymousReplace.status).toBe(401);
+  const strangerReplace = await app.request(`http://localhost/api/documents/${publicId}/file`, { method: "POST", headers: { cookie: strangerCookie }, body: replaceForm });
+  expect(strangerReplace.status).toBe(403);
+  const ownerReplace = await app.request(`http://localhost/api/documents/${publicId}/file`, { method: "POST", headers: { cookie: ownerCookie }, body: replaceForm });
+  expect(ownerReplace.status).toBe(200);
+  const replaced = await app.request(`http://localhost/api/documents/${publicId}/file`);
+  expect(replaced.status).toBe(200);
+  expect((await replaced.arrayBuffer()).byteLength).toBe(9);
+
+  // Removing a public photo takes its file out of public reach as well.
+  await app.request(`http://localhost/api/documents/${publicId}`, { method: "DELETE", headers: { cookie: ownerCookie } });
+  const removed = await app.request(`http://localhost/api/documents/${publicId}/file`);
+  expect(removed.status).toBe(401);
 });
 
 test("Greene official lot lines and Columbia sketches stay distinct", async () => {

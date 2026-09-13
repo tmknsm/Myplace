@@ -63,7 +63,7 @@ export function isImage(doc: Doc): boolean {
 }
 
 export function fileUrl(doc: Doc): string {
-  return `/api/documents/${doc.document_id}/file`;
+  return `/api/documents/${doc.document_id}/file?v=${doc.byte_size ?? 0}`;
 }
 
 export type Toast = (message: string) => void;

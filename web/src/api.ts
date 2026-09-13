@@ -71,6 +71,11 @@ export const api = {
   documents: (id: string) => request<{ documents: Doc[] }>(`/api/properties/${id}/documents`),
   patchDocument: (id: string, body: { visibility?: string; transferability?: string; documentType?: string; caption?: string | null; cover?: boolean }) =>
     request<{ ok: boolean }>(`/api/documents/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  replaceDocument: (id: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ ok: boolean }>(`/api/documents/${id}/file`, { method: "POST", body: form });
+  },
   deleteDocument: (id: string) => request<{ ok: boolean }>(`/api/documents/${id}`, { method: "DELETE" }),
   saveOwnerFields: (id: string, fields: Record<string, unknown>, visibility?: FieldVisibility) =>
     request<{ contributionId: string | null; updated: number; removed: number }>(`/api/properties/${id}/owner-fields`, {

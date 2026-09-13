@@ -300,8 +300,10 @@ export function eventLabel(type: string): string {
     "improvement.updated": "Improvement updated",
     "improvement.removed": "Improvement removed",
     "document.added": "Document added",
+    "document.replaced": "Document replaced",
     "document.removed": "Document removed",
     "photo.added": "Photo added",
+    "photo.replaced": "Photo replaced",
     "assertion.updated": "Assertion updated",
   };
   return labels[type] ?? type.replace(/[._]/g, " ");
