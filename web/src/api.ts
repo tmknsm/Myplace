@@ -25,6 +25,8 @@ export const api = {
     demonstration: boolean;
     ownerVerification: string;
     devMailbox: boolean;
+    counties: CountyMeta[];
+    map: { center: [number, number]; zoom: number; tiles: string; tileLayer: string; minZoom: number; maxZoom: number };
   }>("/api/meta"),
   me: () => request<{ user: User | null }>("/api/auth/me"),
   requestCode: (email: string) =>
@@ -77,9 +79,30 @@ export interface ParcelCollection {
   features: Array<{
     type: "Feature";
     id: string;
-    properties: { property_id: string; address: string | null };
-    geometry: { type: string; coordinates: number[][][] };
+    properties: {
+      property_id: string;
+      address: string | null;
+      county?: string;
+      geometryQuality?: string;
+    };
+    geometry: { type: string; coordinates: number[][][] | number[][][][] };
   }>;
+}
+
+export type GeometryQuality = "official" | "approximate" | "demonstration";
+
+export interface CountyMeta {
+  id: string;
+  name: string;
+  geometryPolicy: "public" | "restricted";
+  /** Most common stored lot-line quality for this county; null when nothing is loaded. */
+  geometryQuality: GeometryQuality | null;
+  center: [number, number];
+  zoom: number;
+  short: string;
+  notice: string;
+  parcelCount: number;
+  shapeCount: number;
 }
 
 export interface User {
@@ -127,7 +150,9 @@ export interface PropertyPage {
   formatted: string | null;
   sbl: string | null;
   swis: string | null;
-  geojson: { type: string; coordinates: number[][][] } | null;
+  geojson: { type: string; coordinates: number[][][] | number[][][][] } | null;
+  geometryQuality?: string | null;
+  geometryNotice?: string | null;
   facts: Fact[];
   events: Array<{
     event_id: string;

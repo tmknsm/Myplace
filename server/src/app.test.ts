@@ -241,3 +241,94 @@ test("former owner loses maintainer access after a new verified claim", async ()
   });
   expect((await buyerNow.json()).properties).toHaveLength(1);
 });
+
+test("Greene official lot lines and Columbia sketches stay distinct", async () => {
+  await sql`
+    INSERT INTO sources (source_id, name, source_type, health_status, jurisdiction)
+    VALUES
+      ('src_county_gis', 'Demonstration parcel geometry', 'government', 'healthy', 'Columbia County, NY'),
+      ('src_greene_gis', 'NYS Tax Parcels Public — Greene lot lines', 'government', 'healthy', 'Greene County, NY')
+  `;
+  await sql`INSERT INTO properties (property_id, state, county, municipality) VALUES ('prop_col', 'NY', 'Columbia', 'Hudson')`;
+  await sql`INSERT INTO properties (property_id, state, county, municipality) VALUES ('prop_grn', 'NY', 'Greene', 'Catskill')`;
+  await sql`
+    INSERT INTO property_addresses (address_id, property_id, formatted, street_number, street_name, city)
+    VALUES
+      ('adr_col', 'prop_col', '441 Warren Street, Hudson, NY 12534', '441', 'Warren Street', 'Hudson'),
+      ('adr_grn', 'prop_grn', '1 Main Street, Catskill, NY 12414', '1', 'Main Street', 'Catskill')
+  `;
+  await sql`
+    INSERT INTO property_geometries (geometry_id, property_id, geom, source_id, quality, is_current)
+    VALUES
+      ('geo_col', 'prop_col', ST_SetSRID(ST_GeomFromText('POLYGON((-73.79 42.25,-73.789 42.25,-73.789 42.251,-73.79 42.251,-73.79 42.25))'), 4326), 'src_county_gis', 'demonstration', true),
+      ('geo_grn', 'prop_grn', ST_SetSRID(ST_GeomFromText('POLYGON((-73.867 42.217,-73.866 42.217,-73.866 42.218,-73.867 42.218,-73.867 42.217))'), 4326), 'src_greene_gis', 'official', true)
+  `;
+
+  const meta = await (await app.request("http://localhost/api/meta")).json();
+  expect(meta.coverage).toMatch(/Greene/);
+  expect(meta.counties.map((c: { id: string }) => c.id)).toEqual(["Columbia", "Greene"]);
+  const greeneMeta = meta.counties.find((c: { id: string }) => c.id === "Greene");
+  const columbiaMeta = meta.counties.find((c: { id: string }) => c.id === "Columbia");
+  expect(greeneMeta.geometryPolicy).toBe("public");
+  expect(greeneMeta.geometryQuality).toBe("official");
+  expect(columbiaMeta.geometryPolicy).toBe("restricted");
+  expect(columbiaMeta.geometryQuality).toBe("demonstration");
+  expect(meta.demonstration).toBe(true);
+  expect(meta.map.tiles).toBe("/api/tiles/{z}/{x}/{y}.mvt");
+
+  const greene = await (await app.request("http://localhost/api/search?q=1%20Main")).json();
+  expect(greene.results[0].property_id).toBe("prop_grn");
+  expect(greene.results[0].county).toBe("Greene");
+
+  const page = await (await app.request("http://localhost/api/properties/prop_grn")).json();
+  expect(page.property.geometryQuality).toBe("official");
+  expect(page.property.geometryNotice).toMatch(/authorized NYS/);
+  expect(page.property.geometryNotice).toMatch(/county tax map as published/);
+  expect(page.property.coverage.lot_lines).toBe("Official");
+
+  const columbia = await (await app.request("http://localhost/api/properties/prop_col")).json();
+  expect(columbia.property.geometryNotice).toMatch(/does not authorize/);
+  expect(columbia.property.geometryNotice).toMatch(/demonstration sketch/);
+  expect(columbia.property.coverage.lot_lines).toBe("Demonstration");
+
+  const parcels = await (await app.request("http://localhost/api/parcels?bbox=-74,42,-73,43")).json();
+  const qualities = Object.fromEntries(
+    parcels.features.map((f: { id: string; properties: { geometryQuality: string } }) => [f.id, f.properties.geometryQuality]),
+  );
+  expect(qualities.prop_col).toBe("demonstration");
+  expect(qualities.prop_grn).toBe("official");
+});
+
+function tileFor(lng: number, lat: number, z: number): { x: number; y: number } {
+  const n = 2 ** z;
+  const rad = (lat * Math.PI) / 180;
+  return {
+    x: Math.floor(((lng + 180) / 360) * n),
+    y: Math.floor(((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n),
+  };
+}
+
+test("parcel vector tiles carry shapes only where parcels exist", async () => {
+  await seedProperty();
+  const hit = tileFor(-73.7895, 42.2505, 14);
+  const tile = await app.request(`http://localhost/api/tiles/14/${hit.x}/${hit.y}.mvt`);
+  expect(tile.status).toBe(200);
+  expect(tile.headers.get("content-type")).toBe("application/vnd.mapbox-vector-tile");
+  const bytes = new Uint8Array(await tile.arrayBuffer());
+  expect(bytes.length).toBeGreaterThan(20);
+  // Layer name and attribute keys are stored as plain strings inside the protobuf.
+  const text = new TextDecoder("latin1").decode(bytes);
+  expect(text).toContain("parcels");
+  expect(text).toContain("property_id");
+  expect(text).toContain("prop_test");
+
+  const miss = tileFor(-73.5, 42.4, 14);
+  const empty = await app.request(`http://localhost/api/tiles/14/${miss.x}/${miss.y}.mvt`);
+  expect(empty.status).toBe(204);
+
+  const shallow = await app.request(`http://localhost/api/tiles/8/75/94.mvt`);
+  expect(shallow.status).toBe(204);
+
+  const bad = await app.request(`http://localhost/api/tiles/14/-1/2.mvt`);
+  expect(bad.status).toBe(400);
+});

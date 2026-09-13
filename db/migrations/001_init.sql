@@ -89,19 +89,24 @@ CREATE TABLE parcel_identities (
 );
 
 CREATE INDEX parcel_identities_sbl_idx ON parcel_identities (sbl);
+CREATE INDEX parcel_identities_sbl_trgm ON parcel_identities USING GIN (sbl gin_trgm_ops);
+CREATE INDEX parcel_identities_print_key_trgm ON parcel_identities USING GIN (print_key gin_trgm_ops);
 CREATE INDEX parcel_identities_property_idx ON parcel_identities (property_id);
 
 CREATE TABLE property_geometries (
   geometry_id TEXT PRIMARY KEY,
   property_id TEXT NOT NULL REFERENCES properties(property_id) ON DELETE CASCADE,
-  geom GEOMETRY(Polygon, 4326) NOT NULL,
+  geom GEOMETRY(Geometry, 4326) NOT NULL,
   source_id TEXT REFERENCES sources(source_id),
+  quality TEXT NOT NULL DEFAULT 'demonstration'
+    CHECK (quality IN ('official', 'approximate', 'demonstration')),
   is_current BOOLEAN NOT NULL DEFAULT TRUE,
   effective_at DATE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX property_geometries_gix ON property_geometries USING GIST (geom);
+CREATE INDEX property_geometries_property_idx ON property_geometries (property_id);
 CREATE INDEX property_geometries_current_idx ON property_geometries (property_id) WHERE is_current;
 
 CREATE TABLE property_addresses (
@@ -185,6 +190,8 @@ CREATE TABLE property_maintainers (
 CREATE UNIQUE INDEX property_maintainers_active_idx
   ON property_maintainers (property_id, user_id)
   WHERE revoked_at IS NULL;
+CREATE INDEX property_maintainers_property_idx ON property_maintainers (property_id);
+CREATE INDEX property_maintainers_user_idx ON property_maintainers (user_id);
 
 CREATE TABLE documents (
   document_id TEXT PRIMARY KEY,
@@ -215,6 +222,8 @@ CREATE TABLE contributions (
   resolved_by TEXT
 );
 
+CREATE INDEX contributions_property_idx ON contributions (property_id);
+
 CREATE TABLE contribution_assertions (
   contribution_assertion_id TEXT PRIMARY KEY,
   contribution_id TEXT NOT NULL REFERENCES contributions(contribution_id) ON DELETE CASCADE,
@@ -230,6 +239,9 @@ CREATE TABLE property_relationships (
   effective_at DATE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX property_relationships_from_idx ON property_relationships (from_property_id);
+CREATE INDEX property_relationships_to_idx ON property_relationships (to_property_id);
 
 CREATE TABLE emails (
   email_id TEXT PRIMARY KEY,
@@ -256,6 +268,8 @@ CREATE TABLE handoff_invitations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   accepted_at TIMESTAMPTZ
 );
+
+CREATE INDEX handoff_invitations_property_idx ON handoff_invitations (property_id);
 
 CREATE TABLE field_vocabulary (
   field_key TEXT PRIMARY KEY,
