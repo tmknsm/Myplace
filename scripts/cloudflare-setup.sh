@@ -104,8 +104,8 @@ HAS_SCHEMA="$(DATABASE_URL="$DATABASE_URL" npx tsx --input-type=module -e '
 if [[ "$HAS_SCHEMA" == "yes" ]]; then
   echo "    schema already present; skipping migrate + seed"
 else
-  echo "    applying migrations and demonstration seed"
-  DATABASE_URL="$DATABASE_URL" SESSION_SECRET="$SESSION_SECRET" npm run setup
+  echo "    applying migrations and demonstration seed (not the full county import)"
+  DATABASE_URL="$DATABASE_URL" SESSION_SECRET="$SESSION_SECRET" npm run setup:sample
 fi
 
 if [[ "${SKIP_DEPLOY:-}" == "1" ]]; then
