@@ -206,9 +206,18 @@ export function formatWetlands(types: string[]): string {
   return `NWI: ${unique.join("; ")}`;
 }
 
+function asInt(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function isHistoricDistrict(hit: HistoricHit): boolean {
+  return asInt(hit.typeId) === 3 || /historic\s+district/i.test(hit.name);
+}
+
 export function formatHistoric(hits: HistoricHit[]): string {
-  const districts = [...new Set(hits.filter((hit) => hit.typeId === 3).map((hit) => hit.name.trim()).filter(Boolean))];
-  const listed = [...new Set(hits.filter((hit) => hit.typeId !== 3).map((hit) => hit.name.trim()).filter(Boolean))];
+  const districts = [...new Set(hits.filter(isHistoricDistrict).map((hit) => hit.name.trim()).filter(Boolean))];
+  const listed = [...new Set(hits.filter((hit) => !isHistoricDistrict(hit)).map((hit) => hit.name.trim()).filter(Boolean))];
   const parts: string[] = [];
   for (const name of districts) parts.push(`Historic district: ${name}`);
   if (!districts.length) {
@@ -567,7 +576,7 @@ export async function importHistoric(sql: Sql): Promise<OverlayStats> {
   for (const row of joined) {
     const hits: HistoricHit[] = parseHits(row.hits).map((hit) => ({
       name: hit.label,
-      typeId: typeof hit.extra.typeId === "number" ? hit.extra.typeId : null,
+      typeId: asInt(hit.extra.typeId),
     }));
     const value = formatHistoric(hits);
     if (value !== NONE_HISTORIC) positive += 1;

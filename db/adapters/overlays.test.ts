@@ -41,6 +41,8 @@ test("historic labels distinguish districts from individual listings", () => {
     { name: "Warren Street Historic District", typeId: 3 },
     { name: "A house on Warren", typeId: 1 },
   ])).toBe("Historic district: Warren Street Historic District");
+  expect(formatHistoric([{ name: "Hudson Historic District", typeId: null }]))
+    .toBe("Historic district: Hudson Historic District");
 });
 
 test("attr reads ArcGIS join-qualified field names", () => {
