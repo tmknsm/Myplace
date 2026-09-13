@@ -531,9 +531,9 @@ async function intersectProperties(sql: Sql, table: string): Promise<JoinHit[]> 
   return sql<JoinHit[]>`
     SELECT pg.property_id,
            COALESCE(
-             json_agg(json_build_object('label', o.label, 'extra', o.extra))
+             jsonb_agg(jsonb_build_object('label', o.label, 'extra', o.extra))
                FILTER (WHERE o.label IS NOT NULL),
-             '[]'::json
+             '[]'::jsonb
            ) AS hits
     FROM property_geometries pg
     LEFT JOIN ${sql(table)} o ON ST_Intersects(pg.geom, o.geom)
@@ -547,15 +547,33 @@ async function nearProperties(sql: Sql, table: string, meters = NEAR_METERS): Pr
   return sql<JoinHit[]>`
     SELECT pg.property_id,
            COALESCE(
-             json_agg(json_build_object('label', o.label, 'extra', o.extra))
+             jsonb_agg(jsonb_build_object('label', o.label, 'extra', o.extra))
                FILTER (WHERE o.label IS NOT NULL),
-             '[]'::json
+             '[]'::jsonb
            ) AS hits
     FROM property_geometries pg
     LEFT JOIN ${sql(table)} o ON ST_DWithin(pg.geom::geography, o.geom::geography, ${meters})
     WHERE pg.is_current
     GROUP BY pg.property_id
   `;
+}
+
+function asExtra(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return {};
+    }
+    return {};
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
 }
 
 function parseHits(raw: unknown): Array<{ label: string; extra: Record<string, unknown> }> {
@@ -565,11 +583,14 @@ function parseHits(raw: unknown): Array<{ label: string; extra: Record<string, u
     const row = item as { label?: unknown; extra?: unknown };
     const label = clean(row.label);
     if (!label) return [];
-    const extra = row.extra && typeof row.extra === "object" && !Array.isArray(row.extra)
-      ? (row.extra as Record<string, unknown>)
-      : {};
-    return [{ label, extra }];
+    return [{ label, extra: asExtra(row.extra) }];
   });
+}
+
+function uniqueLabels(hits: Array<{ label: string }>, none: string): string {
+  const parts = [...new Set(hits.map((hit) => hit.label.trim()).filter(Boolean))];
+  if (!parts.length) return none;
+  return capLabels(parts.slice(0, 3), Math.max(0, parts.length - 3));
 }
 
 function fact(
@@ -836,13 +857,12 @@ export async function importRemedial(sql: Sql): Promise<OverlayStats> {
     featureRows(features, (props) => {
       const name = clean(attr(props, "SITENAME"));
       if (!name) return null;
+      const program = clean(attr(props, "PROGRAM"));
+      const siteClass = clean(attr(props, "SITECLASS"));
+      const siteCode = clean(attr(props, "SITECODE"));
       return {
-        label: name,
-        extra: {
-          program: clean(attr(props, "PROGRAM")),
-          siteClass: clean(attr(props, "SITECLASS")),
-          siteCode: clean(attr(props, "SITECODE")),
-        },
+        label: formatRemedial([{ name, program, siteClass, siteCode }]),
+        extra: { program, siteClass, siteCode },
       };
     }),
     "any",
@@ -851,13 +871,8 @@ export async function importRemedial(sql: Sql): Promise<OverlayStats> {
   const rows: Asrt[] = [];
   let positive = 0;
   for (const row of joined) {
-    const hits: RemedialHit[] = parseHits(row.hits).map((hit) => ({
-      name: hit.label,
-      program: clean(hit.extra.program),
-      siteClass: clean(hit.extra.siteClass),
-      siteCode: clean(hit.extra.siteCode),
-    }));
-    const value = formatRemedial(hits);
+    const hits = parseHits(row.hits);
+    const value = uniqueLabels(hits, NONE_REMEDIAL);
     if (value !== NONE_REMEDIAL) positive += 1;
     rows.push(fact(row.property_id, "env.remedial", value, SRC_DEC_REMEDIAL, OVERLAY_AS_OF, hits.length ? 0.88 : 0.82));
   }
@@ -939,14 +954,15 @@ export async function importTanks(sql: Sql): Promise<OverlayStats> {
     const active = list.find((row) => /active/i.test(clean(row.site_status_name) ?? ""));
     const pick = active ?? located!;
     const name = clean(pick.program_facility_name) ?? programNumber;
+    const extra = {
+      programType: clean(pick.program_type),
+      status: clean(pick.site_status_name),
+      locality: clean(pick.locality),
+      programNumber,
+    };
     sites.push({
-      label: name,
-      extra: {
-        programType: clean(pick.program_type),
-        status: clean(pick.site_status_name),
-        locality: clean(pick.locality),
-        programNumber,
-      },
+      label: formatBulkStorage([{ name, ...extra }]),
+      extra,
       geojson: JSON.stringify({ type: "Point", coordinates: coord }),
     });
   }
@@ -955,14 +971,8 @@ export async function importTanks(sql: Sql): Promise<OverlayStats> {
   const rows: Asrt[] = [];
   let positive = 0;
   for (const row of joined) {
-    const hits: TankHit[] = parseHits(row.hits).map((hit) => ({
-      name: hit.label,
-      programType: clean(hit.extra.programType),
-      status: clean(hit.extra.status),
-      locality: clean(hit.extra.locality),
-      programNumber: clean(hit.extra.programNumber),
-    }));
-    const value = formatBulkStorage(hits);
+    const hits = parseHits(row.hits);
+    const value = uniqueLabels(hits, NONE_TANKS);
     if (value !== NONE_TANKS) positive += 1;
     rows.push(fact(row.property_id, "env.bulk_storage", value, SRC_DEC_TANKS, OVERLAY_AS_OF, hits.length ? 0.88 : 0.82));
   }
