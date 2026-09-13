@@ -4,6 +4,7 @@ import {
   expandStreet,
   fetchJson,
   id,
+  insertRows,
   num,
   pushFacts,
   recordSnapshot,
@@ -509,4 +510,95 @@ export async function importGreene(sql: Sql): Promise<ImportStats> {
       `roll year ${rollYear}, spatial year ${spatialYear}`,
     ],
   };
+}
+
+/** Finish assertions/events after a size-limit interrupt. Properties and shapes stay put. */
+export async function resumeMissingGreeneFacts(sql: Sql): Promise<{ properties: number; assertions: number; events: number }> {
+  const missingRows = await sql<{ property_id: string }[]>`
+    SELECT p.property_id FROM properties p
+    WHERE p.county = ${"Greene"}
+      AND NOT EXISTS (SELECT 1 FROM assertions a WHERE a.property_id = p.property_id)
+  `;
+  const missing = new Set(missingRows.map((row) => row.property_id));
+  if (missing.size === 0) return { properties: 0, assertions: 0, events: 0 };
+
+  console.log(`Greene resume: ${missing.size} properties still need facts; refetching the county roll…`);
+  const features = await fetchCounty("Greene");
+  const rollYears = new Set<number>();
+  for (const feature of features) {
+    if (feature.properties.ROLL_YR) rollYears.add(feature.properties.ROLL_YR);
+  }
+  const rollYear = Math.max(...rollYears, 2025);
+  const effective = `${rollYear}-07-01`;
+
+  const batch: Batch = emptyBatch();
+  const seen = new Set<string>();
+  for (const feature of features) {
+    const a = feature.properties;
+    const swis = clean(a.SWIS);
+    const printKey = clean(a.PRINT_KEY);
+    if (!swis || !printKey) continue;
+    const key = `${swis}|${printKey}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const propertyId = id("prop", key);
+    if (!missing.has(propertyId)) continue;
+
+    const { municipality, kind } = splitMuni(a.MUNI_NAME);
+    const streetNumber = clean(a.LOC_ST_NBR);
+    const street = clean(a.LOC_STREET) ? expandStreet(clean(a.LOC_STREET)!) : null;
+    const unit = clean(a.LOC_UNIT);
+    const line = [streetNumber, street, unit ? `Unit ${unit}` : null].filter(Boolean).join(" ")
+      || clean(a.PARCEL_ADDR)
+      || "Unnamed parcel";
+    const zip = postalCode(a, municipality);
+    const formatted = `${line}, ${municipality ?? "Greene County"}, NY${zip ? ` ${zip}` : ""}`;
+    const acreage = num(a.ACRES) && num(a.ACRES)! > 0 ? num(a.ACRES) : num(a.CALC_ACRES);
+    const util = utilities(a.UTILITIES_DESC);
+
+    if (feature.geometry && (feature.geometry.type === "Polygon" || feature.geometry.type === "MultiPolygon")) {
+      pushFacts(batch, key, propertyId, "src_greene_gis", effective, [
+        ["geometry.kind", `Official tax-map polygon (${a.SPATIAL_YR ?? rollYear} county tax map)`],
+      ], 0.98);
+    }
+    pushFacts(batch, key, propertyId, "src_greene_roll", effective, [
+      ["address", formatted],
+      ["municipality", kind ? `${municipality} (${kind})` : municipality],
+      ["county", "Greene"],
+      ["parcel.sbl", printKey],
+      ["parcel.swis", swis],
+      ["acreage", acreage !== null ? Number(acreage.toFixed(2)) : null],
+      ["property_class", propertyClass(a.PROP_CLASS)],
+      ["year_built", num(a.YR_BLT) && num(a.YR_BLT)! > 1600 ? num(a.YR_BLT) : null],
+      ["building_area", num(a.SQFT_LIVING) && num(a.SQFT_LIVING)! > 0 ? num(a.SQFT_LIVING) : null],
+      ["assessment.land", num(a.LAND_AV)],
+      ["assessment.total", num(a.TOTAL_AV)],
+      ["market_value_estimate", num(a.FULL_MARKET_VAL)],
+      ["owner_name_public", clean(a.PRIMARY_OWNER)],
+      ["school_district", schoolDistrict(a.SCHOOL_NAME)],
+      ["utility.electric", util.electric],
+      ["utility.gas", util.gas],
+      ["utility.water", clean(a.WATER_DESC)],
+      ["utility.sewer", clean(a.SEWER_DESC)],
+    ]);
+    batch.evts.push({
+      event_id: id("evt", `${key}|import`),
+      property_id: propertyId,
+      event_type: "parcel.imported",
+      actor_type: "source",
+      source_id: "src_greene_gis",
+      payload_json: {
+        adapter: "nys_tax_parcels_public",
+        county: "Greene",
+        roll_year: a.ROLL_YR ?? rollYear,
+        print_key: printKey,
+      },
+      effective_at: effective,
+    });
+  }
+
+  console.log(`  Greene resume: writing ${batch.asrts.length} assertions and ${batch.evts.length} events for ${missing.size} properties…`);
+  await insertRows(sql, "assertions", batch.asrts, ["assertion_id", "property_id", "field_key", "value_json", "source_id", "source_type", "effective_at", "observed_at", "confidence", "status"], 400);
+  await insertRows(sql, "property_events", batch.evts, ["event_id", "property_id", "event_type", "actor_type", "source_id", "payload_json", "effective_at"]);
+  return { properties: missing.size, assertions: batch.asrts.length, events: batch.evts.length };
 }
