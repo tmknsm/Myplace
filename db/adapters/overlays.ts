@@ -222,36 +222,47 @@ export function formatZoning(hits: ZoningHit[]): string | null {
   return parts.length ? parts.join("; ") : null;
 }
 
+interface IdPage {
+  objectIdFieldName?: string;
+  objectIds?: number[];
+}
+
 async function fetchArcGisFeatures(
   layerUrl: string,
   outFields: string,
-  pageSize = 2000,
+  pageSize = 250,
 ): Promise<GeoJsonFeature[]> {
+  const endpoint = `${layerUrl.replace(/\/$/, "")}/query`;
+  const idParams = new URLSearchParams({
+    f: "json",
+    where: "1=1",
+    geometry: OVERLAY_BBOX,
+    geometryType: "esriGeometryEnvelope",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    returnIdsOnly: "true",
+  });
+  const idPage = await fetchJson<IdPage>(`${endpoint}?${idParams}`);
+  const objectIds = idPage.objectIds ?? [];
+  if (objectIds.length === 0) {
+    console.log("    0 features");
+    return [];
+  }
+  console.log(`    ${objectIds.length} object ids`);
   const features: GeoJsonFeature[] = [];
-  let offset = 0;
-  for (;;) {
+  for (let i = 0; i < objectIds.length; i += pageSize) {
+    const batch = objectIds.slice(i, i + pageSize);
     const params = new URLSearchParams({
       f: "geojson",
-      where: "1=1",
-      geometry: OVERLAY_BBOX,
-      geometryType: "esriGeometryEnvelope",
-      inSR: "4326",
-      spatialRel: "esriSpatialRelIntersects",
+      objectIds: batch.join(","),
       outFields,
       returnGeometry: "true",
       outSR: "4326",
       geometryPrecision: "5",
-      resultOffset: String(offset),
-      resultRecordCount: String(pageSize),
     });
-    const url = `${layerUrl.replace(/\/$/, "")}/query?${params}`;
-    const page = await fetchJson<GeoJsonPage>(url);
-    const part = (page.features ?? []).filter((feature) => feature.geometry);
-    features.push(...part);
-    const exceeded = Boolean(page.exceededTransferLimit || page.properties?.exceededTransferLimit);
-    console.log(`    ${features.length} features`);
-    if (part.length === 0 || (part.length < pageSize && !exceeded)) break;
-    offset += part.length;
+    const page = await fetchJson<GeoJsonPage>(`${endpoint}?${params}`);
+    features.push(...(page.features ?? []).filter((feature) => feature.geometry));
+    console.log(`    ${features.length}/${objectIds.length} features`);
   }
   return features;
 }
@@ -577,7 +588,19 @@ export async function importOverlays(sql: Sql, only?: OverlayLayer[]): Promise<O
   const wanted = only?.length ? only : (Object.keys(LAYERS) as OverlayLayer[]);
   const results: OverlayStats[] = [];
   for (const layer of wanted) {
-    results.push(await LAYERS[layer](sql));
+    try {
+      results.push(await LAYERS[layer](sql));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`  ${layer} failed: ${message}`);
+      results.push({
+        layer,
+        features: 0,
+        assertions: 0,
+        positive: 0,
+        notes: [`failed: ${message}`],
+      });
+    }
   }
   return results;
 }
