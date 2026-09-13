@@ -616,7 +616,8 @@ function StatStrip({ facts }: { facts: Fact[] }) {
 
 function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) {
   const [active, setActive] = useState<string | null>(items[0]?.id ?? null);
-  const navRef = useRef<HTMLElement | null>(null);
+  const [docked, setDocked] = useState(false);
+  const navRef = useRef<HTMLDivElement | null>(null);
   const ids = items.map((item) => item.id).join("|");
   useEffect(() => {
     const node = navRef.current;
@@ -632,6 +633,31 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
       document.documentElement.style.removeProperty("--profile-nav-height");
     };
   }, [ids]);
+  useEffect(() => {
+    const node = navRef.current;
+    if (!node) return;
+    let frame = 0;
+    const check = () => {
+      frame = 0;
+      const top = Number.parseFloat(getComputedStyle(node).top) || 0;
+      setDocked(node.getBoundingClientRect().top <= top + 0.5);
+    };
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(check); };
+    check();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+  useEffect(() => {
+    // While docked, the tab bar paints one frosted panel behind itself and the
+    // header, so the header gives up its own fill to avoid a seam.
+    document.documentElement.classList.toggle("nav-docked", docked);
+    return () => document.documentElement.classList.remove("nav-docked");
+  }, [docked]);
   useEffect(() => {
     const nodes = ids.split("|").map((id) => document.getElementById(id)).filter((node): node is HTMLElement => Boolean(node));
     if (!nodes.length) return;
@@ -651,18 +677,21 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
     return () => observer.disconnect();
   }, [ids]);
   return (
-    <nav ref={navRef} className="side-nav profile-nav" aria-label="On this page">
-      {items.map((item) => (
-        <a
-          key={item.id}
-          href={`#${item.id}`}
-          className={active === item.id ? "on" : ""}
-          onClick={(event) => { event.preventDefault(); scrollToId(item.id); }}
-        >
-          {item.label}
-        </a>
-      ))}
-    </nav>
+    <div ref={navRef} className={`profile-nav-wrap${docked ? " docked" : ""}`}>
+      <div className="profile-nav-glass" aria-hidden="true" />
+      <nav className="side-nav profile-nav" aria-label="On this page">
+        {items.map((item) => (
+          <a
+            key={item.id}
+            href={`#${item.id}`}
+            className={active === item.id ? "on" : ""}
+            onClick={(event) => { event.preventDefault(); scrollToId(item.id); }}
+          >
+            {item.label}
+          </a>
+        ))}
+      </nav>
+    </div>
   );
 }
 

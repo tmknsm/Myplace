@@ -855,7 +855,9 @@ tr:last-child td { border-bottom: 0; }
   align-items: start;
   margin-top: 32px;
 }
-.profile-nav { top: calc(var(--topbar-height, 84px) - 1px); }
+.profile-nav-wrap { position: sticky; top: var(--topbar-height, 84px); }
+.profile-nav { position: static; top: auto; }
+.profile-nav-glass { display: none; }
 .profile-nav a { font-size: 14px; }
 .profile-main { min-width: 0; }
 .profile-main > .section:first-child,
@@ -1417,21 +1419,41 @@ table small { display: block; }
   .stat:last-child { border-bottom: 0; }
   .stat strong { font-size: 17px; }
   .profile-grid { grid-template-columns: 1fr; gap: 12px; margin-top: 22px; }
+  .profile-grid .profile-nav-wrap {
+    position: sticky;
+    top: var(--topbar-height, calc(52px + env(safe-area-inset-top)));
+    z-index: 15;
+    margin: 0 calc(-1 * var(--pad));
+  }
   .profile-grid .profile-nav {
     flex-direction: row;
     overflow-x: auto;
-    position: sticky;
-    /* Overlap the header by a few px so no page content bleeds through the seam. */
-    top: calc(var(--topbar-height, calc(52px + env(safe-area-inset-top))) - 6px);
-    z-index: 15;
+    position: static;
     gap: 6px;
-    margin: 0 calc(-1 * var(--pad));
-    padding: calc(var(--profile-nav-pad-y) + 6px) var(--pad) var(--profile-nav-pad-y);
-    background: color-mix(in srgb, var(--canvas) 88%, transparent);
-    backdrop-filter: saturate(1.4) blur(20px);
-    -webkit-backdrop-filter: saturate(1.4) blur(20px);
+    margin: 0;
+    padding: var(--profile-nav-pad-y) var(--pad);
+    background: transparent;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+  }
+  /* Docked: one frosted sheet spans the header and the tabs, so there is no seam. */
+  .profile-grid .profile-nav-wrap.docked .profile-nav-glass {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(-1 * var(--topbar-height, 0px));
+    bottom: 0;
+    z-index: -1;
+    background: color-mix(in srgb, var(--canvas) 78%, transparent);
+    backdrop-filter: saturate(1.4) blur(20px);
+    -webkit-backdrop-filter: saturate(1.4) blur(20px);
+    pointer-events: none;
+  }
+  html.nav-docked .topbar {
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
   .profile-grid .profile-nav::-webkit-scrollbar { display: none; }
   .profile-grid .profile-nav a {
