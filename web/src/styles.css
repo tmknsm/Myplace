@@ -1421,11 +1421,12 @@ table small { display: block; }
     flex-direction: row;
     overflow-x: auto;
     position: sticky;
-    top: var(--topbar-height, calc(52px + env(safe-area-inset-top)));
+    /* Overlap the header by a few px so no page content bleeds through the seam. */
+    top: calc(var(--topbar-height, calc(52px + env(safe-area-inset-top))) - 6px);
     z-index: 15;
     gap: 6px;
     margin: 0 calc(-1 * var(--pad));
-    padding: var(--profile-nav-pad-y) var(--pad);
+    padding: calc(var(--profile-nav-pad-y) + 6px) var(--pad) var(--profile-nav-pad-y);
     background: color-mix(in srgb, var(--canvas) 88%, transparent);
     backdrop-filter: saturate(1.4) blur(20px);
     -webkit-backdrop-filter: saturate(1.4) blur(20px);
