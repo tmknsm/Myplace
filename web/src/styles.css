@@ -855,7 +855,7 @@ tr:last-child td { border-bottom: 0; }
   align-items: start;
   margin-top: 32px;
 }
-.profile-nav-wrap { position: sticky; top: var(--topbar-height, 84px); }
+.profile-nav-wrap { position: sticky; top: var(--topbar-height, 84px); min-width: 0; max-width: 100%; }
 .profile-nav { position: static; top: auto; }
 .profile-nav-glass { display: none; }
 .profile-nav a { font-size: 14px; }
@@ -1418,20 +1418,29 @@ table small { display: block; }
   .stat:nth-last-child(-n + 2):nth-child(odd),
   .stat:last-child { border-bottom: 0; }
   .stat strong { font-size: 17px; }
-  .profile-grid { grid-template-columns: 1fr; gap: 12px; margin-top: 22px; }
+  .profile-grid { grid-template-columns: 1fr; gap: 12px; margin-top: 22px; min-width: 0; }
   .profile-grid .profile-nav-wrap {
     position: sticky;
     top: var(--topbar-height, calc(52px + env(safe-area-inset-top)));
     z-index: 15;
     margin: 0 calc(-1 * var(--pad));
+    /* Same 16px as the old nav padding-top, so inline spacing is unchanged. */
+    padding-top: var(--profile-nav-pad-y);
+    min-width: 0;
+    max-width: none;
+    contain: inline-size;
   }
+  .profile-grid .profile-nav-wrap.docked { padding-top: 0; }
   .profile-grid .profile-nav {
     flex-direction: row;
     overflow-x: auto;
     position: static;
     gap: 6px;
     margin: 0;
-    padding: var(--profile-nav-pad-y) var(--pad);
+    padding: 0 var(--pad) var(--profile-nav-pad-y);
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     background: transparent;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
