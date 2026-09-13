@@ -38,30 +38,49 @@ else
 fi
 
 echo "==> Hyperdrive config: $HYPERDRIVE_NAME"
-HYPERDRIVE_ID="$($WRANGLER hyperdrive list --json 2>/dev/null \
-  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const l=JSON.parse(s);const h=l.find(x=>x.name===process.argv[1]);process.stdout.write(h?h.id:"")}catch{process.stdout.write("")}})' "$HYPERDRIVE_NAME")"
+# wrangler 4.x has no --json on hyperdrive list/create; use the REST API to look up
+# existing configs and parse the created-id line from wrangler create.
+HYPERDRIVE_ID="$(curl -sS \
+  -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+  "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/hyperdrive/configs" \
+  | HYPERDRIVE_NAME="$HYPERDRIVE_NAME" node --input-type=module -e '
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    if (!body.success) {
+      console.error((body.errors || []).map((e) => e.message).join("; ") || "hyperdrive list failed");
+      process.exit(1);
+    }
+    const found = (body.result || []).find((item) => item.name === process.env.HYPERDRIVE_NAME);
+    process.stdout.write(found ? found.id : "");
+  ')"
 if [[ -n "$HYPERDRIVE_ID" ]]; then
   echo "    exists ($HYPERDRIVE_ID); refreshing connection string"
   $WRANGLER hyperdrive update "$HYPERDRIVE_ID" --connection-string="$DATABASE_URL" >/dev/null
 else
-  HYPERDRIVE_ID="$($WRANGLER hyperdrive create "$HYPERDRIVE_NAME" --connection-string="$DATABASE_URL" --json \
-    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{process.stdout.write(JSON.parse(s).id)})')"
+  CREATE_OUT="$($WRANGLER hyperdrive create "$HYPERDRIVE_NAME" --connection-string="$DATABASE_URL")"
+  HYPERDRIVE_ID="$(printf '%s\n' "$CREATE_OUT" | sed -n 's/.*config: \([0-9a-fA-F-]\{32,\}\).*/\1/p' | tail -n 1)"
+  if [[ -z "$HYPERDRIVE_ID" ]]; then
+    echo "error: could not parse Hyperdrive id from wrangler create output" >&2
+    printf '%s\n' "$CREATE_OUT" >&2
+    exit 1
+  fi
   echo "    created $HYPERDRIVE_ID"
 fi
 
 echo "==> Writing Hyperdrive id into wrangler.toml"
-node - "$HYPERDRIVE_ID" <<'EOF'
-const fs = require("node:fs");
-const id = process.argv[2];
-const path = "wrangler.toml";
-const toml = fs.readFileSync(path, "utf8");
-const next = toml.replace(/(\[\[hyperdrive\]\][^\[]*?id = ")[^"]*(")/s, `$1${id}$2`);
-if (next === toml && !toml.includes(`id = "${id}"`)) {
-  console.error("could not find the [[hyperdrive]] id line in wrangler.toml");
-  process.exit(1);
-}
-fs.writeFileSync(path, next);
-EOF
+HYPERDRIVE_ID="$HYPERDRIVE_ID" node --input-type=module -e '
+  import fs from "node:fs";
+  const id = process.env.HYPERDRIVE_ID;
+  const path = "wrangler.toml";
+  const toml = fs.readFileSync(path, "utf8");
+  const next = toml.replace(/(\[\[hyperdrive\]\][^\[]*?id = ")[^"]*(")/s, `$1${id}$2`);
+  if (next === toml && !toml.includes(`id = "${id}"`)) {
+    console.error("could not find the [[hyperdrive]] id line in wrangler.toml");
+    process.exit(1);
+  }
+  fs.writeFileSync(path, next);
+'
 
 echo "==> Secrets"
 SESSION_SECRET="${SESSION_SECRET:-$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')}"
