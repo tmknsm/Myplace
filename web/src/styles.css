@@ -132,7 +132,7 @@ img, svg { max-width: 100%; }
 .hero-copy h1 {
   font-weight: 650;
   letter-spacing: -0.03em;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .display {
   font-size: clamp(28px, 5vw, 34px);
@@ -309,7 +309,7 @@ img, svg { max-width: 100%; }
 .meta-line {
   color: var(--muted);
   font-size: 14px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .mono { font-variant-numeric: tabular-nums; font-size: 13px; overflow-wrap: anywhere; }
 
@@ -338,7 +338,7 @@ img, svg { max-width: 100%; }
   padding: 13px 16px;
   border-bottom: 1px solid var(--hairline);
 }
-.fact-label { color: var(--muted); font-size: 14px; padding-top: 1px; }
+.fact-label { color: var(--muted); font-size: 14px; padding-top: 1px; overflow-wrap: break-word; word-break: normal; }
 .fact-value { font-size: 16px; overflow-wrap: anywhere; }
 .fact-value strong { font-weight: 590; }
 .badge {

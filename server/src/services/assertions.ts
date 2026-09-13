@@ -78,9 +78,7 @@ export function assembleFacts(rows: AssertionRow[]): FactView[] {
         ? official
         : inferred.length
           ? inferred
-          : field.layer === "either"
-            ? owner
-            : [];
+          : owner;
 
     let status: FactStatus = "unknown";
     let chosen: AssertionRow | undefined;
@@ -90,7 +88,7 @@ export function assembleFacts(rows: AssertionRow[]): FactView[] {
     } else if (field.layer !== "owner" && official.length === 0 && inferred.length > 0) {
       status = "inferred";
       chosen = inferred[0];
-    } else if (field.layer === "either" && official.length === 0 && owner.length > 0) {
+    } else if (field.layer !== "owner" && official.length === 0 && owner.length > 0) {
       status = "owner_reported";
       chosen = owner[0];
     } else {

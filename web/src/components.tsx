@@ -265,9 +265,8 @@ export function unknownHint(fieldKey: string, layer: Fact["layer"]): string {
   if (fieldKey === "zoning.district") return "No published GIS zoning layer for this municipality yet.";
   if (fieldKey === "env.remedial") return "No DEC remedial join for this lot yet.";
   if (fieldKey === "env.bulk_storage") return "No DEC bulk-storage join for this lot yet.";
-  if (layer === "either") return "No connected source yet. The owner can fill this in.";
   if (layer === "owner") return "Not recorded by the owner yet.";
-  return "No connected source yet.";
+  return "No connected source yet. The owner can fill this in.";
 }
 
 export const STATUS_LABEL: Record<Fact["status"], string> = {

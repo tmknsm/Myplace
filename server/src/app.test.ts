@@ -152,6 +152,59 @@ test("unknown and conflicting facts stay visible", () => {
   expect(flood?.status).toBe("unknown");
 });
 
+test("owner fill of a blank official field is owner-reported and does not beat government", () => {
+  const facts = assembleFacts([
+    {
+      assertion_id: "1",
+      property_id: "p",
+      field_key: "bedrooms",
+      value_json: { value: 3 },
+      source_id: null,
+      source_type: "verified_owner",
+      effective_at: "2026-09-13",
+      observed_at: null,
+      confidence: 1,
+      status: "accepted",
+      created_at: "2026-09-13",
+      source_name: "Owner",
+    },
+    {
+      assertion_id: "2",
+      property_id: "p",
+      field_key: "year_built",
+      value_json: { value: 1852 },
+      source_id: "a",
+      source_type: "government",
+      effective_at: "2020-01-01",
+      observed_at: null,
+      confidence: 1,
+      status: "accepted",
+      created_at: "2020-01-01",
+      source_name: "Roll",
+    },
+    {
+      assertion_id: "3",
+      property_id: "p",
+      field_key: "year_built",
+      value_json: { value: 1810 },
+      source_id: null,
+      source_type: "verified_owner",
+      effective_at: "2026-09-13",
+      observed_at: null,
+      confidence: 1,
+      status: "accepted",
+      created_at: "2026-09-13",
+      source_name: "Owner",
+    },
+  ] satisfies AssertionRow[]);
+  const bedrooms = facts.find((f) => f.fieldKey === "bedrooms");
+  const year = facts.find((f) => f.fieldKey === "year_built");
+  expect(bedrooms?.status).toBe("owner_reported");
+  expect(bedrooms?.value).toBe(3);
+  expect(year?.status).toBe("available");
+  expect(year?.value).toBe(1852);
+});
+
 test("search, property page, and claim review", async () => {
   await seedProperty();
   const found = await app.request("http://localhost/api/search?q=Warren");
@@ -198,6 +251,17 @@ test("search, property page, and claim review", async () => {
   const roof = afterBody.property.facts.find((f: { fieldKey: string }) => f.fieldKey === "roof.year");
   expect(roof.status).toBe("available");
   expect(roof.value).toBe(2018);
+
+  const rooms = await app.request("http://localhost/api/properties/prop_test/owner-fields", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ fields: { bedrooms: 4, bathrooms: 2 } }),
+  });
+  expect(rooms.status).toBe(200);
+  const filled = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  const bedrooms = filled.property.facts.find((f: { fieldKey: string }) => f.fieldKey === "bedrooms");
+  expect(bedrooms.status).toBe("owner_reported");
+  expect(bedrooms.value).toBe(4);
   expect(afterBody.property.events.some((e: { event_type: string }) => e.event_type === "ownership.claimed")).toBe(true);
   expect(afterBody.property.events.some((e: { event_type: string }) => e.event_type === "owner_assertion.added")).toBe(true);
 });
