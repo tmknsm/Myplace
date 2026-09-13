@@ -1,95 +1,122 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type Doc, type Fact, type Improvement, type PropertyPage, type Viewer } from "./api";
+import { api, type Doc, type Fact, type FieldVisibility, type Improvement, type PropertyPage, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, ParcelMap, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
 import { useMeta } from "./meta";
+import { DisputesSection, DocumentsSection, HandoffSection, MaintainersSection, NotificationsSection } from "./property-owner";
+import {
+  CATEGORY_LABEL,
+  dateLabel,
+  DOCUMENT_TYPE_LABEL,
+  fileSize,
+  fileUrl,
+  isImage,
+  money,
+  MULTILINE_FIELDS,
+  scrollToId,
+  useToast,
+  type Toast,
+} from "./property-shared";
 
 type PageData = { property: PropertyPage; viewer: Viewer };
 
-const MULTILINE_FIELDS = new Set(["renovations", "additions", "structures", "maintenance"]);
+const SUMMARY_KEY = "profile.summary";
 
-const CATEGORY_LABEL: Record<string, string> = {
-  roof: "Roof",
-  hvac: "Heating & cooling",
-  plumbing: "Plumbing",
-  electrical: "Electrical",
-  septic_well: "Septic & well",
-  windows_doors: "Windows & doors",
-  kitchen: "Kitchen",
-  bath: "Bath",
-  exterior: "Exterior & siding",
-  landscaping: "Landscaping",
-  structure: "Structure & foundation",
-  appliance: "Appliance",
-  energy: "Energy & solar",
-  maintenance: "Maintenance",
-  other: "Other",
-};
+/**
+ * How the vocabulary is laid out on the profile. What a visitor most wants to
+ * know comes first; the official parcel identity and record bookkeeping come
+ * last. Any field that is not named here still renders, appended to the final
+ * section, so nothing in the record is ever dropped.
+ */
+const FACT_SECTIONS: Array<{ id: string; title: string; keys?: string[]; group?: string }> = [
+  { id: "systems", title: "Home systems", group: "owner" },
+  {
+    id: "location",
+    title: "Location & services",
+    keys: [
+      "school_district", "fire_district", "ag.district",
+      "utility.electric", "utility.gas", "utility.water", "utility.sewer", "utility.internet", "utility.trash",
+      "geometry.kind",
+    ],
+  },
+  { id: "rules", title: "Rules & environment", group: "rules" },
+  {
+    id: "assessment",
+    title: "Assessment & taxes",
+    keys: [
+      "assessment.total", "assessment.land", "market_value_estimate",
+      "assessment.county_taxable", "assessment.town_taxable", "assessment.school_taxable",
+      "exemptions.summary", "taxes.county_town",
+    ],
+  },
+  {
+    id: "building",
+    title: "Building & lot",
+    keys: [
+      "property_class", "year_built", "building.style", "building_area", "bedrooms", "bathrooms", "kitchens",
+      "building.heat", "building.fuel", "acreage", "lot.frontage", "lot.depth",
+    ],
+  },
+  {
+    id: "records",
+    title: "Parcel & records",
+    keys: [
+      "address", "municipality", "county", "parcel.sbl", "parcel.swis",
+      "owner_name_public", "last_sale.date", "last_sale.price", "deed.book", "deed.page",
+    ],
+  },
+];
 
-const DOCUMENT_TYPE_LABEL: Record<string, string> = {
-  survey: "Survey",
-  permit: "Permit",
-  certificate_of_occupancy: "Certificate of occupancy",
-  deed: "Deed",
-  plans: "Plans & drawings",
-  inspection: "Inspection report",
-  warranty: "Warranty",
-  manual: "Manual",
-  receipt: "Receipt / invoice",
-  photo: "Photo",
-  insurance: "Insurance",
-  mortgage: "Mortgage",
-  other: "Other",
-};
+const STAT_KEYS: Array<{ key: string; label: string; subKey?: string }> = [
+  { key: "year_built", label: "Built" },
+  { key: "building_area", label: "Building" },
+  { key: "bedrooms", label: "Bedrooms" },
+  { key: "bathrooms", label: "Baths" },
+  { key: "acreage", label: "Lot" },
+  { key: "property_class", label: "Class" },
+  { key: "assessment.total", label: "Assessed" },
+  { key: "market_value_estimate", label: "Full market value" },
+  { key: "last_sale.price", label: "Last sold", subKey: "last_sale.date" },
+];
 
-const PREFERENCE_LABEL: Record<string, { label: string; help: string }> = {
-  contribution_requests: { label: "Contribution requests", help: "Someone proposes a change to this record." },
-  ownership_security: { label: "Ownership & security", help: "Claims, handoffs, and maintainer changes. Always sent." },
-  official_changes: { label: "Official record changes", help: "Assessment, sale, permit, or parcel updates from a source." },
-  property_digest: { label: "Property digest", help: "A summary of what changed around this property." },
-};
-
-const OPTION_LABEL: Record<string, string> = {
-  immediate: "Immediately",
-  daily: "Daily",
-  weekly: "Weekly",
-  monthly: "Monthly",
-  off: "Off",
-};
-
-function money(cents: number | null | undefined): string | null {
-  if (cents === null || cents === undefined) return null;
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
+function organizeFacts(facts: Fact[]): Map<string, Fact[]> {
+  const placed = new Set<string>([SUMMARY_KEY]);
+  const sections = new Map<string, Fact[]>();
+  for (const section of FACT_SECTIONS) {
+    const list: Fact[] = [];
+    if (section.keys) {
+      for (const key of section.keys) {
+        const fact = facts.find((item) => item.fieldKey === key);
+        if (fact && !placed.has(key)) {
+          list.push(fact);
+          placed.add(key);
+        }
+      }
+    }
+    if (section.group) {
+      for (const fact of facts) {
+        if (fact.group === section.group && !placed.has(fact.fieldKey)) {
+          list.push(fact);
+          placed.add(fact.fieldKey);
+        }
+      }
+    }
+    sections.set(section.id, list);
+  }
+  const leftovers = facts.filter((fact) => !placed.has(fact.fieldKey));
+  if (leftovers.length) {
+    const last = FACT_SECTIONS[FACT_SECTIONS.length - 1]!.id;
+    sections.set(last, [...(sections.get(last) ?? []), ...leftovers]);
+  }
+  return sections;
 }
 
-function dateLabel(value: string | null | undefined, options: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric" }): string | null {
-  if (!value) return null;
-  const date = new Date(value.length === 10 ? `${value}T00:00:00` : value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("en-US", options);
-}
-
-function fileSize(bytes: number | null | undefined): string {
-  if (!bytes) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function isImage(doc: Doc): boolean {
-  return Boolean(doc.mime_type?.startsWith("image/")) || doc.document_type === "photo";
-}
-
-function useToast(): [string | null, (message: string) => void] {
-  const [toast, setToast] = useState<string | null>(null);
-  const timer = useRef<number | null>(null);
-  const show = useCallback((message: string) => {
-    setToast(message);
-    if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setToast(null), 3200);
-  }, []);
-  return [toast, show];
+function ownerCanWrite(fact: Fact): boolean {
+  if (fact.layer === "owner") return true;
+  if (fact.layer === "either") return fact.status === "unknown" || fact.status === "owner_reported";
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,8 +133,8 @@ export function PropertyPageView() {
   const [pinOpen, setPinOpen] = useState(false);
   const [toast, showToast] = useToast();
   const [improvementFormOpen, setImprovementFormOpen] = useState(false);
-  const improvementsRef = useRef<HTMLElement | null>(null);
-  const documentsRef = useRef<HTMLElement | null>(null);
+  const [aboutEditing, setAboutEditing] = useState(false);
+  const [lightbox, setLightbox] = useState<number | null>(null);
 
   const load = useCallback(() => {
     if (!id) return Promise.resolve();
@@ -120,23 +147,32 @@ export function PropertyPageView() {
   useEffect(() => { void load(); }, [load, user?.user_id]);
   useOwnershipChanges(id, load);
 
+  const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
+  useEffect(() => {
+    if (!data) return;
+    const previous = document.title;
+    document.title = `${title} · Myplace`;
+    return () => { document.title = previous; };
+  }, [data, title]);
+
+  const sections = useMemo(() => organizeFacts(data?.property.facts ?? []), [data]);
+
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!data || !id) return <div className="page">Loading record…</div>;
 
   const { property, viewer } = data;
   const owner = viewer.maintainer;
-  const facts = (group: string) => property.facts.filter((f) => f.group === group);
-  const title = property.formatted?.split(",")[0] ?? "Untitled parcel";
   const locality = property.formatted?.includes(",")
     ? property.formatted.slice(property.formatted.indexOf(",") + 1).trim()
     : null;
   const address = property.formatted ?? "this property";
-  const ownerFacts = facts("owner");
-  const publicOwnerFacts = ownerFacts.filter((fact) => fact.status !== "unknown");
-  const photos = [
-    ...property.documents.filter(isImage),
-    ...property.improvements.flatMap((item) => item.documents.filter(isImage)),
-  ];
+  const photos = property.documents.filter(isImage);
+  const cover = photos.find((doc) => doc.is_cover) ?? photos[0] ?? null;
+  const summary = property.facts.find((fact) => fact.fieldKey === SUMMARY_KEY) ?? null;
+  const hasSummary = Boolean(summary?.display);
+  const systemsFacts = sections.get("systems") ?? [];
+  const publicSystems = systemsFacts.filter((fact) => fact.status !== "unknown");
+  const maintained = property.maintainers.length > 0;
 
   const startClaim = () => {
     if (meta?.debug) {
@@ -146,41 +182,103 @@ export function PropertyPageView() {
     navigate(user ? `/property/${id}/claim` : `/signin?next=/property/${id}/claim`);
   };
 
-  const scrollTo = (ref: React.RefObject<HTMLElement | null>) => {
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const uploadPhotos = async (list: FileList | null, options: { cover?: boolean } = {}) => {
+    const files = Array.from(list ?? []);
+    if (!files.length) return;
+    let first = true;
+    for (const file of files) {
+      await api.upload(id, file, {
+        documentType: "photo",
+        visibility: "public",
+        ...(options.cover && first ? { cover: "true" } : {}),
+      });
+      first = false;
+    }
+    showToast(options.cover ? "Cover photo set." : `${files.length} photo${files.length === 1 ? "" : "s"} added.`);
+    await load();
   };
 
+  const showAbout = owner || hasSummary;
+  const showPhotos = owner || photos.length > 0;
+  const showImprovements = owner || property.improvements.length > 0;
+  const showSystems = owner || publicSystems.length > 0;
+
+  const nav: Array<{ id: string; label: string }> = [
+    ...(showAbout ? [{ id: "about", label: "About" }] : []),
+    ...(showPhotos ? [{ id: "photos", label: "Photos" }] : []),
+    ...(showImprovements ? [{ id: "improvements", label: "Improvements" }] : []),
+    ...(showSystems ? [{ id: "systems", label: "Home systems" }] : []),
+    { id: "location", label: "Location" },
+    { id: "rules", label: "Rules & environment" },
+    { id: "assessment", label: "Assessment & taxes" },
+    { id: "building", label: "Building & lot" },
+    { id: "records", label: "Parcel & records" },
+    { id: "history", label: "History" },
+    ...(owner
+      ? [
+        { id: "documents", label: "Documents" },
+        { id: "maintainers", label: "Maintainers" },
+        { id: "notifications", label: "Notifications" },
+        { id: "handoff", label: "Handoff" },
+      ]
+      : []),
+  ];
+
+  const sectionProps = { owner, propertyId: id, onChange: load, toast: showToast };
+
   return (
-    <div className="page wide">
-      <div className={`property-layout ${owner ? "is-owner" : ""}`}>
-        <div className="property-head">
+    <div className="page wide profile" data-testid="property-profile">
+      <header className="profile-head">
+        <div className="profile-title">
           <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
           <h1>{title}</h1>
-          <p className="meta-line mono">{[locality, property.sbl].filter(Boolean).join(" · ")}</p>
+          <p className="profile-meta mono">{[locality, property.sbl ? `SBL ${property.sbl}` : null].filter(Boolean).join(" · ")}</p>
+        </div>
+        <div className="profile-actions">
           {owner ? (
-            <div className="owner-chip-row">
+            <>
               <span className="owner-chip" data-testid="owner-chip">
                 <i aria-hidden="true" />
                 {viewer.role === "co_owner" ? "Co-owner maintainer" : "Owner maintainer"}
                 {viewer.verifiedAt ? ` · since ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
               </span>
               <div className="action-row compact">
-                <button type="button" className="btn" onClick={() => { setImprovementFormOpen(true); scrollTo(improvementsRef); }}>Add improvement</button>
-                <button type="button" className="btn secondary" onClick={() => scrollTo(documentsRef)}>Upload document</button>
+                <label className="btn file-btn">
+                  Add photos
+                  <input type="file" accept="image/*" multiple data-testid="head-photo-input" onChange={(event) => { void uploadPhotos(event.target.files); event.target.value = ""; }} />
+                </label>
+                <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
               </div>
-            </div>
+            </>
           ) : (
-            <div className="action-row">
-              {viewer.openClaim ? (
-                <Link className="btn secondary" to={`/property/${id}/claim/${viewer.openClaim.claim_id}`}>Claim under review</Link>
-              ) : (
-                <button type="button" className="btn" data-testid="claim-button" onClick={startClaim}>Claim this property</button>
+            <>
+              {maintained && (
+                <span className="owner-chip">
+                  <i aria-hidden="true" />
+                  Owner-maintained record
+                </span>
               )}
-            </div>
+              <div className="action-row compact">
+                {viewer.openClaim ? (
+                  <Link className="btn secondary" to={`/property/${id}/claim/${viewer.openClaim.claim_id}`}>Claim under review</Link>
+                ) : (
+                  <button type="button" className={`btn ${maintained ? "secondary" : ""}`} data-testid="claim-button" onClick={startClaim}>Claim this property</button>
+                )}
+              </div>
+              {!maintained && !viewer.openClaim && (
+                <p className="meta-line profile-nudge">No verified owner yet. Claiming unlocks photos, systems, and the story of this place.</p>
+              )}
+            </>
           )}
         </div>
+      </header>
 
-        <div className="map-panel">
+      <figure className={`profile-hero ${cover ? "has-photo" : "is-map"}`} data-testid="profile-hero">
+        {cover ? (
+          <button type="button" className="hero-image" onClick={() => setLightbox(photos.indexOf(cover))} aria-label="Open cover photo">
+            <img src={fileUrl(cover)} alt={cover.caption ?? title} />
+          </button>
+        ) : (
           <ParcelMap
             embedded
             selectedId={property.property_id}
@@ -188,15 +286,49 @@ export function PropertyPageView() {
             onSelect={(next) => navigate(`/property/${next}`)}
             zoom={16}
           />
-        </div>
+        )}
+        <figcaption className="hero-overlay">
+          <div className="hero-side">
+            {cover?.caption && <span className="hero-caption">{cover.caption}</span>}
+            {cover && owner && cover.visibility !== "public" && (
+              <button type="button" className="hero-pill warn" onClick={async () => {
+                await api.patchDocument(cover.document_id, { visibility: "public" });
+                showToast("Cover photo is now public.");
+                await load();
+              }}>Only you can see this cover · Make public</button>
+            )}
+            {!cover && owner && (
+              <label className="btn file-btn hero-cta" data-testid="cover-input-label">
+                Add a cover photo
+                <input type="file" accept="image/*" data-testid="cover-input" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
+              </label>
+            )}
+            {!cover && !owner && property.geometryQuality && (
+              <span className="hero-pill quiet">{property.geometryQuality === "official" ? "Official lot lines" : property.geometryQuality === "approximate" ? "Approximate lot lines" : "Demonstration sketch"}</span>
+            )}
+          </div>
+          {cover && (
+            <div className="hero-side">
+              <button type="button" className="hero-pill" onClick={() => scrollToId("photos")}>
+                {photos.length} photo{photos.length === 1 ? "" : "s"}
+              </button>
+              {owner && (
+                <label className="hero-pill file-btn">
+                  Change cover
+                  <input type="file" accept="image/*" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
+                </label>
+              )}
+            </div>
+          )}
+        </figcaption>
+      </figure>
 
-        <div className="notice property-notice">
-          {property.geometryNotice ?? "Lot lines are not available for this parcel."}
-          {" "}Every important fact shows its source.
-          {owner && " Official facts stay official; you maintain the owner layer."}
-        </div>
+      <StatStrip facts={property.facts} />
 
-        <div className="dossier">
+      <div className="profile-grid">
+        <ProfileNav items={nav} />
+
+        <div className="profile-main">
           {toast && <div className="toast" role="status">{toast}</div>}
 
           {viewer.invitation && !owner && (
@@ -212,20 +344,94 @@ export function PropertyPageView() {
             </div>
           )}
 
-          {owner && <RecordCompleteness facts={property.facts} documents={property.documents} improvements={property.improvements} />}
+          {owner && (
+            <ProfileChecklist
+              facts={property.facts}
+              documents={property.documents}
+              improvements={property.improvements}
+              cover={cover}
+              onGo={(target) => {
+                if (target === "about") setAboutEditing(true);
+                if (target === "improvements") setImprovementFormOpen(true);
+                scrollToId(target);
+              }}
+            />
+          )}
 
-          <FactSection title="Overview" facts={facts("overview")} owner={owner} propertyId={id} onChange={load} toast={showToast} />
+          {showAbout && summary && (
+            <AboutSection
+              fact={summary}
+              editing={aboutEditing}
+              setEditing={setAboutEditing}
+              {...sectionProps}
+            />
+          )}
+
+          {showPhotos && (
+            <PhotosSection
+              photos={photos}
+              cover={cover}
+              onUpload={(list) => uploadPhotos(list)}
+              onOpen={(index) => setLightbox(index)}
+              {...sectionProps}
+            />
+          )}
+
+          {showImprovements && (
+            <ImprovementsSection
+              improvements={property.improvements}
+              categories={meta?.improvementCategories ?? Object.keys(CATEGORY_LABEL)}
+              formOpen={improvementFormOpen}
+              setFormOpen={setImprovementFormOpen}
+              {...sectionProps}
+            />
+          )}
+
+          {showSystems && (
+            <FactSection
+              id="systems"
+              title="Home systems"
+              description={owner
+                ? "What only you know: systems, dates, and work done. Everything here is public unless you mark it private."
+                : "Maintained by the verified owner. Not part of the official assessment record."}
+              facts={owner ? systemsFacts : publicSystems}
+              {...sectionProps}
+            />
+          )}
+
           <FactSection
+            id="location"
             title="Location & services"
             description={owner ? "Fields without a connected source can be filled in by you. They are labeled owner-reported until an official source confirms them." : undefined}
-            facts={facts("location")}
-            owner={owner}
-            propertyId={id}
-            onChange={load}
-            toast={showToast}
+            facts={sections.get("location") ?? []}
+            before={(
+              <>
+                {cover && (
+                  <div className="map-card">
+                    <ParcelMap
+                      embedded
+                      selectedId={property.property_id}
+                      selectedGeometry={property.geojson}
+                      onSelect={(next) => navigate(`/property/${next}`)}
+                      zoom={16}
+                    />
+                  </div>
+                )}
+                <div className="notice property-notice">
+                  {property.geometryNotice ?? "Lot lines are not available for this parcel."}
+                  {" "}Every important fact shows its source.
+                  {owner && " Official facts stay official; you maintain the owner layer."}
+                </div>
+              </>
+            )}
+            {...sectionProps}
           />
-          <FactSection title="Rules & environment" facts={facts("rules")} owner={owner} propertyId={id} onChange={load} toast={showToast} />
-          <FactSection title="Records" facts={facts("records")} owner={owner} propertyId={id} onChange={load} toast={showToast}>
+
+          <FactSection id="rules" title="Rules & environment" facts={sections.get("rules") ?? []} {...sectionProps} />
+          <FactSection id="assessment" title="Assessment & taxes" facts={sections.get("assessment") ?? []} {...sectionProps} />
+          <FactSection id="building" title="Building & lot" facts={sections.get("building") ?? []} {...sectionProps} />
+          <FactSection id="records" title="Parcel & records" facts={sections.get("records") ?? []} {...sectionProps}>
+            <h3 className="subhead">Record coverage</h3>
             <div className="group coverage">
               {Object.entries(property.coverage).map(([key, value]) => (
                 <div key={key}><span>{key.replace("_", " ")}</span> {value}</div>
@@ -233,77 +439,7 @@ export function PropertyPageView() {
             </div>
           </FactSection>
 
-          {(owner || publicOwnerFacts.length > 0) && (
-            <FactSection
-              title="Home systems"
-              description={owner
-                ? "What only you know: systems, dates, and work done. Leave anything blank until you have it."
-                : "Maintained by the verified owner. Not part of the official assessment record."}
-              facts={owner ? ownerFacts : publicOwnerFacts}
-              owner={owner}
-              propertyId={id}
-              onChange={load}
-              toast={showToast}
-            />
-          )}
-
-          {(owner || property.improvements.length > 0) && (
-            <ImprovementsSection
-              ref={improvementsRef}
-              propertyId={id}
-              owner={owner}
-              improvements={property.improvements}
-              categories={meta?.improvementCategories ?? Object.keys(CATEGORY_LABEL)}
-              formOpen={improvementFormOpen}
-              setFormOpen={setImprovementFormOpen}
-              onChange={load}
-              toast={showToast}
-            />
-          )}
-
-          {(owner || photos.length > 0) && (
-            <PhotosSection propertyId={id} owner={owner} photos={photos} onChange={load} toast={showToast} />
-          )}
-
-          {owner && (
-            <DocumentsSection
-              ref={documentsRef}
-              propertyId={id}
-              documents={property.documents.filter((doc) => !doc.improvement_id)}
-              documentTypes={meta?.documentTypes ?? Object.keys(DOCUMENT_TYPE_LABEL)}
-              onChange={load}
-              toast={showToast}
-            />
-          )}
-
-          {owner && property.disputes.length > 0 && (
-            <DisputesSection propertyId={id} disputes={property.disputes} onChange={load} toast={showToast} />
-          )}
-
-          {owner && (
-            <MaintainersSection
-              propertyId={id}
-              maintainers={property.maintainers}
-              invitations={property.invitations}
-              viewer={viewer}
-              currentUserId={user?.user_id ?? null}
-              onChange={load}
-              toast={showToast}
-            />
-          )}
-
-          {owner && viewer.preferences && (
-            <NotificationsSection
-              propertyId={id}
-              preferences={viewer.preferences}
-              options={meta?.preferenceOptions ?? {}}
-              toast={showToast}
-            />
-          )}
-
-          {owner && <HandoffSection propertyId={id} toast={showToast} onChange={load} />}
-
-          <section className="section">
+          <section className="section" id="history">
             <h2>History</h2>
             <p className="meta-line section-note">{property.historyNote}</p>
             <div className="group">
@@ -320,8 +456,50 @@ export function PropertyPageView() {
               </ol>
             </div>
           </section>
+
+          {owner && (
+            <>
+              <div className="owner-tools-head" id="owner-tools">
+                <div className="kicker">Owner tools</div>
+                <h2>Only maintainers see this part of the page</h2>
+                <p className="meta-line">Your vault, the people who maintain this record with you, and what happens when it changes hands.</p>
+              </div>
+              <DocumentsSection
+                propertyId={id}
+                documents={property.documents.filter((doc) => !doc.improvement_id)}
+                documentTypes={meta?.documentTypes ?? Object.keys(DOCUMENT_TYPE_LABEL)}
+                onChange={load}
+                toast={showToast}
+              />
+              {property.disputes.length > 0 && (
+                <DisputesSection disputes={property.disputes} onChange={load} toast={showToast} />
+              )}
+              <MaintainersSection
+                propertyId={id}
+                maintainers={property.maintainers}
+                invitations={property.invitations}
+                viewer={viewer}
+                currentUserId={user?.user_id ?? null}
+                onChange={load}
+                toast={showToast}
+              />
+              {viewer.preferences && (
+                <NotificationsSection
+                  propertyId={id}
+                  preferences={viewer.preferences}
+                  options={meta?.preferenceOptions ?? {}}
+                  toast={showToast}
+                />
+              )}
+              <HandoffSection propertyId={id} toast={showToast} onChange={load} />
+            </>
+          )}
         </div>
       </div>
+
+      {lightbox !== null && photos[lightbox] && (
+        <Lightbox photos={photos} index={lightbox} onIndex={setLightbox} onClose={() => setLightbox(null)} />
+      )}
 
       {pinOpen && (
         <PinClaimModal
@@ -331,7 +509,7 @@ export function PropertyPageView() {
           onClaimed={async () => {
             setPinOpen(false);
             await load();
-            showToast("Ownership verified. This is now your owner-maintained record.");
+            showToast("Ownership verified. This is now your profile to build out.");
           }}
         />
       )}
@@ -340,10 +518,222 @@ export function PropertyPageView() {
 }
 
 // ---------------------------------------------------------------------------
+// Hero support: stat strip, in-page nav, lightbox
+// ---------------------------------------------------------------------------
+
+function StatStrip({ facts }: { facts: Fact[] }) {
+  const stats = STAT_KEYS.flatMap((stat) => {
+    const fact = facts.find((item) => item.fieldKey === stat.key);
+    if (!fact || fact.status === "unknown" || !fact.display) return [];
+    const sub = stat.subKey ? facts.find((item) => item.fieldKey === stat.subKey) : null;
+    return [{
+      key: stat.key,
+      label: stat.label,
+      value: fact.display,
+      sub: sub && sub.status !== "unknown" && typeof sub.value === "string" ? dateLabel(sub.value, { month: "short", year: "numeric" }) : null,
+      status: fact.status,
+    }];
+  }).slice(0, 6);
+  if (stats.length === 0) return null;
+  return (
+    <div className="stat-strip" data-testid="stat-strip">
+      {stats.map((stat) => (
+        <div key={stat.key} className="stat">
+          <span>{stat.label}</span>
+          <strong>
+            {stat.value}
+            {stat.sub && <small> · {stat.sub}</small>}
+          </strong>
+          {stat.status !== "available" && <em className={`badge ${stat.status}`}>{STATUS_LABEL[stat.status]}</em>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) {
+  const [active, setActive] = useState<string | null>(items[0]?.id ?? null);
+  const ids = items.map((item) => item.id).join("|");
+  useEffect(() => {
+    const nodes = ids.split("|").map((id) => document.getElementById(id)).filter((node): node is HTMLElement => Boolean(node));
+    if (!nodes.length) return;
+    const visible = new Map<string, number>();
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) visible.set(entry.target.id, entry.boundingClientRect.top);
+        else visible.delete(entry.target.id);
+      }
+      const top = [...visible.entries()].sort((a, b) => a[1] - b[1])[0];
+      if (top) setActive(top[0]);
+    }, { rootMargin: "-96px 0px -55% 0px", threshold: 0 });
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [ids]);
+  return (
+    <nav className="side-nav profile-nav" aria-label="On this page">
+      {items.map((item) => (
+        <a
+          key={item.id}
+          href={`#${item.id}`}
+          className={active === item.id ? "on" : ""}
+          onClick={(event) => { event.preventDefault(); scrollToId(item.id); }}
+        >
+          {item.label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+function Lightbox({ photos, index, onIndex, onClose }: { photos: Doc[]; index: number; onIndex: (next: number) => void; onClose: () => void }) {
+  const photo = photos[index]!;
+  const step = useCallback((delta: number) => {
+    onIndex((index + delta + photos.length) % photos.length);
+  }, [index, onIndex, photos.length]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowRight") step(1);
+      if (event.key === "ArrowLeft") step(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, step]);
+  return (
+    <div className="modal-backdrop lightbox" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }} role="dialog" aria-modal="true" aria-label="Photo viewer">
+      <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>×</button>
+      {photos.length > 1 && <button type="button" className="lightbox-step prev" aria-label="Previous photo" onClick={() => step(-1)}>‹</button>}
+      <figure className="lightbox-figure">
+        <img src={fileUrl(photo)} alt={photo.caption ?? photo.original_filename} />
+        <figcaption>
+          {photo.caption && <strong>{photo.caption}</strong>}
+          <span className="meta-line">{index + 1} of {photos.length}{photo.created_at ? ` · ${dateLabel(photo.created_at)}` : ""}</span>
+        </figcaption>
+      </figure>
+      {photos.length > 1 && <button type="button" className="lightbox-step next" aria-label="Next photo" onClick={() => step(1)}>›</button>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Visibility
+// ---------------------------------------------------------------------------
+
+function VisibilityChip({ visibility, onToggle, busy = false }: { visibility: FieldVisibility; onToggle: () => void; busy?: boolean }) {
+  const isPrivate = visibility === "private";
+  return (
+    <button
+      type="button"
+      className={`vis-chip ${isPrivate ? "is-private" : ""}`}
+      disabled={busy}
+      title={isPrivate ? "Only maintainers can see this. Click to share it on the public profile." : "Shown on the public profile. Click to keep it private."}
+      onClick={onToggle}
+    >
+      <i aria-hidden="true" />
+      {isPrivate ? "Private" : "Public"}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// About
+// ---------------------------------------------------------------------------
+
+function AboutSection({
+  fact,
+  owner,
+  propertyId,
+  editing,
+  setEditing,
+  onChange,
+  toast,
+}: {
+  fact: Fact;
+  owner: boolean;
+  propertyId: string;
+  editing: boolean;
+  setEditing: (open: boolean) => void;
+  onChange: () => Promise<void> | void;
+  toast: Toast;
+}) {
+  const text = typeof fact.value === "string" ? fact.value : "";
+  const [draft, setDraft] = useState(text);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { if (!editing) setDraft(text); }, [text, editing]);
+
+  const save = async (next: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.saveOwnerFields(propertyId, { [SUMMARY_KEY]: next });
+      toast(result.updated ? "About this place saved." : "About this place cleared.");
+      setEditing(false);
+      await onChange();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="section about" id="about">
+      <div className="section-head">
+        <h2>About this place</h2>
+        {owner && fact.visibility && !editing && (
+          <VisibilityChip visibility={fact.visibility} onToggle={async () => {
+            const next = fact.visibility === "private" ? "public" : "private";
+            await api.setFieldVisibility(propertyId, SUMMARY_KEY, next);
+            toast(next === "private" ? "About this place is now private." : "About this place is now public.");
+            await onChange();
+          }} />
+        )}
+      </div>
+      {owner && editing ? (
+        <form className="group form-card about-editor" onSubmit={(event) => { event.preventDefault(); void save(draft); }}>
+          <textarea
+            className="field"
+            rows={6}
+            autoFocus
+            value={draft}
+            placeholder="When it was built and by whom, what has changed, what a neighbor would tell you. Written for whoever cares about this place next."
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Escape") setEditing(false); }}
+            data-testid="about-input"
+          />
+          {error && <p className="error">{error}</p>}
+          <div className="action-row compact">
+            <button type="submit" className="btn small" disabled={busy || !draft.trim()} data-testid="about-save">{busy ? "Saving…" : "Save"}</button>
+            <button type="button" className="btn secondary small" disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
+            {text && <button type="button" className="text-link danger" disabled={busy} onClick={() => void save("")}>Clear</button>}
+          </div>
+        </form>
+      ) : text ? (
+        <div className="group about-card">
+          <p className="about-text">{text}</p>
+          {owner && (
+            <div className="about-foot">
+              <button type="button" className="text-link" onClick={() => setEditing(true)} data-testid="about-edit">Edit</button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="group empty-card about-empty">
+          <p>Every property has a story. Say what makes this one itself: when it was built, what has been done, what a neighbor would tell you.</p>
+          <button type="button" className="btn secondary small" onClick={() => setEditing(true)} data-testid="about-start">Write about this place</button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Facts
 // ---------------------------------------------------------------------------
 
 function FactSection({
+  id,
   title,
   description,
   facts,
@@ -351,36 +741,36 @@ function FactSection({
   propertyId,
   onChange,
   toast,
+  before,
   children,
 }: {
+  id: string;
   title: string;
   description?: string;
   facts: Fact[];
   owner: boolean;
   propertyId: string;
   onChange: () => Promise<void> | void;
-  toast: (message: string) => void;
+  toast: Toast;
+  before?: React.ReactNode;
   children?: React.ReactNode;
 }) {
-  if (facts.length === 0 && !children) return null;
+  if (facts.length === 0 && !children && !before) return null;
   return (
-    <section className="section">
+    <section className="section" id={id}>
       <h2>{title}</h2>
       {description && <p className="meta-line section-note">{description}</p>}
-      <div className="group">
-        {facts.map((fact) => (
-          <FactRow key={fact.fieldKey} fact={fact} owner={owner} propertyId={propertyId} onChange={onChange} toast={toast} />
-        ))}
-      </div>
+      {before}
+      {facts.length > 0 && (
+        <div className="group">
+          {facts.map((fact) => (
+            <FactRow key={fact.fieldKey} fact={fact} owner={owner} propertyId={propertyId} onChange={onChange} toast={toast} />
+          ))}
+        </div>
+      )}
       {children}
     </section>
   );
-}
-
-function ownerCanWrite(fact: Fact): boolean {
-  if (fact.layer === "owner") return true;
-  if (fact.layer === "either") return fact.status === "unknown" || fact.status === "owner_reported";
-  return false;
 }
 
 export function FactRow({
@@ -394,17 +784,19 @@ export function FactRow({
   owner?: boolean;
   propertyId?: string;
   onChange?: () => Promise<void> | void;
-  toast?: (message: string) => void;
+  toast?: Toast;
 }) {
   const [editing, setEditing] = useState(false);
   const [disputing, setDisputing] = useState(false);
+  const [visBusy, setVisBusy] = useState(false);
   const editable = owner && propertyId && ownerCanWrite(fact);
   const disputable = owner && propertyId && !ownerCanWrite(fact) && fact.status !== "unknown";
   const ownerAssertion = fact.assertions.find((assertion) => assertion.sourceType === "verified_owner");
   const showBadge = fact.status !== "available" && !(fact.status === "unknown" && editable);
+  const canToggle = editable && ownerAssertion && fact.visibility;
 
   return (
-    <div className={`fact ${editable ? "is-editable" : ""} ${fact.dispute ? "is-disputed" : ""}`} data-field={fact.fieldKey}>
+    <div className={`fact ${editable ? "is-editable" : ""} ${fact.dispute ? "is-disputed" : ""} ${fact.visibility === "private" ? "is-private" : ""}`} data-field={fact.fieldKey}>
       <div className="fact-label">{fact.label}</div>
       <div className="fact-value">
         {editable && editing && propertyId ? (
@@ -430,6 +822,23 @@ export function FactRow({
             {fact.dispute && <span className="badge disputed">disputed by owner</span>}
             {editable && (
               <button type="button" className="inline-edit" data-testid={`edit-${fact.fieldKey}`} onClick={() => setEditing(true)}>Edit</button>
+            )}
+            {canToggle && propertyId && (
+              <VisibilityChip
+                visibility={fact.visibility!}
+                busy={visBusy}
+                onToggle={async () => {
+                  setVisBusy(true);
+                  try {
+                    const next = fact.visibility === "private" ? "public" : "private";
+                    await api.setFieldVisibility(propertyId, fact.fieldKey, next);
+                    toast?.(next === "private" ? `${fact.label} is now private.` : `${fact.label} is now public.`);
+                    await onChange?.();
+                  } finally {
+                    setVisBusy(false);
+                  }
+                }}
+              />
             )}
           </>
         )}
@@ -570,38 +979,67 @@ function DisputeForm({ fact, propertyId, onDone, onCancel }: { fact: Fact; prope
 }
 
 // ---------------------------------------------------------------------------
-// Completeness
+// Checklist
 // ---------------------------------------------------------------------------
 
-function RecordCompleteness({ facts, documents, improvements }: { facts: Fact[]; documents: Doc[]; improvements: Improvement[] }) {
+function ProfileChecklist({
+  facts,
+  documents,
+  improvements,
+  cover,
+  onGo,
+}: {
+  facts: Fact[];
+  documents: Doc[];
+  improvements: Improvement[];
+  cover: Doc | null;
+  onGo: (target: string) => void;
+}) {
   const has = (key: string) => facts.some((fact) => fact.fieldKey === key && fact.status !== "unknown");
   const doc = (type: string) => documents.some((item) => item.document_type === type) || improvements.some((item) => item.documents.some((d) => d.document_type === type));
-  const items: Array<[string, boolean]> = [
-    ["Survey", doc("survey")],
-    ["Deed", doc("deed") || has("deed.book")],
-    ["Permits", doc("permit") || doc("certificate_of_occupancy")],
-    ["Plans", doc("plans")],
-    ["Roof", has("roof.type") || has("roof.year") || improvements.some((item) => item.category === "roof")],
-    ["Heating", has("heating") || improvements.some((item) => item.category === "hvac")],
-    ["Cooling", has("cooling")],
-    ["Water heater", has("water_heater")],
-    ["Electrical", has("electrical") || improvements.some((item) => item.category === "electrical")],
-    ["Septic / well", has("septic_or_well") || improvements.some((item) => item.category === "septic_well")],
-    ["Utilities", has("utility.electric") && has("utility.water") && has("utility.sewer")],
-    ["Photos", documents.some(isImage) || improvements.some((item) => item.documents.some(isImage))],
+  const items: Array<{ label: string; ok: boolean; target: string }> = [
+    { label: "Cover photo", ok: Boolean(cover), target: "photos" },
+    { label: "About this place", ok: has(SUMMARY_KEY), target: "about" },
+    { label: "Photos", ok: documents.some(isImage), target: "photos" },
+    { label: "An improvement", ok: improvements.length > 0, target: "improvements" },
+    { label: "Roof", ok: has("roof.type") || has("roof.year") || improvements.some((item) => item.category === "roof"), target: "systems" },
+    { label: "Heating", ok: has("heating") || improvements.some((item) => item.category === "hvac"), target: "systems" },
+    { label: "Cooling", ok: has("cooling"), target: "systems" },
+    { label: "Water heater", ok: has("water_heater"), target: "systems" },
+    { label: "Electrical", ok: has("electrical") || improvements.some((item) => item.category === "electrical"), target: "systems" },
+    { label: "Septic / well", ok: has("septic_or_well") || improvements.some((item) => item.category === "septic_well"), target: "systems" },
+    { label: "Utilities", ok: has("utility.electric") && has("utility.water") && has("utility.sewer"), target: "location" },
+    { label: "Survey", ok: doc("survey"), target: "documents" },
+    { label: "Deed", ok: doc("deed") || has("deed.book"), target: "documents" },
+    { label: "Permits", ok: doc("permit") || doc("certificate_of_occupancy"), target: "documents" },
+    { label: "Plans", ok: doc("plans"), target: "documents" },
   ];
-  const done = items.filter(([, ok]) => ok).length;
+  const done = items.filter((item) => item.ok).length;
+  const next = items.find((item) => !item.ok);
+  const complete = done === items.length;
   return (
-    <section className="section completeness" data-testid="completeness">
-      <h2>Record completeness</h2>
-      <div className="group completeness-card">
-        <div className="completeness-head">
-          <strong>{done} of {items.length} documented</strong>
-          <span className="meta-line">Completeness of the record, not the condition of the property.</span>
+    <section className="section checklist" data-testid="completeness">
+      <div className="group checklist-card">
+        <div className="checklist-head">
+          <div>
+            <div className="kicker">{complete ? "Profile complete" : "Build out this profile"}</div>
+            <strong>{done} of {items.length} documented</strong>
+          </div>
+          {next && (
+            <button type="button" className="btn small" onClick={() => onGo(next.target)}>
+              {next.label === "About this place" ? "Write about this place" : next.label === "An improvement" ? "Record an improvement" : `Add ${next.label.toLowerCase()}`}
+            </button>
+          )}
         </div>
+        <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={done}>
+          <i style={{ width: `${(done / items.length) * 100}%` }} />
+        </div>
+        <p className="meta-line">Completeness of the record, not the condition of the property. Everything you add is public unless you mark it private.</p>
         <div className="completeness-grid">
-          {items.map(([label, ok]) => (
-            <span key={label} className={ok ? "ok" : ""}><i aria-hidden="true">{ok ? "✓" : ""}</i>{label}</span>
+          {items.map((item) => item.ok ? (
+            <span key={item.label} className="ok"><i aria-hidden="true">✓</i>{item.label}</span>
+          ) : (
+            <button key={item.label} type="button" onClick={() => onGo(item.target)}><i aria-hidden="true" />{item.label}</button>
           ))}
         </div>
       </div>
@@ -614,7 +1052,6 @@ function RecordCompleteness({ facts, documents, improvements }: { facts: Fact[];
 // ---------------------------------------------------------------------------
 
 function ImprovementsSection({
-  ref,
   propertyId,
   owner,
   improvements,
@@ -624,7 +1061,6 @@ function ImprovementsSection({
   onChange,
   toast,
 }: {
-  ref: React.RefObject<HTMLElement | null>;
   propertyId: string;
   owner: boolean;
   improvements: Improvement[];
@@ -632,11 +1068,11 @@ function ImprovementsSection({
   formOpen: boolean;
   setFormOpen: (open: boolean) => void;
   onChange: () => Promise<void> | void;
-  toast: (message: string) => void;
+  toast: Toast;
 }) {
   const total = improvements.reduce((sum, item) => sum + (item.cost_cents ?? 0), 0);
   return (
-    <section className="section" ref={ref} id="improvements">
+    <section className="section" id="improvements">
       <div className="section-head">
         <h2>Improvements</h2>
         {owner && !formOpen && (
@@ -645,7 +1081,7 @@ function ImprovementsSection({
       </div>
       <p className="meta-line section-note">
         {owner
-          ? "Work done on the property, with receipts and photos attached. Receipts go with the property on handoff unless you mark them personal."
+          ? "Work done on the property, with receipts and photos attached. Photos follow the improvement’s visibility; receipts always stay private and go with the property on handoff unless you mark them personal."
           : "Work the verified owner chose to share publicly."}
         {owner && total > 0 ? ` Recorded so far: ${money(total)}.` : ""}
       </p>
@@ -675,6 +1111,11 @@ function ImprovementsSection({
   );
 }
 
+/** Photos take the improvement's visibility; receipts and other files never go public from here. */
+function attachmentVisibility(file: File, improvementVisibility: string): string {
+  return file.type.startsWith("image/") ? improvementVisibility : "private";
+}
+
 function ImprovementForm({
   propertyId,
   categories,
@@ -692,7 +1133,7 @@ function ImprovementForm({
   const [cost, setCost] = useState("");
   const [contractor, setContractor] = useState("");
   const [notes, setNotes] = useState("");
-  const [visibility, setVisibility] = useState("private");
+  const [visibility, setVisibility] = useState("public");
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -705,7 +1146,7 @@ function ImprovementForm({
       try {
         const created = await api.createImprovement(propertyId, { title, category, performedAt: performedAt || null, cost: cost || null, contractor: contractor || null, notes: notes || null, visibility });
         for (const file of files) {
-          await api.upload(propertyId, file, { improvementId: created.improvement.improvement_id, visibility });
+          await api.upload(propertyId, file, { improvementId: created.improvement.improvement_id, visibility: attachmentVisibility(file, visibility) });
         }
         await onSaved(files.length);
       } catch (err) {
@@ -748,8 +1189,8 @@ function ImprovementForm({
         <label className="stack span-2 inline-choice">
           <span>Visibility</span>
           <div className="segmented">
-            <button type="button" className={visibility === "private" ? "on" : ""} onClick={() => setVisibility("private")}>Private</button>
             <button type="button" className={visibility === "public" ? "on" : ""} onClick={() => setVisibility("public")}>Public</button>
+            <button type="button" className={visibility === "private" ? "on" : ""} onClick={() => setVisibility("private")}>Private</button>
           </div>
         </label>
       </div>
@@ -775,7 +1216,7 @@ function ImprovementCard({
   propertyId: string;
   categories: string[];
   onChange: () => Promise<void> | void;
-  toast: (message: string) => void;
+  toast: Toast;
 }) {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -788,7 +1229,7 @@ function ImprovementCard({
     setBusy(true);
     try {
       for (const file of Array.from(list)) {
-        await api.upload(propertyId, file, { improvementId: item.improvement_id, visibility: item.visibility });
+        await api.upload(propertyId, file, { improvementId: item.improvement_id, visibility: attachmentVisibility(file, item.visibility) });
       }
       toast(`${list.length} attachment${list.length === 1 ? "" : "s"} added.`);
       await onChange();
@@ -798,7 +1239,7 @@ function ImprovementCard({
   };
 
   return (
-    <article className="group improvement-card" data-testid="improvement-card">
+    <article className={`group improvement-card ${item.visibility === "private" ? "is-private" : ""}`} data-testid="improvement-card">
       <div className="improvement-head">
         <div>
           <span className="chip">{CATEGORY_LABEL[item.category] ?? item.category}</span>
@@ -823,8 +1264,8 @@ function ImprovementCard({
       {images.length > 0 && (
         <div className="photo-strip">
           {images.map((doc) => (
-            <a key={doc.document_id} className="photo-thumb" href={`/api/documents/${doc.document_id}/file`} target="_blank" rel="noreferrer">
-              <img src={`/api/documents/${doc.document_id}/file`} alt={doc.caption ?? doc.original_filename} loading="lazy" />
+            <a key={doc.document_id} className="photo-thumb" href={fileUrl(doc)} target="_blank" rel="noreferrer">
+              <img src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} loading="lazy" />
               {owner && (
                 <button type="button" className="thumb-remove" aria-label="Remove photo" onClick={async (event) => {
                   event.preventDefault();
@@ -840,7 +1281,7 @@ function ImprovementCard({
         <ul className="file-chips">
           {files.map((doc) => (
             <li key={doc.document_id}>
-              <a href={`/api/documents/${doc.document_id}/file`} target="_blank" rel="noreferrer">
+              <a href={fileUrl(doc)} target="_blank" rel="noreferrer">
                 <i aria-hidden="true">▤</i>{doc.original_filename}
               </a>
               <small>{DOCUMENT_TYPE_LABEL[doc.document_type] ?? doc.document_type}{doc.byte_size ? ` · ${fileSize(doc.byte_size)}` : ""}</small>
@@ -861,8 +1302,8 @@ function ImprovementCard({
             <input type="file" multiple accept="image/*,application/pdf,.heic" disabled={busy} onChange={(event) => { void attach(event.target.files); event.target.value = ""; }} />
           </label>
           <div className="segmented small">
-            <button type="button" className={item.visibility === "private" ? "on" : ""} onClick={async () => { await api.patchImprovement(item.improvement_id, { visibility: "private" }); await onChange(); }}>Private</button>
             <button type="button" className={item.visibility === "public" ? "on" : ""} onClick={async () => { await api.patchImprovement(item.improvement_id, { visibility: "public" }); await onChange(); }}>Public</button>
+            <button type="button" className={item.visibility === "private" ? "on" : ""} onClick={async () => { await api.patchImprovement(item.improvement_id, { visibility: "private" }); await onChange(); }}>Private</button>
           </div>
           {confirm ? (
             <span className="confirm-inline">
@@ -887,40 +1328,57 @@ function ImprovementCard({
 // Photos
 // ---------------------------------------------------------------------------
 
-function PhotosSection({ propertyId, owner, photos, onChange, toast }: { propertyId: string; owner: boolean; photos: Doc[]; onChange: () => Promise<void> | void; toast: (message: string) => void }) {
+function PhotosSection({
+  owner,
+  photos,
+  cover,
+  onUpload,
+  onOpen,
+  onChange,
+  toast,
+}: {
+  owner: boolean;
+  propertyId: string;
+  photos: Doc[];
+  cover: Doc | null;
+  onUpload: (list: FileList | null) => Promise<void>;
+  onOpen: (index: number) => void;
+  onChange: () => Promise<void> | void;
+  toast: Toast;
+}) {
   const [busy, setBusy] = useState(false);
   return (
-    <section className="section">
+    <section className="section" id="photos">
       <div className="section-head">
         <h2>Photos</h2>
         {owner && (
           <label className={`text-btn accent file-btn ${busy ? "is-busy" : ""}`}>
             {busy ? "Uploading…" : "Add photos"}
             <input type="file" accept="image/*" multiple disabled={busy} data-testid="photo-input" onChange={async (event) => {
-              const list = Array.from(event.target.files ?? []);
-              event.target.value = "";
-              if (!list.length) return;
+              const list = event.target.files;
               setBusy(true);
               try {
-                for (const file of list) await api.upload(propertyId, file, { documentType: "photo" });
-                toast(`${list.length} photo${list.length === 1 ? "" : "s"} added.`);
-                await onChange();
+                await onUpload(list);
               } finally {
                 setBusy(false);
+                event.target.value = "";
               }
             }} />
           </label>
         )}
       </div>
+      {owner && <p className="meta-line section-note">Photos are public unless you make them private. The cover is the first thing a visitor sees.</p>}
       {photos.length === 0 ? (
         <div className="group empty-card">{owner ? "No photos yet. Exterior, roof, mechanicals, and before-and-after shots all belong here." : "None shared yet."}</div>
       ) : (
-        <div className="photo-grid">
-          {photos.map((doc) => (
-            <figure key={doc.document_id} className="photo-card">
-              <a href={`/api/documents/${doc.document_id}/file`} target="_blank" rel="noreferrer">
-                <img src={`/api/documents/${doc.document_id}/file`} alt={doc.caption ?? doc.original_filename} loading="lazy" />
-              </a>
+        <div className={`photo-grid ${photos.length > 2 ? "featured" : ""}`}>
+          {photos.map((doc, index) => (
+            <figure key={doc.document_id} className={`photo-card ${doc.visibility === "private" ? "is-private" : ""}`}>
+              <button type="button" className="photo-open" onClick={() => onOpen(index)} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
+                <img src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} loading="lazy" />
+                {cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
+                {owner && doc.visibility === "private" && <span className="photo-flag private">Private</span>}
+              </button>
               {owner ? (
                 <figcaption>
                   <input
@@ -939,14 +1397,23 @@ function PhotosSection({ propertyId, owner, photos, onChange, toast }: { propert
                       await api.patchDocument(doc.document_id, { visibility: event.target.value });
                       await onChange();
                     }}>
-                      <option value="private">Private</option>
-                      <option value="property_transferable">Visible on transfer</option>
                       <option value="public">Public</option>
+                      <option value="property_transferable">Visible on transfer</option>
+                      <option value="private">Private</option>
                     </select>
-                    <button type="button" className="text-link danger" onClick={async () => {
-                      await api.deleteDocument(doc.document_id);
-                      await onChange();
-                    }}>Remove</button>
+                    <span className="photo-tool-links">
+                      {!doc.is_cover && (
+                        <button type="button" className="text-link" data-testid={`cover-${doc.document_id}`} onClick={async () => {
+                          await api.patchDocument(doc.document_id, { cover: true });
+                          toast("Cover photo updated.");
+                          await onChange();
+                        }}>Set as cover</button>
+                      )}
+                      <button type="button" className="text-link danger" onClick={async () => {
+                        await api.deleteDocument(doc.document_id);
+                        await onChange();
+                      }}>Remove</button>
+                    </span>
                   </div>
                 </figcaption>
               ) : (
@@ -956,303 +1423,6 @@ function PhotosSection({ propertyId, owner, photos, onChange, toast }: { propert
           ))}
         </div>
       )}
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Documents
-// ---------------------------------------------------------------------------
-
-function DocumentsSection({
-  ref,
-  propertyId,
-  documents,
-  documentTypes,
-  onChange,
-  toast,
-}: {
-  ref: React.RefObject<HTMLElement | null>;
-  propertyId: string;
-  documents: Doc[];
-  documentTypes: string[];
-  onChange: () => Promise<void> | void;
-  toast: (message: string) => void;
-}) {
-  const [type, setType] = useState("survey");
-  const [busy, setBusy] = useState(false);
-  const files = documents.filter((doc) => !isImage(doc));
-  const transferable = files.filter((doc) => doc.transferability === "property_transferable");
-  const personal = files.filter((doc) => doc.transferability !== "property_transferable");
-
-  const upload = async (list: FileList | null) => {
-    const items = Array.from(list ?? []);
-    if (!items.length) return;
-    setBusy(true);
-    try {
-      for (const file of items) await api.upload(propertyId, file, { documentType: type });
-      toast(`${items.length} document${items.length === 1 ? "" : "s"} added to the vault.`);
-      await onChange();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const table = (rows: Doc[]) => (
-    <div className="table-scroll">
-      <table>
-        <thead><tr><th>Document</th><th>Type</th><th>Visibility</th><th>On handoff</th><th></th></tr></thead>
-        <tbody>
-          {rows.map((doc) => (
-            <tr key={doc.document_id}>
-              <td>
-                <a href={`/api/documents/${doc.document_id}/file`} target="_blank" rel="noreferrer">{doc.original_filename}</a>
-                <small className="meta-line">{fileSize(doc.byte_size)}{doc.created_at ? ` · ${dateLabel(doc.created_at)}` : ""}</small>
-              </td>
-              <td>
-                <select className="mini-select" value={doc.document_type} onChange={async (event) => { await api.patchDocument(doc.document_id, { documentType: event.target.value }); await onChange(); }}>
-                  {documentTypes.filter((key) => key !== "photo").map((key) => <option key={key} value={key}>{DOCUMENT_TYPE_LABEL[key] ?? key}</option>)}
-                </select>
-              </td>
-              <td>
-                <select className="mini-select" value={doc.visibility ?? "private"} onChange={async (event) => { await api.patchDocument(doc.document_id, { visibility: event.target.value }); await onChange(); }}>
-                  <option value="private">Private</option>
-                  <option value="property_transferable">Visible on transfer</option>
-                  <option value="public">Public</option>
-                </select>
-              </td>
-              <td>
-                <select className="mini-select" value={doc.transferability ?? "personal"} onChange={async (event) => { await api.patchDocument(doc.document_id, { transferability: event.target.value }); await onChange(); }}>
-                  <option value="property_transferable">Goes with the property</option>
-                  <option value="personal">Stays with me</option>
-                </select>
-              </td>
-              <td>
-                <button type="button" className="text-link danger" onClick={async () => { await api.deleteDocument(doc.document_id); await onChange(); }}>Remove</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-
-  return (
-    <section className="section" ref={ref} id="documents">
-      <div className="section-head">
-        <h2>Documents</h2>
-      </div>
-      <p className="meta-line section-note">
-        Surveys, permits, plans, and manuals go with the property when it changes hands. Mortgage, insurance, and personal notes stay with you. Nothing here is public unless you say so.
-      </p>
-      <div className="group form-card upload-card">
-        <label className="stack">
-          <span>Document type</span>
-          <select className="field" value={type} onChange={(event) => setType(event.target.value)} data-testid="document-type">
-            {documentTypes.filter((key) => key !== "photo").map((key) => <option key={key} value={key}>{DOCUMENT_TYPE_LABEL[key] ?? key}</option>)}
-          </select>
-        </label>
-        <label className={`btn file-btn ${busy ? "is-busy" : ""}`}>
-          {busy ? "Uploading…" : "Choose files"}
-          <input type="file" multiple disabled={busy} data-testid="document-input" onChange={(event) => { void upload(event.target.files); event.target.value = ""; }} />
-        </label>
-      </div>
-      {files.length === 0 && <div className="group empty-card">The vault is empty. A survey or the last permit is a good first upload.</div>}
-      {transferable.length > 0 && (
-        <>
-          <h3 className="subhead">Goes with the property</h3>
-          {table(transferable)}
-        </>
-      )}
-      {personal.length > 0 && (
-        <>
-          <h3 className="subhead">Stays with you</h3>
-          {table(personal)}
-        </>
-      )}
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Disputes, maintainers, notifications, handoff
-// ---------------------------------------------------------------------------
-
-function DisputesSection({ propertyId, disputes, onChange, toast }: { propertyId: string; disputes: PropertyPage["disputes"]; onChange: () => Promise<void> | void; toast: (message: string) => void }) {
-  void propertyId;
-  return (
-    <section className="section">
-      <h2>Open disputes</h2>
-      <p className="meta-line section-note">Official facts you have flagged. A reviewer resolves each one; the official value stays visible meanwhile.</p>
-      <div className="group">
-        {disputes.map((dispute) => (
-          <div key={dispute.contributionId} className="row">
-            <div>
-              <strong>{dispute.label}</strong>
-              <div className="meta-line">
-                {dispute.proposedValue !== null && dispute.proposedValue !== "" ? <>Proposed: {String(dispute.proposedValue)}. </> : null}
-                {dispute.note ? `“${dispute.note}” ` : ""}
-                {dateLabel(dispute.createdAt)}
-              </div>
-            </div>
-            <button type="button" className="text-link" onClick={async () => {
-              await api.withdrawContribution(dispute.contributionId);
-              toast("Dispute withdrawn.");
-              await onChange();
-            }}>Withdraw</button>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function MaintainersSection({
-  propertyId,
-  maintainers,
-  invitations,
-  viewer,
-  currentUserId,
-  onChange,
-  toast,
-}: {
-  propertyId: string;
-  maintainers: PropertyPage["maintainers"];
-  invitations: PropertyPage["invitations"];
-  viewer: Viewer;
-  currentUserId: string | null;
-  onChange: () => Promise<void> | void;
-  toast: (message: string) => void;
-}) {
-  const [email, setEmail] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const pending = invitations.filter((invitation) => invitation.role === "co_owner");
-  return (
-    <section className="section">
-      <h2>Maintainers</h2>
-      <p className="meta-line section-note">People who can maintain this record with you. Co-owners see everything you see. Maintainer rights end when ownership transfers.</p>
-      <div className="group">
-        {maintainers.map((maintainer) => (
-          <div key={maintainer.maintainer_id} className="row">
-            <div>
-              <strong>{maintainer.display_name || maintainer.primary_email}{maintainer.user_id === currentUserId ? " (you)" : ""}</strong>
-              <div className="meta-line">{maintainer.primary_email} · {maintainer.role === "co_owner" ? "co-owner" : "owner"} · since {dateLabel(maintainer.verified_at)}</div>
-            </div>
-            {viewer.role === "owner" && maintainer.role === "co_owner" && maintainer.user_id !== currentUserId && (
-              <button type="button" className="text-link danger" onClick={async () => {
-                await api.removeMaintainer(propertyId, maintainer.maintainer_id);
-                toast("Co-owner removed.");
-                await onChange();
-              }}>Remove</button>
-            )}
-          </div>
-        ))}
-        {pending.map((invitation) => (
-          <div key={invitation.invitation_id} className="row">
-            <div>
-              <strong>{invitation.invited_email}</strong>
-              <div className="meta-line">Invitation sent {dateLabel(invitation.created_at)} · waiting to accept</div>
-            </div>
-            <button type="button" className="text-link" onClick={async () => {
-              await api.cancelInvitation(invitation.invitation_id);
-              await onChange();
-            }}>Cancel</button>
-          </div>
-        ))}
-      </div>
-      <form className="inline-form" onSubmit={async (event) => {
-        event.preventDefault();
-        setBusy(true);
-        setError(null);
-        try {
-          await api.inviteCoOwner(propertyId, email);
-          toast(`Invitation sent to ${email}.`);
-          setEmail("");
-          await onChange();
-        } catch (err) {
-          setError(err instanceof Error ? err.message : "Could not invite");
-        } finally {
-          setBusy(false);
-        }
-      }}>
-        <input className="field" type="email" placeholder="Invite a co-owner by email" value={email} onChange={(event) => setEmail(event.target.value)} data-testid="invite-email" />
-        <button type="submit" className="btn secondary" disabled={busy || !email.includes("@")}>{busy ? "Sending…" : "Invite"}</button>
-      </form>
-      {error && <p className="error">{error}</p>}
-    </section>
-  );
-}
-
-function NotificationsSection({ propertyId, preferences, options, toast }: { propertyId: string; preferences: Record<string, string>; options: Record<string, string[]>; toast: (message: string) => void }) {
-  const [prefs, setPrefs] = useState(preferences);
-  useEffect(() => setPrefs(preferences), [preferences]);
-  const keys = useMemo(() => Object.keys(PREFERENCE_LABEL), []);
-  return (
-    <section className="section">
-      <h2>Email notifications</h2>
-      <p className="meta-line section-note">Delivered through Postmark. Ownership and security notices cannot be turned off.</p>
-      <div className="group">
-        {keys.map((key) => {
-          const choices = options[key] ?? [prefs[key] ?? "immediate"];
-          return (
-            <div key={key} className="row">
-              <div>
-                <strong>{PREFERENCE_LABEL[key]?.label ?? key}</strong>
-                <div className="meta-line">{PREFERENCE_LABEL[key]?.help}</div>
-              </div>
-              <select
-                className="mini-select"
-                value={prefs[key] ?? choices[0]}
-                disabled={choices.length < 2}
-                data-testid={`pref-${key}`}
-                onChange={async (event) => {
-                  const next = { ...prefs, [key]: event.target.value };
-                  setPrefs(next);
-                  const saved = await api.savePreferences(propertyId, { [key]: event.target.value });
-                  setPrefs(saved.preferences);
-                  toast("Notification preference saved.");
-                }}
-              >
-                {choices.map((choice) => <option key={choice} value={choice}>{OPTION_LABEL[choice] ?? choice}</option>)}
-              </select>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function HandoffSection({ propertyId, toast, onChange }: { propertyId: string; toast: (message: string) => void; onChange: () => Promise<void> | void }) {
-  const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  return (
-    <section className="section">
-      <h2>Handoff</h2>
-      <p className="meta-line section-note">
-        Selling? Invite the buyer to claim this property. Once they are verified, your maintainer access ends. Documents marked “goes with the property” transfer; personal documents never do.
-      </p>
-      <form className="inline-form" onSubmit={async (event) => {
-        event.preventDefault();
-        setBusy(true);
-        setError(null);
-        try {
-          await api.handoff(propertyId, email);
-          toast(`Handoff invitation sent to ${email}.`);
-          setEmail("");
-          await onChange();
-        } catch (err) {
-          setError(err instanceof Error ? err.message : "Could not send invitation");
-        } finally {
-          setBusy(false);
-        }
-      }}>
-        <input className="field" type="email" placeholder="Buyer’s email" value={email} onChange={(event) => setEmail(event.target.value)} />
-        <button type="submit" className="btn secondary" disabled={busy || !email.includes("@")}>{busy ? "Sending…" : "Send handoff invitation"}</button>
-      </form>
-      {error && <p className="error">{error}</p>}
     </section>
   );
 }

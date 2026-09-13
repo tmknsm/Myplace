@@ -231,8 +231,9 @@ test("owner contributions are public on the profile until the owner makes them p
   });
   expect(save.status).toBe(200);
 
-  const factOf = (body: { property: { facts: Array<{ fieldKey: string }> } }, key: string) =>
-    body.property.facts.find((f) => f.fieldKey === key) as { status: string; value: unknown; visibility: string | null; assertions: unknown[] };
+  type FactBody = { fieldKey: string; status: string; value: unknown; visibility: string | null; assertions: unknown[] };
+  const factOf = (body: { property: { facts: FactBody[] } }, key: string) =>
+    body.property.facts.find((f) => f.fieldKey === key)!;
 
   let publicBody = await (await app.request("http://localhost/api/properties/prop_test")).json();
   expect(factOf(publicBody, "profile.summary").status).toBe("available");
