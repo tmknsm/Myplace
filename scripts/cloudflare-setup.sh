@@ -74,7 +74,8 @@ else
 fi
 
 echo "==> Database"
-HAS_SCHEMA="$(DATABASE_URL="$DATABASE_URL" npx tsx -e '
+# --input-type=module: tsx -e otherwise evaluates as CommonJS, where top-level await is rejected.
+HAS_SCHEMA="$(DATABASE_URL="$DATABASE_URL" npx tsx --input-type=module -e '
   import postgres from "postgres";
   const sql = postgres(process.env.DATABASE_URL, { max: 1 });
   const r = await sql`SELECT to_regclass(${"public.properties"}) AS t`;
