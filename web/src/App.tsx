@@ -91,14 +91,14 @@ function HomePage() {
         </div>
         <p className="meta-line case-line">
           {selected
-            ? selected.short
+            ? `${selected.short} ${selected.parcelCount.toLocaleString()} parcels.`
             : "Columbia withholds official lot lines. Greene publishes them."}
         </p>
         <div className="hero-search">
           <SearchBox />
         </div>
         <p className="meta-line">
-          {count ?? "—"} parcels
+          {count === null ? "—" : count.toLocaleString()} parcels
         </p>
       </div>
       <div className="hero-map">
@@ -170,7 +170,7 @@ function PropertyPageView() {
           />
         </div>
         <div className="notice property-notice">
-          {property.geometryNotice ?? "Demonstration records. Not an official assessor extract."}
+          {property.geometryNotice ?? "Lot lines are not available for this parcel."}
           {" "}Every important fact shows its source.
         </div>
         <div className="dossier">

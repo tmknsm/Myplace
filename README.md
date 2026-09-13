@@ -8,7 +8,8 @@ Owner verification is **manual review** in this V1. The claim UI, emails, and ad
 
 ## What V1 includes
 
-- Searchable demonstration parcels for Columbia County, plus official Greene County lot lines from the NYS public tax-parcel file
+- Every parcel in Columbia (≈36.8k) and Greene (≈38.4k) counties, imported from public New York sources by `npm run db:import`
+- Parcel lot lines served as PostGIS vector tiles (`/api/tiles/{z}/{x}/{y}.mvt`), colored by how trustworthy they are
 - Mapbox-ready map (OpenFreeMap locally; optional Mapbox token later)
 - Public property page with provenance, unknown, inferred, and conflicting states
 - Email sign-in codes
@@ -18,9 +19,24 @@ Owner verification is **manual review** in this V1. The claim UI, emails, and ad
 - Immutable property event history
 - Postgres + PostGIS schema designed for later NY adapters
 
-Columbia County does not authorize public redistribution of official parcel geometry through the NYS tax-parcel service. Those lots are a **demonstration sketch** along real streets, labeled as such in the UI.
+## Data sources and the two polygon cases
 
-Greene County does authorize public redistribution. The seed includes a Village of Catskill sample from the **2025 NYS Tax Parcels Public** dataset — official county tax-map polygons, not sketches.
+Every lot line carries a quality tier that the map legend, the property page notice, and the `geometry.kind` fact all reflect:
+
+| County | Lot-line policy | What the importer loads | Quality |
+| --- | --- | --- | --- |
+| Greene | Authorizes NYS to redistribute its tax map | All 38.4k parcels from the **NYS Tax Parcels Public** feature service: official county polygons plus the joined 2025 assessment attributes | `official` |
+| Columbia | Does **not** authorize redistribution | All 36.8k parcels from the **NYS ORPTS assessment roll** (Open Data NY `7vem-aaz7`, 2025 with 2024 for change events). Shapes are an address-matched OpenStreetMap footprint where one exists, otherwise a rectangle placed from the roll's NY East grid coordinates | `approximate` |
+
+The offline sample seed (`npm run db:seed`) uses a third tier, `demonstration`, for its hand-drawn Columbia sketches. Nothing in the approximate or demonstration tiers is ever presented as the county tax map.
+
+```bash
+npm run db:import                    # full reload of every county (~2 minutes, needs network)
+npm run db:import -- --county=Greene # reload one county in place; users and claims survive
+npm run db:seed                      # offline 160-parcel sample instead
+```
+
+Importers live in `db/adapters/`; adding a county means adding one adapter and one profile in `server/src/counties.ts`.
 
 ## Stack
 
@@ -47,7 +63,7 @@ psql -d myplace_test -c "CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSIO
 
 cp .env.example .env
 npm install
-npm run setup
+npm run setup          # migrate + import both counties (use `npm run setup:sample` offline)
 npm test
 npm run dev
 ```
@@ -64,7 +80,7 @@ API: [http://localhost:8787](http://localhost:8787)
 
 ## Local development flow
 
-1. Search `441 Warren Street` (Columbia sketch) or `1 Main Street` (Greene official lot lines), or click a parcel on the map. Use the Columbia / Greene chips to fly between the two cases.
+1. Search `441 Warren Street` (Columbia, approximate lot lines) or `1 Main Street` (Greene, official lot lines), or click a parcel on the map. Use the Columbia / Greene chips to fly between the two cases.
 2. Sign in with any email. Open **Mailbox** in the local-development bar, read the code, return to sign-in.
 3. Claim the property. The wizard is the production UI.
 4. Open **Admin review**, verify the claim.

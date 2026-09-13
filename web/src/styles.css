@@ -623,8 +623,6 @@ tr:last-child td { border-bottom: 0; }
   border-radius: 2px;
   display: inline-block;
 }
-.map-legend .swatch.official { background: #1d1d1f; }
-.map-legend .swatch.sketch { background: #e23b32; }
 .map-page {
   position: relative;
   height: calc(100dvh - 7.5rem);
