@@ -70,6 +70,7 @@ export interface DocumentRow {
   visibility: string;
   transferability: string;
   caption: string | null;
+  is_cover: boolean;
   created_at: string;
   uploaded_by: string | null;
 }
@@ -91,7 +92,7 @@ export async function loadImprovements(propertyId: string, viewerIsMaintainer: b
   const documents = improvements.length
     ? await sql<DocumentRow[]>`
         SELECT document_id, property_id, improvement_id, original_filename, document_type, mime_type,
-               byte_size, visibility, transferability, caption, created_at, uploaded_by
+               byte_size, visibility, transferability, caption, is_cover, created_at, uploaded_by
         FROM documents
         WHERE property_id = ${propertyId} AND removed_at IS NULL AND improvement_id IS NOT NULL
           AND ${viewerIsMaintainer ? sql`TRUE` : sql`visibility = 'public'`}
@@ -109,12 +110,24 @@ export async function loadDocuments(propertyId: string, viewerIsMaintainer: bool
   const sql = getSql();
   return sql<DocumentRow[]>`
     SELECT document_id, property_id, improvement_id, original_filename, document_type, mime_type,
-           byte_size, visibility, transferability, caption, created_at, uploaded_by
+           byte_size, visibility, transferability, caption, is_cover, created_at, uploaded_by
     FROM documents
     WHERE property_id = ${propertyId} AND claim_id IS NULL AND removed_at IS NULL
       AND ${viewerIsMaintainer ? sql`TRUE` : sql`visibility = 'public'`}
-    ORDER BY created_at DESC
+    ORDER BY is_cover DESC, created_at DESC
   `;
+}
+
+/** Make one photo the profile cover, or clear the cover when `documentId` is null. */
+export async function setCoverPhoto(propertyId: string, documentId: string | null): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE documents SET is_cover = FALSE WHERE property_id = ${propertyId} AND is_cover`;
+  if (documentId) {
+    await sql`
+      UPDATE documents SET is_cover = TRUE
+      WHERE document_id = ${documentId} AND property_id = ${propertyId} AND removed_at IS NULL
+    `;
+  }
 }
 
 export interface DisputeView {

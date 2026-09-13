@@ -202,6 +202,131 @@ test("search, property page, and claim review", async () => {
   expect(afterBody.property.events.some((e: { event_type: string }) => e.event_type === "owner_assertion.added")).toBe(true);
 });
 
+async function verifiedOwner(email: string, adminEmail = "desk@example.com") {
+  const cookie = await signIn(email);
+  const claim = await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ method: "tax_bill", attestationAccepted: true }),
+  });
+  const { claimId } = await claim.json();
+  const adminCookie = await signIn(adminEmail, true);
+  const review = await app.request(`http://localhost/api/admin/claims/${claimId}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: adminCookie },
+    body: JSON.stringify({ decision: "verified" }),
+  });
+  expect(review.status).toBe(200);
+  return cookie;
+}
+
+test("owner contributions are public on the profile until the owner makes them private", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+
+  const save = await app.request("http://localhost/api/properties/prop_test/owner-fields", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ fields: { "profile.summary": "Brick row house on the main street.", heating: "Oil boiler", "utility.water": "City of Hudson" } }),
+  });
+  expect(save.status).toBe(200);
+
+  const factOf = (body: { property: { facts: Array<{ fieldKey: string }> } }, key: string) =>
+    body.property.facts.find((f) => f.fieldKey === key) as { status: string; value: unknown; visibility: string | null; assertions: unknown[] };
+
+  let publicBody = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(factOf(publicBody, "profile.summary").status).toBe("available");
+  expect(factOf(publicBody, "heating").value).toBe("Oil boiler");
+  expect(factOf(publicBody, "utility.water").status).toBe("owner_reported");
+
+  const hide = await app.request("http://localhost/api/properties/prop_test/owner-fields/visibility", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ fieldKey: "heating", visibility: "private" }),
+  });
+  expect(hide.status).toBe(200);
+  expect((await hide.json()).changed).toBe(1);
+
+  publicBody = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(factOf(publicBody, "heating").status).toBe("unknown");
+  expect(factOf(publicBody, "heating").assertions).toHaveLength(0);
+  expect(factOf(publicBody, "profile.summary").status).toBe("available");
+
+  const ownerBody = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
+  expect(factOf(ownerBody, "heating").status).toBe("available");
+  expect(factOf(ownerBody, "heating").visibility).toBe("private");
+  expect(factOf(ownerBody, "profile.summary").visibility).toBe("public");
+
+  // Editing a private value keeps it private.
+  await app.request("http://localhost/api/properties/prop_test/owner-fields", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ fields: { heating: "Gas boiler" } }),
+  });
+  publicBody = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(factOf(publicBody, "heating").status).toBe("unknown");
+  const ownerAgain = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
+  expect(factOf(ownerAgain, "heating").value).toBe("Gas boiler");
+  expect(factOf(ownerAgain, "heating").visibility).toBe("private");
+
+  // Official facts cannot be toggled.
+  const official = await app.request("http://localhost/api/properties/prop_test/owner-fields/visibility", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ fieldKey: "assessment.total", visibility: "private" }),
+  });
+  expect(official.status).toBe(400);
+});
+
+test("cover photo is served publicly while private photos stay behind sign-in", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+
+  const uploadPhoto = async (name: string, fields: Record<string, string>) => {
+    const form = new FormData();
+    form.append("file", new File([png], name, { type: "image/png" }));
+    for (const [key, value] of Object.entries(fields)) form.append(key, value);
+    const res = await app.request("http://localhost/api/properties/prop_test/documents", {
+      method: "POST",
+      headers: { cookie: ownerCookie },
+      body: form,
+    });
+    expect(res.status).toBe(201);
+    return (await res.json()).documentId as string;
+  };
+
+  const coverId = await uploadPhoto("front.png", { documentType: "photo", visibility: "public", cover: "true" });
+  const privateId = await uploadPhoto("boiler.png", { documentType: "photo", visibility: "private" });
+
+  const publicPage = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(publicPage.property.documents.map((d: { document_id: string }) => d.document_id)).toEqual([coverId]);
+  expect(publicPage.property.documents[0].is_cover).toBe(true);
+
+  const ownerPage = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
+  expect(ownerPage.property.documents).toHaveLength(2);
+  expect(ownerPage.property.documents[0].document_id).toBe(coverId);
+
+  const anonymousCover = await app.request(`http://localhost/api/documents/${coverId}/file`);
+  expect(anonymousCover.status).toBe(200);
+  expect(anonymousCover.headers.get("content-type")).toBe("image/png");
+  const anonymousPrivate = await app.request(`http://localhost/api/documents/${privateId}/file`);
+  expect(anonymousPrivate.status).toBe(401);
+  const ownerPrivate = await app.request(`http://localhost/api/documents/${privateId}/file`, { headers: { cookie: ownerCookie } });
+  expect(ownerPrivate.status).toBe(200);
+
+  // Choosing a different cover moves the flag.
+  const swap = await app.request(`http://localhost/api/documents/${privateId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ cover: true }),
+  });
+  expect(swap.status).toBe(200);
+  const afterSwap = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
+  const covers = afterSwap.property.documents.filter((d: { is_cover: boolean }) => d.is_cover);
+  expect(covers.map((d: { document_id: string }) => d.document_id)).toEqual([privateId]);
+});
+
 test("former owner loses maintainer access after a new verified claim", async () => {
   await seedProperty();
   const firstCookie = await signIn("seller@example.com");
