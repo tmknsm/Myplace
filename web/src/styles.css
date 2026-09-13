@@ -1421,7 +1421,7 @@ table small { display: block; }
     flex-direction: row;
     overflow-x: auto;
     position: sticky;
-    top: calc(var(--topbar-height, calc(52px + env(safe-area-inset-top))) - var(--profile-nav-pad-y) - 1px);
+    top: var(--topbar-height, calc(52px + env(safe-area-inset-top)));
     z-index: 15;
     gap: 6px;
     margin: 0 calc(-1 * var(--pad));
