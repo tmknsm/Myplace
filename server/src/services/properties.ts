@@ -1,3 +1,4 @@
+import { countyProfile } from "../counties.ts";
 import { getSql } from "../db.ts";
 import { assembleFacts, loadAssertionRows } from "./assertions.ts";
 
@@ -12,6 +13,7 @@ export interface PropertyCore {
   sbl: string | null;
   print_key: string | null;
   geojson: unknown;
+  geometry_quality: string | null;
 }
 
 export async function loadPropertyCore(propertyId: string): Promise<PropertyCore | null> {
@@ -20,7 +22,8 @@ export async function loadPropertyCore(propertyId: string): Promise<PropertyCore
     SELECT
       p.property_id, p.state, p.county, p.municipality, p.status,
       a.formatted, i.swis, i.sbl, i.print_key,
-      CASE WHEN g.geom IS NULL THEN NULL ELSE ST_AsGeoJSON(g.geom)::json END AS geojson
+      CASE WHEN g.geom IS NULL THEN NULL ELSE ST_AsGeoJSON(g.geom)::json END AS geojson,
+      g.quality AS geometry_quality
     FROM properties p
     LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
     LEFT JOIN parcel_identities i ON i.property_id = p.property_id AND i.is_current
@@ -57,6 +60,11 @@ export async function loadPropertyPage(propertyId: string) {
       : "Limited",
     permits: "Not connected",
     historic_archive: "Limited",
+    lot_lines: core.geometry_quality === "official"
+      ? "Official"
+      : core.geometry_quality === "approximate"
+        ? "Approximate"
+        : "Demonstration",
   };
 
   const earliest = await sql<{ created_at: Date }[]>`
@@ -72,6 +80,8 @@ export async function loadPropertyPage(propertyId: string) {
     historyNote: earliest[0]?.created_at
       ? `Known digital records currently date back to ${new Date(earliest[0].created_at).getFullYear()}.`
       : "No attributable digital events have been recorded yet.",
+    geometryNotice: countyProfile(core.county)?.notice ?? null,
+    geometryQuality: core.geometry_quality,
   };
 }
 
@@ -94,6 +104,7 @@ export async function searchProperties(query: string, limit = 12) {
       OR i.sbl ILIKE ${"%" + q + "%"}
       OR i.print_key ILIKE ${"%" + q + "%"}
       OR p.municipality ILIKE ${"%" + q + "%"}
+      OR p.county ILIKE ${"%" + q + "%"}
     ORDER BY similarity(COALESCE(a.formatted, ''), ${q}) DESC, a.formatted
     LIMIT ${limit}
   `;
@@ -101,10 +112,18 @@ export async function searchProperties(query: string, limit = 12) {
 
 export async function parcelsInBbox(west: number, south: number, east: number, north: number, limit = 400) {
   const sql = getSql();
-  const rows = await sql<{ property_id: string; formatted: string | null; geojson: unknown }[]>`
+  const rows = await sql<{
+    property_id: string;
+    formatted: string | null;
+    county: string;
+    quality: string;
+    geojson: unknown;
+  }[]>`
     SELECT
       p.property_id,
+      p.county,
       a.formatted,
+      g.quality,
       ST_AsGeoJSON(g.geom)::json AS geojson
     FROM property_geometries g
     JOIN properties p ON p.property_id = g.property_id
@@ -121,6 +140,8 @@ export async function parcelsInBbox(west: number, south: number, east: number, n
       properties: {
         property_id: row.property_id,
         address: row.formatted,
+        county: row.county,
+        geometryQuality: row.quality,
       },
       geometry: row.geojson,
     })),

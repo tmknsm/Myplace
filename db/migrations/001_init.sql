@@ -94,8 +94,10 @@ CREATE INDEX parcel_identities_property_idx ON parcel_identities (property_id);
 CREATE TABLE property_geometries (
   geometry_id TEXT PRIMARY KEY,
   property_id TEXT NOT NULL REFERENCES properties(property_id) ON DELETE CASCADE,
-  geom GEOMETRY(Polygon, 4326) NOT NULL,
+  geom GEOMETRY(Geometry, 4326) NOT NULL,
   source_id TEXT REFERENCES sources(source_id),
+  quality TEXT NOT NULL DEFAULT 'demonstration'
+    CHECK (quality IN ('official', 'approximate', 'demonstration')),
   is_current BOOLEAN NOT NULL DEFAULT TRUE,
   effective_at DATE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()

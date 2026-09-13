@@ -1,6 +1,36 @@
 import postgres from "postgres";
 import { createHash } from "node:crypto";
 import { FIELD_VOCAB } from "../server/src/vocab.ts";
+import greeneFixture from "./fixtures/greene-catskill.json" with { type: "json" };
+
+type GreeneFeature = {
+  n: number;
+  properties: {
+    municipality: string;
+    city: string;
+    zip: string;
+    number: string;
+    street: string;
+    swis: string;
+    sbl: string;
+    printKey?: string;
+    propertyClass: string;
+    land?: number | null;
+    total?: number | null;
+    market?: number | null;
+    yearBuilt?: number | null;
+    acreage?: number | null;
+    buildingArea?: number | null;
+    owner?: string | null;
+    school?: string | null;
+    sewer?: string | null;
+    water?: string | null;
+    utilities?: string | null;
+    rollYear?: number | null;
+    spatialYear?: number | null;
+  };
+  geometry: { type: string; coordinates: unknown };
+};
 
 const url = process.env.DATABASE_URL ?? "postgres://ubuntu:myplace@localhost:5432/myplace";
 const sql = postgres(url, { max: 1 });
@@ -280,6 +310,8 @@ async function main() {
       name: "Columbia County assessment roll (demonstration)",
       authority: "Columbia County Real Property",
       type: "government",
+      jurisdiction: "Columbia County, NY",
+      license: "Demonstration seed. Not an official county redistribution.",
       coverage: "Countywide assessments and owner of record",
     },
     {
@@ -287,6 +319,8 @@ async function main() {
       name: "Demonstration parcel geometry",
       authority: "Myplace seed adapter",
       type: "government",
+      jurisdiction: "Columbia County, NY",
+      license: "Demonstration seed. Columbia does not authorize public tax-map redistribution.",
       coverage: "Synthetic parcels along public streets in Columbia County",
     },
     {
@@ -294,6 +328,8 @@ async function main() {
       name: "City of Hudson building file (demonstration)",
       authority: "City of Hudson",
       type: "government",
+      jurisdiction: "Columbia County, NY",
+      license: "Demonstration seed. Not an official county redistribution.",
       coverage: "Selected Hudson year-built notes",
     },
     {
@@ -301,6 +337,8 @@ async function main() {
       name: "FEMA NFHL extract (demonstration)",
       authority: "FEMA",
       type: "government",
+      jurisdiction: "New York",
+      license: "Demonstration seed.",
       coverage: "Partial flood zone tags",
     },
     {
@@ -308,7 +346,27 @@ async function main() {
       name: "Platform inference",
       authority: "Myplace",
       type: "platform_inference",
+      jurisdiction: "New York",
+      license: "Platform-generated. Never presented as official.",
       coverage: "Low-confidence fills, never presented as official",
+    },
+    {
+      id: "src_greene_roll",
+      name: "NYS Tax Parcels Public — Greene attributes",
+      authority: "Greene County / NYS ORPTS",
+      type: "government",
+      jurisdiction: "Greene County, NY",
+      license: "Public redistribution authorized by Greene County via NYS ITS Geospatial Services.",
+      coverage: "2025 assessment attributes joined to official county polygons",
+    },
+    {
+      id: "src_greene_gis",
+      name: "NYS Tax Parcels Public — Greene lot lines",
+      authority: "Greene County Real Property / NYS ITS",
+      type: "government",
+      jurisdiction: "Greene County, NY",
+      license: "Official tax-map polygons. Greene County authorized public redistribution.",
+      coverage: "Village of Catskill sample from the 2025 NYS Tax Parcels Public dataset",
     },
   ];
 
@@ -318,8 +376,8 @@ async function main() {
         source_id, name, authority, source_type, jurisdiction, license_notes, coverage,
         last_checked_at, last_success_at, health_status, schema_version
       ) VALUES (
-        ${source.id}, ${source.name}, ${source.authority}, ${source.type}, 'Columbia County, NY',
-        'Demonstration seed. Not an official county redistribution.', ${source.coverage},
+        ${source.id}, ${source.name}, ${source.authority}, ${source.type}, ${source.jurisdiction},
+        ${source.license}, ${source.coverage},
         now(), now(), 'healthy', 'v1'
       )
     `;
@@ -355,11 +413,11 @@ async function main() {
     const ring = polygon(parcel.lng, parcel.lat, parcel.w, parcel.h, parcel.n % 2 === 0 ? 0.00003 : 0);
     const wkt = `POLYGON((${ring.map((p) => `${p[0]} ${p[1]}`).join(", ")}))`;
     await sql`
-      INSERT INTO property_geometries (geometry_id, property_id, geom, source_id, is_current, effective_at)
+      INSERT INTO property_geometries (geometry_id, property_id, geom, source_id, quality, is_current, effective_at)
       VALUES (
         ${ulidish("geo", parcel.n)}, ${propertyId},
         ST_SetSRID(ST_GeomFromText(${wkt}), 4326),
-        'src_county_gis', true, '2026-07-01'
+        'src_county_gis', 'demonstration', true, '2026-07-01'
       )
     `;
     await sql`
@@ -394,6 +452,7 @@ async function main() {
       ["utility.water", parcel.water],
       ["utility.sewer", parcel.sewer],
       ["zoning.district", parcel.zoning],
+      ["geometry.kind", "Demonstration sketch"],
       ["flood.zone", parcel.flood],
       ["wetlands", parcel.wetlands],
       ["historic.district", parcel.historic],
@@ -447,9 +506,141 @@ async function main() {
     VALUES ('code_admin_seed', 'admin@myplace.local', ${hashCode("admin@myplace.local", "000000")}, 'signin', now() + interval '365 days')
   `;
 
-  const count = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM properties`;
-  console.log(`seeded ${count[0]?.n ?? 0} Columbia County demonstration properties`);
+  await seedGreene();
+
+  const count = await sql<{ n: number; county: string }[]>`
+    SELECT county, count(*)::int AS n FROM properties GROUP BY county ORDER BY county
+  `;
+  console.log(`seeded ${count.map((row) => `${row.n} ${row.county}`).join(", ")} properties`);
   await sql.end();
+}
+
+const CLASS_NAMES: Record<string, string> = {
+  "210": "210 One family",
+  "220": "220 Two family",
+  "230": "230 Three family",
+  "311": "311 Vacant residential",
+  "411": "411 Apartments",
+  "421": "421 Restaurant",
+  "438": "438 Parking lot",
+  "449": "449 Other storage / warehouse",
+  "464": "464 Office building",
+  "465": "465 Professional building",
+  "481": "481 Downtown row vacant",
+  "482": "482 Downtown row",
+  "620": "620 Religious",
+  "652": "652 Government office",
+  "653": "653 Parking garage",
+  "681": "681 Cultural / civic",
+};
+
+function geojsonToWkt(geometry: { type: string; coordinates: unknown }): string {
+  const path = (coords: unknown): string => {
+    if (!Array.isArray(coords)) return "";
+    if (typeof coords[0] === "number") return `${coords[0]} ${coords[1]}`;
+    return `(${coords.map(path).join(", ")})`;
+  };
+  if (geometry.type === "Polygon") return `POLYGON${path(geometry.coordinates)}`;
+  if (geometry.type === "MultiPolygon") return `MULTIPOLYGON${path(geometry.coordinates)}`;
+  throw new Error(`Unsupported geometry ${geometry.type}`);
+}
+
+async function seedGreene() {
+  await sql`
+    INSERT INTO source_snapshots (snapshot_id, source_id, notes)
+    VALUES (
+      'snp_greene_2025',
+      'src_greene_gis',
+      'Village of Catskill sample from NYS Tax Parcels Public (May 2026 publication, 2025 spatial year)'
+    )
+  `;
+
+  for (const feature of greeneFixture.features as GreeneFeature[]) {
+    const parcel = feature.properties;
+    const n = feature.n;
+    const propertyId = ulidish("prop", n);
+    const street = parcel.street.replace(/\bSt\b/, "Street").replace(/\bAve\b/, "Avenue");
+    const formatted = `${parcel.number} ${street}, ${parcel.city}, NY ${parcel.zip}`;
+    const className = CLASS_NAMES[parcel.propertyClass] ?? parcel.propertyClass;
+    const acreage = typeof parcel.acreage === "number" ? Number(parcel.acreage.toFixed(2)) : undefined;
+    await sql`
+      INSERT INTO properties (property_id, state, county, municipality)
+      VALUES (${propertyId}, 'NY', 'Greene', ${parcel.municipality})
+    `;
+    await sql`
+      INSERT INTO parcel_identities (parcel_identity_id, property_id, swis, sbl, print_key, is_current, effective_at)
+      VALUES (
+        ${ulidish("pid", n)}, ${propertyId}, ${parcel.swis}, ${parcel.sbl},
+        ${parcel.printKey ?? parcel.sbl}, true, '2025-07-01'
+      )
+    `;
+    const wkt = geojsonToWkt(feature.geometry);
+    await sql`
+      INSERT INTO property_geometries (geometry_id, property_id, geom, source_id, quality, is_current, effective_at)
+      VALUES (
+        ${ulidish("geo", n)}, ${propertyId},
+        ST_SetSRID(ST_GeomFromText(${wkt}), 4326),
+        'src_greene_gis', 'official', true, '2025-07-01'
+      )
+    `;
+    await sql`
+      INSERT INTO property_addresses (
+        address_id, property_id, street_number, street_name, city, state, postal_code, formatted, source_id
+      ) VALUES (
+        ${ulidish("adr", n)}, ${propertyId}, ${parcel.number}, ${street},
+        ${parcel.city}, 'NY', ${parcel.zip}, ${formatted}, 'src_greene_roll'
+      )
+    `;
+
+    const official: Array<[string, unknown]> = [
+      ["address", formatted],
+      ["municipality", parcel.municipality],
+      ["county", "Greene"],
+      ["parcel.sbl", parcel.sbl],
+      ["parcel.swis", parcel.swis],
+      ["acreage", acreage],
+      ["property_class", className],
+      ["year_built", parcel.yearBuilt],
+      ["building_area", parcel.buildingArea],
+      ["assessment.land", parcel.land],
+      ["assessment.total", parcel.total],
+      ["market_value_estimate", parcel.market],
+      ["owner_name_public", parcel.owner],
+      ["school_district", parcel.school ? `${parcel.school} Central School District` : undefined],
+      ["utility.electric", parcel.utilities?.toLowerCase().includes("electric") ? "Central Hudson" : undefined],
+      ["utility.gas", parcel.utilities?.toLowerCase().includes("gas") ? "Natural gas" : undefined],
+      ["utility.water", parcel.water],
+      ["utility.sewer", parcel.sewer],
+      ["geometry.kind", "Official tax-map polygons"],
+    ];
+    for (const [key, value] of official) {
+      await assertField(propertyId, "src_greene_roll", "government", key, value, "2025-07-01");
+    }
+    await assertField(
+      propertyId,
+      "src_greene_gis",
+      "government",
+      "geometry.kind",
+      "Official tax-map polygons",
+      "2025-07-01",
+    );
+
+    await sql`
+      INSERT INTO property_events (event_id, property_id, event_type, actor_type, source_id, payload_json, effective_at)
+      VALUES (
+        ${ulidish("evt", n)}, ${propertyId}, 'parcel.imported', 'source', 'src_greene_gis',
+        ${sql.json({ adapter: "nys_tax_parcels_public", county: "Greene", spatial_year: parcel.spatialYear ?? 2025 })},
+        '2025-07-01'
+      )
+    `;
+    await sql`
+      INSERT INTO property_events (event_id, property_id, event_type, actor_type, source_id, payload_json, effective_at)
+      VALUES (
+        ${ulidish("evt", n + 8000)}, ${propertyId}, 'assessment.updated', 'source', 'src_greene_roll',
+        ${sql.json({ total: parcel.total, roll_year: parcel.rollYear ?? 2025 })}, '2025-07-01'
+      )
+    `;
+  }
 }
 
 main().catch((error) => {

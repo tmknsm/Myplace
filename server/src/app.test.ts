@@ -241,3 +241,48 @@ test("former owner loses maintainer access after a new verified claim", async ()
   });
   expect((await buyerNow.json()).properties).toHaveLength(1);
 });
+
+test("Greene official lot lines and Columbia sketches stay distinct", async () => {
+  await sql`
+    INSERT INTO sources (source_id, name, source_type, health_status, jurisdiction)
+    VALUES
+      ('src_county_gis', 'Demonstration parcel geometry', 'government', 'healthy', 'Columbia County, NY'),
+      ('src_greene_gis', 'NYS Tax Parcels Public — Greene lot lines', 'government', 'healthy', 'Greene County, NY')
+  `;
+  await sql`INSERT INTO properties (property_id, state, county, municipality) VALUES ('prop_col', 'NY', 'Columbia', 'Hudson')`;
+  await sql`INSERT INTO properties (property_id, state, county, municipality) VALUES ('prop_grn', 'NY', 'Greene', 'Catskill')`;
+  await sql`
+    INSERT INTO property_addresses (address_id, property_id, formatted, street_number, street_name, city)
+    VALUES
+      ('adr_col', 'prop_col', '441 Warren Street, Hudson, NY 12534', '441', 'Warren Street', 'Hudson'),
+      ('adr_grn', 'prop_grn', '1 Main Street, Catskill, NY 12414', '1', 'Main Street', 'Catskill')
+  `;
+  await sql`
+    INSERT INTO property_geometries (geometry_id, property_id, geom, source_id, quality, is_current)
+    VALUES
+      ('geo_col', 'prop_col', ST_SetSRID(ST_GeomFromText('POLYGON((-73.79 42.25,-73.789 42.25,-73.789 42.251,-73.79 42.251,-73.79 42.25))'), 4326), 'src_county_gis', 'demonstration', true),
+      ('geo_grn', 'prop_grn', ST_SetSRID(ST_GeomFromText('POLYGON((-73.867 42.217,-73.866 42.217,-73.866 42.218,-73.867 42.218,-73.867 42.217))'), 4326), 'src_greene_gis', 'official', true)
+  `;
+
+  const meta = await (await app.request("http://localhost/api/meta")).json();
+  expect(meta.coverage).toMatch(/Greene/);
+  expect(meta.counties.map((c: { id: string }) => c.id)).toEqual(["Columbia", "Greene"]);
+  expect(meta.counties.find((c: { id: string }) => c.id === "Greene").geometryPolicy).toBe("public");
+  expect(meta.counties.find((c: { id: string }) => c.id === "Columbia").geometryPolicy).toBe("restricted");
+
+  const greene = await (await app.request("http://localhost/api/search?q=1%20Main")).json();
+  expect(greene.results[0].property_id).toBe("prop_grn");
+  expect(greene.results[0].county).toBe("Greene");
+
+  const page = await (await app.request("http://localhost/api/properties/prop_grn")).json();
+  expect(page.property.geometryQuality).toBe("official");
+  expect(page.property.geometryNotice).toMatch(/authorized NYS/);
+  expect(page.property.coverage.lot_lines).toBe("Official");
+
+  const parcels = await (await app.request("http://localhost/api/parcels?bbox=-74,42,-73,43")).json();
+  const qualities = Object.fromEntries(
+    parcels.features.map((f: { id: string; properties: { geometryQuality: string } }) => [f.id, f.properties.geometryQuality]),
+  );
+  expect(qualities.prop_col).toBe("demonstration");
+  expect(qualities.prop_grn).toBe("official");
+});

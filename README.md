@@ -1,6 +1,6 @@
 # Myplace
 
-A living property record for New York. V1 covers **Columbia County** with a source-aware public dossier, owner-maintained layer, and a production-looking ownership claim flow.
+A living property record for New York. V1 covers **Columbia and Greene** counties with a source-aware public dossier, owner-maintained layer, and a production-looking ownership claim flow. The two counties exist so both polygon cases are visible.
 
 > Every New York property, organized in one place. Know what’s official, what’s changed, and add what only you know.
 
@@ -8,7 +8,7 @@ Owner verification is **manual review** in this V1. The claim UI, emails, and ad
 
 ## What V1 includes
 
-- Searchable demonstration parcels for Columbia County
+- Searchable demonstration parcels for Columbia County, plus official Greene County lot lines from the NYS public tax-parcel file
 - Mapbox-ready map (OpenFreeMap locally; optional Mapbox token later)
 - Public property page with provenance, unknown, inferred, and conflicting states
 - Email sign-in codes
@@ -18,7 +18,9 @@ Owner verification is **manual review** in this V1. The claim UI, emails, and ad
 - Immutable property event history
 - Postgres + PostGIS schema designed for later NY adapters
 
-Columbia County does not authorize public redistribution of official parcel geometry through the NYS tax-parcel service. The seed is a **demonstration dataset** along real streets, labeled as such in the UI. It is not an assessor extract.
+Columbia County does not authorize public redistribution of official parcel geometry through the NYS tax-parcel service. Those lots are a **demonstration sketch** along real streets, labeled as such in the UI.
+
+Greene County does authorize public redistribution. The seed includes a Village of Catskill sample from the **2025 NYS Tax Parcels Public** dataset — official county tax-map polygons, not sketches.
 
 ## Stack
 
@@ -62,7 +64,7 @@ API: [http://localhost:8787](http://localhost:8787)
 
 ## Local development flow
 
-1. Search `441 Warren Street` or click a parcel on the map.
+1. Search `441 Warren Street` (Columbia sketch) or `1 Main Street` (Greene official lot lines), or click a parcel on the map. Use the Columbia / Greene chips to fly between the two cases.
 2. Sign in with any email. Open **Mailbox** in the local-development bar, read the code, return to sign-in.
 3. Claim the property. The wizard is the production UI.
 4. Open **Admin review**, verify the claim.

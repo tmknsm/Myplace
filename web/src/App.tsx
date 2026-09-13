@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type PropertyPage, type Viewer } from "./api";
+import { api, type AdminClaim, type Claim, type CountyMeta, type Doc, type MailMessage, type MailSummary, type PropertyPage, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { eventLabel, FactRow, ParcelMap, SearchBox } from "./components";
 
@@ -59,16 +59,40 @@ function Layout({ children }: { children: React.ReactNode }) {
 function HomePage() {
   const navigate = useNavigate();
   const [count, setCount] = useState<number | null>(null);
+  const [counties, setCounties] = useState<CountyMeta[]>([]);
+  const [focus, setFocus] = useState<string>("all");
   useEffect(() => {
-    api.meta().then((m) => setCount(m.propertyCount)).catch(() => undefined);
+    api.meta().then((m) => {
+      setCount(m.propertyCount);
+      setCounties(m.counties ?? []);
+    }).catch(() => undefined);
   }, []);
+  const selected = counties.find((county) => county.id === focus);
   return (
     <div className="hero">
       <div className="hero-copy">
         <div className="kicker">New York</div>
-        <h1>Columbia County</h1>
+        <h1>Columbia &amp; Greene</h1>
         <p className="lede">
           What is official, what changed, and what only you know.
+        </p>
+        <div className="county-switch">
+          <button type="button" className={focus === "all" ? "on" : ""} onClick={() => setFocus("all")}>Both</button>
+          {counties.map((county) => (
+            <button
+              key={county.id}
+              type="button"
+              className={focus === county.id ? "on" : ""}
+              onClick={() => setFocus(county.id)}
+            >
+              {county.id}
+            </button>
+          ))}
+        </div>
+        <p className="meta-line case-line">
+          {selected
+            ? selected.short
+            : "Columbia withholds official lot lines. Greene publishes them."}
         </p>
         <div className="hero-search">
           <SearchBox />
@@ -78,7 +102,14 @@ function HomePage() {
         </p>
       </div>
       <div className="hero-map">
-        <ParcelMap embedded onSelect={(id) => navigate(`/property/${id}`)} />
+        <ParcelMap
+          embedded
+          legend
+          focusKey={focus}
+          focusCenter={selected?.center}
+          focusZoom={selected?.zoom}
+          onSelect={(id) => navigate(`/property/${id}`)}
+        />
       </div>
     </div>
   );
@@ -88,7 +119,7 @@ function MapPage() {
   const navigate = useNavigate();
   return (
     <div className="map-page">
-      <ParcelMap zoom={11} onSelect={(id) => navigate(`/property/${id}`)} />
+      <ParcelMap legend zoom={11.6} onSelect={(id) => navigate(`/property/${id}`)} />
     </div>
   );
 }
@@ -116,7 +147,7 @@ function PropertyPageView() {
     <div className="page wide">
       <div className="property-layout">
         <div className="property-head">
-          <div className="kicker">{property.municipality}</div>
+          <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
           <h1>{title}</h1>
           <p className="meta-line mono">{[locality, property.sbl].filter(Boolean).join(" · ")}</p>
           <div className="action-row">
@@ -139,8 +170,8 @@ function PropertyPageView() {
           />
         </div>
         <div className="notice property-notice">
-          Demonstration records for Columbia County. Not an official assessor extract.
-          Every important fact shows its source.
+          {property.geometryNotice ?? "Demonstration records. Not an official assessor extract."}
+          {" "}Every important fact shows its source.
         </div>
         <div className="dossier">
           <section className="section">

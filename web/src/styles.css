@@ -167,6 +167,28 @@ img, svg { max-width: 100%; }
   margin: 6px 0 10px;
 }
 .hero-search { margin: 22px 0 12px; }
+.county-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0 8px;
+}
+.county-switch button {
+  background: var(--surface);
+  border: 0;
+  box-shadow: var(--shadow);
+  border-radius: 999px;
+  padding: 7px 12px;
+  min-height: 32px;
+  font-size: 13px;
+  font-weight: 560;
+  color: var(--ink-soft);
+}
+.county-switch button.on {
+  background: var(--ink);
+  color: #fff;
+}
+.case-line { max-width: 34ch; }
 .kicker {
   font-size: 13px;
   font-weight: 500;
@@ -575,7 +597,34 @@ tr:last-child td { border-bottom: 0; }
   background: var(--surface);
 }
 .map-shell { position: absolute; inset: 0; }
+.map-canvas { position: absolute; inset: 0; }
 .hero-map .map-shell, .map-page .map-shell, .map-panel .map-shell { position: absolute; inset: 0; }
+.map-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  pointer-events: none;
+}
+.map-legend span { display: flex; align-items: center; gap: 7px; }
+.map-legend .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.map-legend .swatch.official { background: #1d1d1f; }
+.map-legend .swatch.sketch { background: #e23b32; }
 .map-page {
   position: relative;
   height: calc(100dvh - 7.5rem);
@@ -632,10 +681,12 @@ tr:last-child td { border-bottom: 0; }
     margin: 2px 0 0;
   }
   .hero-copy .lede { display: none; }
-  .hero-search { order: 3; margin: 4px 0 0; }
-  .hero-copy .meta-line { order: 4; margin-top: 2px; }
+  .hero-copy .county-switch { order: 3; margin: 10px 0 0; }
+  .hero-copy .case-line { order: 4; margin-top: 6px; }
+  .hero-search { order: 5; margin: 8px 0 0; }
+  .hero-copy .meta-line:not(.case-line) { order: 6; margin-top: 2px; }
   .hero-map {
-    order: 5;
+    order: 7;
     min-height: 0;
     height: 48dvh;
     max-height: 440px;

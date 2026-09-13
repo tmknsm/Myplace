@@ -59,9 +59,16 @@ export function SearchBox({ compact = false, autoFocus = false }: { compact?: bo
 
 const STYLE = "https://tiles.openfreemap.org/styles/positron";
 
+function ringsOf(geometry: { type: string; coordinates: unknown }): number[][] {
+  if (geometry.type === "MultiPolygon") {
+    return (geometry.coordinates as number[][][][]).flatMap((polygon) => polygon[0] ?? []);
+  }
+  return ((geometry.coordinates as number[][][])[0] ?? []) as number[][];
+}
+
 function applySelection(
   map: maplibregl.Map,
-  geometry?: { type: string; coordinates: number[][][] } | null,
+  geometry?: { type: string; coordinates: number[][][] | number[][][][] } | null,
 ) {
   const source = map.getSource("selected") as maplibregl.GeoJSONSource | undefined;
   if (!source || !geometry) return;
@@ -69,8 +76,8 @@ function applySelection(
     type: "FeatureCollection",
     features: [{ type: "Feature", properties: {}, geometry }],
   });
-  const ring = geometry.coordinates[0];
-  if (!ring?.[0]) return;
+  const ring = ringsOf(geometry);
+  if (!ring[0]) return;
   const lngs = ring.map((point) => point[0]!);
   const lats = ring.map((point) => point[1]!);
   map.fitBounds(
@@ -79,20 +86,35 @@ function applySelection(
   );
 }
 
+const fillColor: maplibregl.DataDrivenPropertyValueSpecification<string> = [
+  "match",
+  ["get", "geometryQuality"],
+  "official", "#1d1d1f",
+  "#e23b32",
+];
+
 export function ParcelMap({
   selectedId,
   selectedGeometry,
   onSelect,
-  center = [-73.77, 42.29],
-  zoom = 10.2,
+  center = [-73.828, 42.234],
+  zoom = 11.6,
   embedded = false,
+  focusKey,
+  focusCenter,
+  focusZoom,
+  legend = false,
 }: {
   selectedId?: string;
-  selectedGeometry?: { type: string; coordinates: number[][][] } | null;
+  selectedGeometry?: { type: string; coordinates: number[][][] | number[][][][] } | null;
   onSelect?: (id: string) => void;
   center?: [number, number];
   zoom?: number;
   embedded?: boolean;
+  focusKey?: string;
+  focusCenter?: [number, number];
+  focusZoom?: number;
+  legend?: boolean;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -114,7 +136,7 @@ export function ParcelMap({
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }), "top-right");
     const loadParcels = async () => {
-      if (!map.getSource("parcels") || map.getZoom() < 13) {
+      if (!map.getSource("parcels") || map.getZoom() < 12) {
         const source = map.getSource("parcels") as maplibregl.GeoJSONSource | undefined;
         source?.setData({ type: "FeatureCollection", features: [] });
         return;
@@ -132,13 +154,13 @@ export function ParcelMap({
         id: "parcel-fill",
         type: "fill",
         source: "parcels",
-        paint: { "fill-color": "#e23b32", "fill-opacity": 0.14 },
+        paint: { "fill-color": fillColor, "fill-opacity": 0.14 },
       });
       map.addLayer({
         id: "parcel-line",
         type: "line",
         source: "parcels",
-        paint: { "line-color": "#e23b32", "line-width": 1 },
+        paint: { "line-color": fillColor, "line-width": 1 },
       });
       map.addSource("selected", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({
@@ -183,7 +205,23 @@ export function ParcelMap({
     applySelection(map, selectedGeometry);
   }, [selectedId, selectedGeometry]);
 
-  return <div ref={ref} className="map-shell" />;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focusCenter) return;
+    map.flyTo({ center: focusCenter, zoom: focusZoom ?? 15, essential: true, duration: 800 });
+  }, [focusKey, focusCenter, focusZoom]);
+
+  return (
+    <div className="map-shell">
+      <div ref={ref} className="map-canvas" />
+      {legend && (
+        <div className="map-legend">
+          <span><i className="swatch official" /> Official lot lines</span>
+          <span><i className="swatch sketch" /> Demonstration sketch</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function FactRow({ fact }: { fact: Fact }) {
