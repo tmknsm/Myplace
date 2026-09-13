@@ -5,6 +5,7 @@ import { applyMigrations, dropSql } from "../../db/schema.ts";
 import { app } from "./app.ts";
 import { closeSql, setSql } from "./db.ts";
 import { assembleFacts, type AssertionRow } from "./services/assertions.ts";
+import { DEBUG_CLAIM_PIN } from "./debug.ts";
 
 const url = process.env.DATABASE_URL ?? "postgres://ubuntu:myplace@localhost:5432/myplace_test";
 if (isHostedDatabase(url) && !process.env.ALLOW_HOSTED_DB_TESTS) {
@@ -456,4 +457,25 @@ test("parcel vector tiles carry shapes only where parcels exist", async () => {
 
   const bad = await app.request(`http://localhost/api/tiles/14/-1/2.mvt`);
   expect(bad.status).toBe(400);
+});
+
+test("debug PIN claim grants ownership and a follow-up page load sees the owner", async () => {
+  await seedProperty();
+  const claim = await app.request("http://localhost/api/dev/debug/claim/prop_test", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pin: DEBUG_CLAIM_PIN }),
+  });
+  expect(claim.status).toBe(201);
+  const body = await claim.json();
+  expect(body.ok).toBe(true);
+  expect(body.user.primary_email).toBe("debug-owner@myplace.local");
+  const cookie = claim.headers.get("set-cookie") ?? "";
+  expect(cookie).toMatch(/myplace_session=/);
+
+  const page = await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } });
+  const pageBody = await page.json();
+  expect(pageBody.viewer.maintainer).toBe(true);
+  expect(pageBody.viewer.role).toBe("owner");
+  expect(pageBody.property.maintainers).toHaveLength(1);
 });

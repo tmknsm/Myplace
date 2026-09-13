@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, type Doc, type Fact, type FieldVisibility, type Improvement, type PropertyPage, type Viewer } from "./api";
+import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PropertyPage, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, ParcelMap, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
@@ -113,6 +113,36 @@ function organizeFacts(facts: Fact[]): Map<string, Fact[]> {
   return sections;
 }
 
+function applyClaimedOwner(data: PageData, result: DebugClaimResult): PageData {
+  const now = new Date().toISOString();
+  const already = data.property.maintainers.some((row) => row.user_id === result.user.user_id);
+  return {
+    property: {
+      ...data.property,
+      maintainers: already
+        ? data.property.maintainers
+        : [
+          ...data.property.maintainers,
+          {
+            maintainer_id: "pending",
+            user_id: result.user.user_id,
+            role: "owner",
+            verified_at: now,
+            display_name: result.user.display_name,
+            primary_email: result.user.primary_email,
+          },
+        ],
+    },
+    viewer: {
+      ...data.viewer,
+      maintainer: true,
+      role: data.viewer.role ?? "owner",
+      verifiedAt: data.viewer.verifiedAt ?? now,
+      openClaim: null,
+    },
+  };
+}
+
 function ownerCanWrite(fact: Fact): boolean {
   if (fact.layer === "owner") return true;
   if (fact.layer === "either") return fact.status === "unknown" || fact.status === "owner_reported";
@@ -136,16 +166,31 @@ export function PropertyPageView() {
   const [aboutEditing, setAboutEditing] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
 
-  const load = useCallback(() => {
-    if (!id) return Promise.resolve();
-    return api.property(id).then((next) => {
-      setData(next);
-      setError(null);
-    }).catch((err) => setError(err.message));
+  const load = useCallback(async (opts?: { allowDowngrade?: boolean }) => {
+    if (!id) return;
+    let last: Error | null = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const next = await api.property(id);
+        setData((current) => {
+          // A follow-up fetch that raced the session cookie must not wipe the
+          // owner profile we just flipped into after a claim.
+          if (!opts?.allowDowngrade && current?.viewer.maintainer && !next.viewer.maintainer) return current;
+          return next;
+        });
+        setError(null);
+        return;
+      } catch (err) {
+        last = err instanceof Error ? err : new Error("Could not load property");
+        if (err instanceof ApiError && (err.status === 404 || err.status === 401 || err.status === 403)) break;
+        await new Promise((resolve) => setTimeout(resolve, 400 * 2 ** attempt));
+      }
+    }
+    if (last) setError(last.message);
   }, [id]);
 
-  useEffect(() => { void load(); }, [load, user?.user_id]);
-  useOwnershipChanges(id, load);
+  useEffect(() => { void load({ allowDowngrade: !user }); }, [load, user?.user_id]);
+  useOwnershipChanges(id, () => { void load({ allowDowngrade: true }); });
 
   const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
   useEffect(() => {
@@ -506,10 +551,11 @@ export function PropertyPageView() {
           propertyId={id}
           address={address}
           onClose={() => setPinOpen(false)}
-          onClaimed={async () => {
+          onClaimed={(result: DebugClaimResult) => {
             setPinOpen(false);
-            await load();
+            setData((current) => current ? applyClaimedOwner(current, result) : current);
             showToast("Ownership verified. This is now your profile to build out.");
+            void load();
           }}
         />
       )}

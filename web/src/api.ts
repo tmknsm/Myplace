@@ -11,7 +11,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body && !(init.body instanceof FormData) && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
-  const res = await fetch(path, { ...init, headers, credentials: "include" });
+  const res = await fetch(path, { cache: "no-store", ...init, headers, credentials: "include" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, data.error || res.statusText);
   return data as T;
@@ -108,7 +108,7 @@ export const api = {
     }),
   debugState: () => request<DebugState>("/api/dev/debug/state"),
   debugClaim: (id: string, pin: string) =>
-    request<{ ok: boolean; claimId?: string; alreadyMaintainer?: boolean; user: User; signedIn: boolean }>(`/api/dev/debug/claim/${id}`, {
+    request<DebugClaimResult>(`/api/dev/debug/claim/${id}`, {
       method: "POST",
       body: JSON.stringify({ pin }),
     }),
@@ -246,6 +246,14 @@ export interface Invitation {
   invited_email: string;
   role: string;
   created_at: string;
+}
+
+export interface DebugClaimResult {
+  ok: boolean;
+  claimId?: string;
+  alreadyMaintainer?: boolean;
+  signedIn: boolean;
+  user: User;
 }
 
 export interface DebugState {

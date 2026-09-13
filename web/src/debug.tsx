@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type DebugState } from "./api";
+import { api, type DebugClaimResult, type DebugState } from "./api";
 import { useAuth } from "./auth";
 
 /**
@@ -37,7 +37,7 @@ export function PinClaimModal({
   propertyId: string;
   address: string;
   onClose: () => void;
-  onClaimed: () => void;
+  onClaimed: (result: DebugClaimResult) => void;
 }) {
   const { user, refresh } = useAuth();
   const [pin, setPin] = useState("");
@@ -61,8 +61,10 @@ export function PinClaimModal({
     setError(null);
     try {
       const result = await api.debugClaim(propertyId, candidate);
-      if (result.signedIn) await refresh();
-      onClaimed();
+      // Flip the property into the owner profile immediately. Auth refresh and
+      // a background reload can lag on a cold hosted database; don't block the UI.
+      onClaimed(result);
+      if (result.signedIn) void refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not claim");
       setPin("");

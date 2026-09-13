@@ -1222,7 +1222,7 @@ app.post("/api/dev/debug/claim/:id", async (c) => {
     reviewerNote: "Verified by debug PIN. Local development only.",
   });
   const template = claimReviewedEmail(config.appOrigin, core.formatted ?? "this property", propertyId, true);
-  await sendMail({
+  void sendMail({
     stream: "ownership",
     toEmail: user.primary_email,
     toUserId: user.user_id,
@@ -1231,7 +1231,7 @@ app.post("/api/dev/debug/claim/:id", async (c) => {
     text: template.text,
     templateKey: "claim_verified",
     payload: { claimId, propertyId, debug: true },
-  });
+  }).catch((err) => console.error("claim_verified email failed", err));
   return c.json({ ok: true, claimId, user, signedIn }, 201);
 });
 
