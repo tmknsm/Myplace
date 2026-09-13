@@ -589,6 +589,39 @@ app.delete("/api/documents/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+app.post("/api/documents/:id/file", async (c) => {
+  const { user, doc } = await loadOwnedDocument(c, c.req.param("id"));
+  const form = await c.req.parseBody();
+  const file = form.file;
+  if (!(file instanceof File)) return c.json({ error: "Choose a file to upload." }, 400);
+  if (file.size > 15 * 1024 * 1024) return c.json({ error: "Files must be 15 MB or smaller." }, 400);
+  const key = documentKey(doc.property_id, doc.document_id, file.name);
+  await putDocument(key, new Uint8Array(await file.arrayBuffer()));
+  const sql = getSql();
+  const isImage = file.type.startsWith("image/");
+  await sql`
+    UPDATE documents
+    SET
+      storage_key = ${key},
+      original_filename = ${file.name},
+      mime_type = ${file.type || "application/octet-stream"},
+      byte_size = ${file.size},
+      document_type = CASE
+        WHEN document_type = 'photo' OR ${isImage} THEN 'photo'
+        ELSE document_type
+      END
+    WHERE document_id = ${doc.document_id}
+  `;
+  await emitEvent({
+    propertyId: doc.property_id,
+    eventType: isImage || doc.document_type === "photo" ? "photo.replaced" : "document.replaced",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { document_id: doc.document_id, document_type: doc.document_type },
+  });
+  return c.json({ ok: true });
+});
+
 async function requireMaintainer(c: Parameters<typeof requireUser>[0], propertyId: string) {
   const user = requireUser(c);
   if (!(await isMaintainer(user.user_id, propertyId))) {

@@ -81,6 +81,10 @@ function isImage(doc: Doc): boolean {
   return Boolean(doc.mime_type?.startsWith("image/")) || doc.document_type === "photo";
 }
 
+function fileUrl(doc: Doc): string {
+  return `/api/documents/${doc.document_id}/file?v=${doc.byte_size ?? 0}`;
+}
+
 function useToast(): [string | null, (message: string) => void] {
   const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
@@ -828,26 +832,13 @@ function ImprovementCard({
       </div>
       {item.notes && <p className="improvement-notes">{item.notes}</p>}
       {images.length > 0 && (
-        <div className="photo-strip">
-          {images.map((doc) => (
-            <a key={doc.document_id} className="photo-thumb" href={`/api/documents/${doc.document_id}/file`} target="_blank" rel="noreferrer">
-              <img src={`/api/documents/${doc.document_id}/file`} alt={doc.caption ?? doc.original_filename} loading="lazy" />
-              {owner && (
-                <button type="button" className="thumb-remove" aria-label="Remove photo" onClick={async (event) => {
-                  event.preventDefault();
-                  await api.deleteDocument(doc.document_id);
-                  await onChange();
-                }}>×</button>
-              )}
-            </a>
-          ))}
-        </div>
+        <ImprovementPhotos images={images} owner={owner} onChange={onChange} toast={toast} />
       )}
       {files.length > 0 && (
         <ul className="file-chips">
           {files.map((doc) => (
             <li key={doc.document_id}>
-              <a href={`/api/documents/${doc.document_id}/file`} target="_blank" rel="noreferrer">
+              <a href={fileUrl(doc)} target="_blank" rel="noreferrer">
                 <i aria-hidden="true">▤</i>{doc.original_filename}
               </a>
               <small>{DOCUMENT_TYPE_LABEL[doc.document_type] ?? doc.document_type}{doc.byte_size ? ` · ${fileSize(doc.byte_size)}` : ""}</small>
@@ -894,8 +885,170 @@ function ImprovementCard({
 // Photos
 // ---------------------------------------------------------------------------
 
+function PhotoLightbox({
+  photos,
+  index,
+  owner,
+  onIndex,
+  onClose,
+  onChange,
+  toast,
+}: {
+  photos: Doc[];
+  index: number;
+  owner: boolean;
+  onIndex: (next: number) => void;
+  onClose: () => void;
+  onChange: () => Promise<void> | void;
+  toast: (message: string) => void;
+}) {
+  const photo = photos[index];
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+
+  const step = useCallback((delta: number) => {
+    if (!photos.length) return;
+    onIndex((index + delta + photos.length) % photos.length);
+    setConfirm(false);
+  }, [index, onIndex, photos.length]);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowRight") step(1);
+      if (event.key === "ArrowLeft") step(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose, step]);
+
+  if (!photo) return null;
+
+  const replace = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      await api.replaceDocument(photo.document_id, file);
+      toast("Photo updated.");
+      await onChange();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await api.deleteDocument(photo.document_id);
+      toast("Photo deleted.");
+      await onChange();
+      if (photos.length <= 1) onClose();
+      else onIndex(Math.min(index, photos.length - 2));
+    } finally {
+      setBusy(false);
+      setConfirm(false);
+    }
+  };
+
+  return (
+    <div
+      className="modal-backdrop lightbox"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Photo"
+    >
+      <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>×</button>
+      {photos.length > 1 && <button type="button" className="lightbox-step prev" aria-label="Previous photo" onClick={() => step(-1)}>‹</button>}
+      <figure className="lightbox-figure">
+        <img src={fileUrl(photo)} alt={photo.caption ?? photo.original_filename} />
+        <figcaption>
+          {photo.caption && <strong>{photo.caption}</strong>}
+          {photos.length > 1 && <span className="meta-line">{index + 1} of {photos.length}</span>}
+          {owner && (
+            <div className="lightbox-actions">
+              <label className={`btn secondary file-btn ${busy ? "is-busy" : ""}`}>
+                {busy ? "Saving…" : "Change"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={busy}
+                  data-testid="photo-replace"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    void replace(file);
+                  }}
+                />
+              </label>
+              {confirm ? (
+                <span className="confirm-inline lightbox-confirm">
+                  Delete this photo?
+                  <button type="button" className="btn danger" disabled={busy} onClick={() => void remove()}>Delete</button>
+                  <button type="button" className="btn secondary" disabled={busy} onClick={() => setConfirm(false)}>Keep</button>
+                </span>
+              ) : (
+                <button type="button" className="btn danger" disabled={busy} data-testid="photo-delete" onClick={() => setConfirm(true)}>Delete</button>
+              )}
+            </div>
+          )}
+        </figcaption>
+      </figure>
+      {photos.length > 1 && <button type="button" className="lightbox-step next" aria-label="Next photo" onClick={() => step(1)}>›</button>}
+    </div>
+  );
+}
+
+function ImprovementPhotos({
+  images,
+  owner,
+  onChange,
+  toast,
+}: {
+  images: Doc[];
+  owner: boolean;
+  onChange: () => Promise<void> | void;
+  toast: (message: string) => void;
+}) {
+  const [open, setOpen] = useState<number | null>(null);
+  return (
+    <>
+      <div className="photo-strip">
+        {images.map((doc, index) => (
+          <button
+            key={doc.document_id}
+            type="button"
+            className="photo-thumb"
+            onClick={() => setOpen(index)}
+            aria-label={doc.caption ?? doc.original_filename}
+          >
+            <img src={fileUrl(doc)} alt="" loading="lazy" />
+          </button>
+        ))}
+      </div>
+      {open !== null && images[open] && (
+        <PhotoLightbox
+          photos={images}
+          index={open}
+          owner={owner}
+          onIndex={setOpen}
+          onClose={() => setOpen(null)}
+          onChange={onChange}
+          toast={toast}
+        />
+      )}
+    </>
+  );
+}
+
 function PhotosSection({ propertyId, owner, photos, onChange, toast }: { propertyId: string; owner: boolean; photos: Doc[]; onChange: () => Promise<void> | void; toast: (message: string) => void }) {
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState<number | null>(null);
   return (
     <section className="section">
       <div className="section-head">
@@ -923,11 +1076,16 @@ function PhotosSection({ propertyId, owner, photos, onChange, toast }: { propert
         <div className="group empty-card">{owner ? "No photos yet. Exterior, roof, mechanicals, and before-and-after shots all belong here." : "None shared yet."}</div>
       ) : (
         <div className="photo-grid">
-          {photos.map((doc) => (
+          {photos.map((doc, index) => (
             <figure key={doc.document_id} className="photo-card">
-              <a href={`/api/documents/${doc.document_id}/file`} target="_blank" rel="noreferrer">
-                <img src={`/api/documents/${doc.document_id}/file`} alt={doc.caption ?? doc.original_filename} loading="lazy" />
-              </a>
+              <button
+                type="button"
+                className="photo-open"
+                onClick={() => setOpen(index)}
+                aria-label={owner ? `Open ${doc.caption ?? doc.original_filename}. Change or delete.` : (doc.caption ?? doc.original_filename)}
+              >
+                <img src={fileUrl(doc)} alt="" loading="lazy" />
+              </button>
               {owner ? (
                 <figcaption>
                   <input
@@ -950,10 +1108,6 @@ function PhotosSection({ propertyId, owner, photos, onChange, toast }: { propert
                       <option value="property_transferable">Visible on transfer</option>
                       <option value="public">Public</option>
                     </select>
-                    <button type="button" className="text-link danger" onClick={async () => {
-                      await api.deleteDocument(doc.document_id);
-                      await onChange();
-                    }}>Remove</button>
                   </div>
                 </figcaption>
               ) : (
@@ -962,6 +1116,17 @@ function PhotosSection({ propertyId, owner, photos, onChange, toast }: { propert
             </figure>
           ))}
         </div>
+      )}
+      {open !== null && photos[open] && (
+        <PhotoLightbox
+          photos={photos}
+          index={open}
+          owner={owner}
+          onIndex={setOpen}
+          onClose={() => setOpen(null)}
+          onChange={onChange}
+          toast={toast}
+        />
       )}
     </section>
   );
@@ -1013,7 +1178,7 @@ function DocumentsSection({
           {rows.map((doc) => (
             <tr key={doc.document_id}>
               <td>
-                <a href={`/api/documents/${doc.document_id}/file`} target="_blank" rel="noreferrer">{doc.original_filename}</a>
+                <a href={fileUrl(doc)} target="_blank" rel="noreferrer">{doc.original_filename}</a>
                 <small className="meta-line">{fileSize(doc.byte_size)}{doc.created_at ? ` · ${dateLabel(doc.created_at)}` : ""}</small>
               </td>
               <td>

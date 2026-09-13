@@ -377,6 +377,18 @@ test("public photos are served to visitors; private ones stay gated", async () =
   expect(fromDb.status).toBe(200);
   expect((await fromDb.arrayBuffer()).byteLength).toBe(7);
 
+  const replaceForm = new FormData();
+  replaceForm.append("file", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 8, 7, 6, 5])], "yard.jpeg", { type: "image/jpeg" }));
+  const anonymousReplace = await app.request(`http://localhost/api/documents/${publicId}/file`, { method: "POST", body: replaceForm });
+  expect(anonymousReplace.status).toBe(401);
+  const strangerReplace = await app.request(`http://localhost/api/documents/${publicId}/file`, { method: "POST", headers: { cookie: strangerCookie }, body: replaceForm });
+  expect(strangerReplace.status).toBe(403);
+  const ownerReplace = await app.request(`http://localhost/api/documents/${publicId}/file`, { method: "POST", headers: { cookie: ownerCookie }, body: replaceForm });
+  expect(ownerReplace.status).toBe(200);
+  const replaced = await app.request(`http://localhost/api/documents/${publicId}/file`);
+  expect(replaced.status).toBe(200);
+  expect((await replaced.arrayBuffer()).byteLength).toBe(9);
+
   // Removing a public photo takes its file out of public reach as well.
   await app.request(`http://localhost/api/documents/${publicId}`, { method: "DELETE", headers: { cookie: ownerCookie } });
   const removed = await app.request(`http://localhost/api/documents/${publicId}/file`);
