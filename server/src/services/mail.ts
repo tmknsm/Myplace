@@ -42,9 +42,39 @@ export async function sendMail(input: MailInput): Promise<string> {
     )
   `;
   if (config.isProduction) {
-    // Postmark can be wired here without changing templates or callers.
+    await deliverWithPostmark(input, emailId);
   }
   return emailId;
+}
+
+async function deliverWithPostmark(input: MailInput, emailId: string): Promise<void> {
+  const token = config.postmarkServerToken;
+  const from = config.mailFrom;
+  if (!token || !from) {
+    console.warn(`email ${emailId} (${input.templateKey}) stored but not delivered: set POSTMARK_SERVER_TOKEN and MAIL_FROM`);
+    return;
+  }
+  const res = await fetch("https://api.postmarkapp.com/email", {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      "x-postmark-server-token": token,
+    },
+    body: JSON.stringify({
+      From: from,
+      To: input.toEmail,
+      Subject: input.subject,
+      HtmlBody: input.html,
+      TextBody: input.text,
+      MessageStream: "outbound",
+      Tag: input.templateKey,
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw Object.assign(new Error(`Email delivery failed (${res.status}) ${detail}`.trim()), { status: 502 });
+  }
 }
 
 export function authCodeEmail(appOrigin: string, email: string, code: string) {

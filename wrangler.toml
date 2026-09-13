@@ -3,12 +3,32 @@ main = "server/src/worker.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 
-[vars]
-APP_ORIGIN = "https://example.com"
-DEV_MAILBOX = "false"
+# The Vite build is served as static assets; /api/* is routed to the Worker.
+[assets]
+directory = "web/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
 
-# Bind Hyperdrive, R2, and secrets in the Cloudflare dashboard:
-# - HYPERDRIVE
-# - DOCUMENTS_BUCKET
-# - SESSION_SECRET
-# - DATABASE_URL (local / preview only)
+[observability]
+enabled = true
+
+[vars]
+NODE_ENV = "production"
+DEV_MAILBOX = "false"
+# Leave empty to use the deployed origin (workers.dev or custom domain) for email links.
+APP_ORIGIN = ""
+
+# Postgres (with PostGIS) reached through Hyperdrive. `npm run cf:setup` creates the
+# config from DATABASE_URL and writes its id here.
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "REPLACE_WITH_HYPERDRIVE_ID"
+
+[[r2_buckets]]
+binding = "DOCUMENTS_BUCKET"
+bucket_name = "myplace-documents"
+
+# Secrets (set with `wrangler secret put` or `npm run cf:setup`):
+# - SESSION_SECRET            required
+# - POSTMARK_SERVER_TOKEN     required for real sign-in emails
+# - MAIL_FROM                 verified Postmark sender, e.g. "Myplace <records@yourdomain.com>"
