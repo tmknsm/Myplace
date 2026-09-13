@@ -1,4 +1,5 @@
 import { config } from "../config.ts";
+import { getSql } from "../db.ts";
 import { currentRuntime } from "../runtime.ts";
 
 export interface DocumentStore {
@@ -48,14 +49,61 @@ export function fsStore(root: string): DocumentStore {
   };
 }
 
-function store(): DocumentStore {
-  return currentRuntime()?.storage ?? fsStore(config.documentRoot);
+function missingFile(): Error {
+  return Object.assign(new Error("Document file is missing"), { status: 404 });
 }
 
-export function putDocument(key: string, bytes: Uint8Array): Promise<void> {
-  return store().put(key, bytes);
+/** Bytes live in Postgres so every machine that shares DATABASE_URL can serve them. */
+export function postgresStore(): DocumentStore {
+  return {
+    async put(key, bytes) {
+      const sql = getSql();
+      const payload = Buffer.from(bytes);
+      await sql`
+        INSERT INTO document_blobs (storage_key, bytes, byte_size)
+        VALUES (${key}, ${payload}, ${payload.byteLength})
+        ON CONFLICT (storage_key) DO UPDATE SET bytes = EXCLUDED.bytes, byte_size = EXCLUDED.byte_size
+      `;
+    },
+    async get(key) {
+      const sql = getSql();
+      const rows = await sql<{ bytes: Uint8Array }[]>`
+        SELECT bytes FROM document_blobs WHERE storage_key = ${key}
+      `;
+      if (!rows[0]) throw missingFile();
+      return rows[0].bytes instanceof Uint8Array ? rows[0].bytes : new Uint8Array(rows[0].bytes);
+    },
+  };
 }
 
-export function getDocument(key: string): Promise<Uint8Array> {
-  return store().get(key);
+async function tryGet(store: DocumentStore, key: string): Promise<Uint8Array | null> {
+  try {
+    return await store.get(key);
+  } catch {
+    return null;
+  }
+}
+
+export async function putDocument(key: string, bytes: Uint8Array): Promise<void> {
+  const runtime = currentRuntime()?.storage;
+  await Promise.all([
+    postgresStore().put(key, bytes),
+    runtime ? runtime.put(key, bytes) : fsStore(config.documentRoot).put(key, bytes),
+  ]);
+}
+
+export async function getDocument(key: string): Promise<Uint8Array> {
+  const runtime = currentRuntime()?.storage;
+  if (runtime) {
+    const fromRuntime = await tryGet(runtime, key);
+    if (fromRuntime) return fromRuntime;
+  }
+  const fromDb = await tryGet(postgresStore(), key);
+  if (fromDb) return fromDb;
+  const fromDisk = await tryGet(fsStore(config.documentRoot), key);
+  if (fromDisk) {
+    await postgresStore().put(key, fromDisk).catch(() => undefined);
+    return fromDisk;
+  }
+  throw missingFile();
 }
