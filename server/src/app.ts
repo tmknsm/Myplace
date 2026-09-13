@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import {
@@ -28,8 +29,17 @@ import {
   handoffEmail,
   sendMail,
 } from "./services/mail.ts";
-import { COUNTY_PROFILES } from "./counties.ts";
-import { loadPropertyCore, loadPropertyPage, parcelsInBbox, searchProperties } from "./services/properties.ts";
+import { COUNTY_PROFILES, DEFAULT_MAP, isGeometryQuality } from "./counties.ts";
+import {
+  loadPropertyCore,
+  loadPropertyPage,
+  parcelsInBbox,
+  parcelTile,
+  searchProperties,
+  TILE_LAYER,
+  TILE_MAX_ZOOM,
+  TILE_MIN_ZOOM,
+} from "./services/properties.ts";
 import { documentKey, getDocument, putDocument } from "./services/storage.ts";
 import { FIELD_VOCAB } from "./vocab.ts";
 
@@ -40,6 +50,7 @@ app.use("*", cors({
   credentials: true,
 }));
 app.use("/api/*", authMiddleware);
+app.use("/api/tiles/*", compress({ contentTypeFilter: (type) => type.includes("vnd.mapbox-vector-tile") }));
 
 app.onError((error, c) => {
   const status = error instanceof HTTPException
@@ -54,22 +65,36 @@ app.get("/api/health", (c) => c.json({ ok: true, service: "myplace" }));
 
 app.get("/api/meta", async (c) => {
   const sql = getSql();
-  const totals = await sql<{ county: string; n: number }[]>`
-    SELECT county, count(*)::int AS n FROM properties GROUP BY county
+  const totals = await sql<{ county: string; n: number; shapes: number; quality: string | null }[]>`
+    SELECT
+      p.county,
+      count(*)::int AS n,
+      count(g.geometry_id)::int AS shapes,
+      mode() WITHIN GROUP (ORDER BY g.quality) AS quality
+    FROM properties p
+    LEFT JOIN property_geometries g ON g.property_id = p.property_id AND g.is_current
+    GROUP BY p.county
   `;
-  const byCounty = new Map(totals.map((row) => [row.county, row.n]));
-  const counties = COUNTY_PROFILES.map((county) => ({
-    ...county,
-    parcelCount: byCounty.get(county.id) ?? 0,
-  }));
+  const byCounty = new Map(totals.map((row) => [row.county, row]));
+  const counties = COUNTY_PROFILES.map((county) => {
+    const row = byCounty.get(county.id);
+    const quality = isGeometryQuality(row?.quality) ? row.quality : null;
+    return {
+      ...county,
+      parcelCount: row?.n ?? 0,
+      shapeCount: row?.shapes ?? 0,
+      geometryQuality: quality,
+    };
+  });
   return c.json({
     product: "Myplace",
     coverage: "Columbia and Greene counties, New York",
     propertyCount: totals.reduce((sum, row) => sum + row.n, 0),
-    demonstration: true,
+    demonstration: counties.some((county) => county.parcelCount > 0 && county.geometryQuality === "demonstration"),
     ownerVerification: "manual_review",
     devMailbox: isDevExperience(),
     counties,
+    map: { ...DEFAULT_MAP, tiles: "/api/tiles/{z}/{x}/{y}.mvt", tileLayer: TILE_LAYER, minZoom: TILE_MIN_ZOOM, maxZoom: TILE_MAX_ZOOM },
     vocab: FIELD_VOCAB,
   });
 });
@@ -157,10 +182,30 @@ app.get("/api/parcels", async (c) => {
   return c.json(await parcelsInBbox(bbox[0]!, bbox[1]!, bbox[2]!, bbox[3]!));
 });
 
+app.get("/api/tiles/:z/:x/:y", async (c) => {
+  const z = Number(c.req.param("z"));
+  const x = Number(c.req.param("x"));
+  const y = Number(c.req.param("y").replace(/\.(mvt|pbf)$/, ""));
+  const valid = [z, x, y].every(Number.isInteger) && z >= 0 && z <= 22
+    && x >= 0 && x < 2 ** z && y >= 0 && y < 2 ** z;
+  if (!valid) return c.json({ error: "Tile path must be /api/tiles/{z}/{x}/{y}.mvt" }, 400);
+  const headers = {
+    "content-type": "application/vnd.mapbox-vector-tile",
+    "cache-control": config.isProduction ? "public, max-age=3600" : "public, max-age=60",
+  };
+  if (z < TILE_MIN_ZOOM) return new Response(null, { status: 204, headers });
+  const tile = await parcelTile(z, x, y);
+  if (!tile) return new Response(null, { status: 204, headers });
+  return new Response(tile as unknown as BodyInit, { status: 200, headers });
+});
+
 app.get("/api/geo/counties", async (c) => {
   const sql = getSql();
-  const rows = await sql<{ county: string; geojson: unknown }[]>`
-    SELECT p.county, ST_AsGeoJSON(ST_ConvexHull(ST_Collect(g.geom)))::json AS geojson
+  const rows = await sql<{ county: string; quality: string | null; geojson: unknown }[]>`
+    SELECT
+      p.county,
+      mode() WITHIN GROUP (ORDER BY g.quality) AS quality,
+      ST_AsGeoJSON(ST_ConvexHull(ST_Collect(g.geom)))::json AS geojson
     FROM property_geometries g
     JOIN properties p ON p.property_id = g.property_id
     WHERE g.is_current
@@ -176,7 +221,7 @@ app.get("/api/geo/counties", async (c) => {
           name: profile?.name ?? `${row.county} County`,
           county: row.county,
           geometryPolicy: profile?.geometryPolicy ?? null,
-          geometryQuality: profile?.geometryQuality ?? null,
+          geometryQuality: row.quality,
         },
         geometry: row.geojson,
       };
@@ -188,8 +233,10 @@ app.get("/api/geo/county", async (c) => {
   const sql = getSql();
   const requested = c.req.query("name") ?? "Columbia";
   const profile = COUNTY_PROFILES.find((county) => county.id.toLowerCase() === requested.toLowerCase());
-  const rows = await sql<{ geojson: unknown }[]>`
-    SELECT ST_AsGeoJSON(ST_ConvexHull(ST_Collect(g.geom)))::json AS geojson
+  const rows = await sql<{ quality: string | null; geojson: unknown }[]>`
+    SELECT
+      mode() WITHIN GROUP (ORDER BY g.quality) AS quality,
+      ST_AsGeoJSON(ST_ConvexHull(ST_Collect(g.geom)))::json AS geojson
     FROM property_geometries g
     JOIN properties p ON p.property_id = g.property_id
     WHERE g.is_current AND p.county = ${profile?.id ?? requested}
@@ -200,7 +247,7 @@ app.get("/api/geo/county", async (c) => {
       name: profile?.name ?? `${requested} County`,
       county: profile?.id ?? requested,
       geometryPolicy: profile?.geometryPolicy ?? null,
-      geometryQuality: profile?.geometryQuality ?? null,
+      geometryQuality: rows[0]?.quality ?? null,
     },
     geometry: rows[0]?.geojson ?? null,
   });

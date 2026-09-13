@@ -26,6 +26,7 @@ export const api = {
     ownerVerification: string;
     devMailbox: boolean;
     counties: CountyMeta[];
+    map: { center: [number, number]; zoom: number; tiles: string; tileLayer: string; minZoom: number; maxZoom: number };
   }>("/api/meta"),
   me: () => request<{ user: User | null }>("/api/auth/me"),
   requestCode: (email: string) =>
@@ -88,16 +89,20 @@ export interface ParcelCollection {
   }>;
 }
 
+export type GeometryQuality = "official" | "approximate" | "demonstration";
+
 export interface CountyMeta {
   id: string;
   name: string;
   geometryPolicy: "public" | "restricted";
-  geometryQuality: "official" | "demonstration";
+  /** Most common stored lot-line quality for this county; null when nothing is loaded. */
+  geometryQuality: GeometryQuality | null;
   center: [number, number];
   zoom: number;
   short: string;
   notice: string;
   parcelCount: number;
+  shapeCount: number;
 }
 
 export interface User {

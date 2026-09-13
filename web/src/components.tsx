@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { api, type Fact, type ParcelCollection, type SearchHit } from "./api";
+import { api, type Fact, type SearchHit } from "./api";
 
 export function SearchBox({ compact = false, autoFocus = false }: { compact?: boolean; autoFocus?: boolean }) {
   const [q, setQ] = useState("");
@@ -86,12 +86,34 @@ function applySelection(
   );
 }
 
+const QUALITY_COLORS: Record<string, string> = {
+  official: "#1d1d1f",
+  approximate: "#c47d1a",
+  demonstration: "#e23b32",
+};
+
+const QUALITY_LABELS: Record<string, string> = {
+  official: "Official lot lines",
+  approximate: "Approximate lot lines",
+  demonstration: "Demonstration sketch",
+};
+
+const QUALITY_ORDER = ["official", "approximate", "demonstration"];
+
 const fillColor: maplibregl.DataDrivenPropertyValueSpecification<string> = [
   "match",
   ["get", "geometryQuality"],
-  "official", "#1d1d1f",
-  "#e23b32",
+  "official", QUALITY_COLORS.official!,
+  "approximate", QUALITY_COLORS.approximate!,
+  QUALITY_COLORS.demonstration!,
 ];
+
+const TILES = {
+  url: `${window.location.origin}/api/tiles/{z}/{x}/{y}.mvt`,
+  layer: "parcels",
+  minZoom: 11,
+  maxZoom: 16,
+};
 
 export function ParcelMap({
   selectedId,
@@ -120,8 +142,19 @@ export function ParcelMap({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const onSelectRef = useRef(onSelect);
   const geometryRef = useRef(selectedGeometry);
+  const [qualities, setQualities] = useState<string[]>([]);
   onSelectRef.current = onSelect;
   geometryRef.current = selectedGeometry;
+
+  useEffect(() => {
+    if (!legend) return;
+    api.meta().then((meta) => {
+      const present = new Set<string>(
+        meta.counties.filter((county) => county.shapeCount > 0 && county.geometryQuality).map((county) => county.geometryQuality!),
+      );
+      setQualities(QUALITY_ORDER.filter((quality) => present.has(quality)));
+    }).catch(() => setQualities(QUALITY_ORDER));
+  }, [legend]);
 
   useEffect(() => {
     if (!ref.current || mapRef.current) return;
@@ -135,32 +168,31 @@ export function ParcelMap({
       touchPitch: false,
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }), "top-right");
-    const loadParcels = async () => {
-      if (!map.getSource("parcels") || map.getZoom() < 12) {
-        const source = map.getSource("parcels") as maplibregl.GeoJSONSource | undefined;
-        source?.setData({ type: "FeatureCollection", features: [] });
-        return;
-      }
-      const bounds = map.getBounds();
-      const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(",");
-      const data = await api.parcels(bbox);
-      const source = map.getSource("parcels") as maplibregl.GeoJSONSource | undefined;
-      source?.setData(data as unknown as ParcelCollection);
-    };
     map.on("load", () => {
       map.resize();
-      map.addSource("parcels", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addSource("parcels", {
+        type: "vector",
+        tiles: [TILES.url],
+        minzoom: TILES.minZoom,
+        maxzoom: TILES.maxZoom,
+        promoteId: "property_id",
+      });
       map.addLayer({
         id: "parcel-fill",
         type: "fill",
         source: "parcels",
-        paint: { "fill-color": fillColor, "fill-opacity": 0.14 },
+        "source-layer": TILES.layer,
+        paint: { "fill-color": fillColor, "fill-opacity": ["interpolate", ["linear"], ["zoom"], 11, 0.08, 14, 0.14] },
       });
       map.addLayer({
         id: "parcel-line",
         type: "line",
         source: "parcels",
-        paint: { "line-color": fillColor, "line-width": 1 },
+        "source-layer": TILES.layer,
+        paint: {
+          "line-color": fillColor,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.3, 14, 0.8, 17, 1.4],
+        },
       });
       map.addSource("selected", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({
@@ -182,9 +214,7 @@ export function ParcelMap({
       map.on("mouseenter", "parcel-fill", () => { map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", "parcel-fill", () => { map.getCanvas().style.cursor = ""; });
       applySelection(map, geometryRef.current);
-      void loadParcels();
     });
-    map.on("moveend", () => { void loadParcels(); });
     const onResize = () => map.resize();
     window.addEventListener("resize", onResize);
     window.addEventListener("orientationchange", onResize);
@@ -214,10 +244,13 @@ export function ParcelMap({
   return (
     <div className="map-shell">
       <div ref={ref} className="map-canvas" />
-      {legend && (
+      {legend && qualities.length > 0 && (
         <div className="map-legend">
-          <span><i className="swatch official" /> Official lot lines</span>
-          <span><i className="swatch sketch" /> Demonstration sketch</span>
+          {qualities.map((quality) => (
+            <span key={quality}>
+              <i className="swatch" style={{ background: QUALITY_COLORS[quality] }} /> {QUALITY_LABELS[quality]}
+            </span>
+          ))}
         </div>
       )}
     </div>
