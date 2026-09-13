@@ -214,7 +214,15 @@ export function PropertyPageView() {
 
           {owner && <RecordCompleteness facts={property.facts} documents={property.documents} improvements={property.improvements} />}
 
-          <FactSection title="Overview" facts={facts("overview")} owner={owner} propertyId={id} onChange={load} toast={showToast} />
+          <FactSection
+            title="Overview"
+            description={owner ? "Anything still blank has no connected source yet. Add what you know — it is labeled owner-reported and does not replace an official fact if one arrives later." : undefined}
+            facts={facts("overview")}
+            owner={owner}
+            propertyId={id}
+            onChange={load}
+            toast={showToast}
+          />
           <FactSection
             title="Location & services"
             description={owner ? "Fields without a connected source can be filled in by you. They are labeled owner-reported until an official source confirms them." : undefined}
@@ -379,8 +387,7 @@ function FactSection({
 
 function ownerCanWrite(fact: Fact): boolean {
   if (fact.layer === "owner") return true;
-  if (fact.layer === "either") return fact.status === "unknown" || fact.status === "owner_reported";
-  return false;
+  return fact.status === "unknown" || fact.status === "owner_reported";
 }
 
 export function FactRow({

@@ -84,9 +84,13 @@ export const FIELD_VOCAB: FieldDef[] = [
   { key: "maintenance", label: "Maintenance notes", group: "owner", layer: "owner", valueType: "string" },
 ];
 
-/** Vocabulary entries a verified owner is allowed to write. */
+/**
+ * A verified owner may write an owner assertion for any known field. Official
+ * government values stay on the public record; the owner fill is labeled
+ * owner-reported and only surfaces when no official or inferred value exists.
+ */
 export function ownerWritable(field: FieldDef | undefined): field is FieldDef {
-  return Boolean(field && (field.layer === "owner" || field.layer === "either"));
+  return Boolean(field);
 }
 
 export const FIELD_BY_KEY = new Map(FIELD_VOCAB.map((field) => [field.key, field]));
