@@ -261,6 +261,13 @@ export function ParcelMap({
   );
 }
 
+function unknownHint(fieldKey: string): string {
+  if (fieldKey === "zoning.district") return "No published GIS zoning layer for this municipality yet.";
+  if (fieldKey === "env.remedial") return "No DEC remedial join for this lot yet.";
+  if (fieldKey === "env.bulk_storage") return "No DEC bulk-storage join for this lot yet.";
+  return "No connected source yet.";
+}
+
 export function FactRow({ fact }: { fact: Fact }) {
   return (
     <div className="fact">
@@ -271,11 +278,8 @@ export function FactRow({ fact }: { fact: Fact }) {
           <span className={`badge ${fact.status}`}>{fact.status}</span>
         )}
         <div className="sources">
-          {fact.status === "unknown" && fact.fieldKey === "zoning.district" && (
-            <div>No published GIS zoning layer for this municipality yet.</div>
-          )}
-          {fact.status === "unknown" && fact.fieldKey !== "zoning.district" && (
-            <div>No connected source yet.</div>
+          {fact.status === "unknown" && (
+            <div>{unknownHint(fact.fieldKey)}</div>
           )}
           {fact.assertions.map((assertion) => (
             <div key={assertion.assertionId}>

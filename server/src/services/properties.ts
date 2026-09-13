@@ -58,6 +58,9 @@ export async function loadPropertyPage(propertyId: string) {
     sales: facts.some((f) => f.fieldKey.startsWith("last_sale.") && f.status !== "unknown")
       ? "Connected"
       : "Limited",
+    deeds: facts.some((f) => f.fieldKey.startsWith("deed.") && f.status !== "unknown")
+      ? "Connected"
+      : "Limited",
     permits: "Not connected",
     historic_archive: "Limited",
     lot_lines: isGeometryQuality(core.geometry_quality) ? QUALITY_LABEL[core.geometry_quality] : "None",

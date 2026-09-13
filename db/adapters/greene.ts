@@ -13,6 +13,7 @@ import {
   type Batch,
   type Sql,
 } from "../lib.ts";
+import { GREENE_EXTRA_OUT_FIELDS, greeneExtraFacts } from "../roll-fields.ts";
 import type { ImportStats } from "./columbia.ts";
 
 /**
@@ -31,6 +32,7 @@ const OUT_FIELDS = [
   "LOC_ZIP", "PROP_CLASS", "LAND_AV", "TOTAL_AV", "FULL_MARKET_VAL", "YR_BLT", "ACRES", "CALC_ACRES", "SCHOOL_NAME",
   "SEWER_DESC", "WATER_DESC", "UTILITIES_DESC", "SQFT_LIVING", "PRIMARY_OWNER", "MAIL_CITY", "MAIL_STATE", "MAIL_ZIP",
   "ROLL_YR", "SPATIAL_YR",
+  ...GREENE_EXTRA_OUT_FIELDS,
 ];
 
 interface Attributes {
@@ -62,6 +64,17 @@ interface Attributes {
   MAIL_ZIP: string | null;
   ROLL_YR: number | null;
   SPATIAL_YR: number | null;
+  NBR_BEDROOMS: number | null;
+  NBR_FULL_BATHS: number | null;
+  NBR_KITCHENS: number | null;
+  BLDG_STYLE_DESC: string | null;
+  HEAT_TYPE_DESC: string | null;
+  FUEL_TYPE_DESC: string | null;
+  BOOK: number | null;
+  PAGE: number | null;
+  AG_DIST_NAME: string | null;
+  FRONT: number | null;
+  DEPTH: number | null;
 }
 
 interface Feature {
@@ -311,7 +324,7 @@ async function fetchPage(where: string, offset: number): Promise<Feature[]> {
   return page.features ?? [];
 }
 
-async function fetchCounty(county: string): Promise<Feature[]> {
+export async function fetchCounty(county: string): Promise<Feature[]> {
   const where = `COUNTY_NAME='${county}'`;
   const total = await fetchCount(where);
   const offsets: number[] = [];
@@ -469,6 +482,7 @@ export async function importGreene(sql: Sql): Promise<ImportStats> {
       ["utility.gas", util.gas],
       ["utility.water", clean(a.WATER_DESC)],
       ["utility.sewer", clean(a.SEWER_DESC)],
+      ...greeneExtraFacts(a),
     ]);
 
     batch.evts.push({
@@ -580,6 +594,7 @@ export async function resumeMissingGreeneFacts(sql: Sql): Promise<{ properties: 
       ["utility.gas", util.gas],
       ["utility.water", clean(a.WATER_DESC)],
       ["utility.sewer", clean(a.SEWER_DESC)],
+      ...greeneExtraFacts(a),
     ]);
     batch.evts.push({
       event_id: id("evt", `${key}|import`),

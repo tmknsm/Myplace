@@ -1,7 +1,9 @@
+import proj4 from "proj4";
 import {
   clean,
   fetchJson,
   id,
+  num,
   recordSnapshot,
   upsertAssertions,
   upsertSources,
@@ -10,6 +12,8 @@ import {
   type Sql,
 } from "../lib.ts";
 
+proj4.defs("EPSG:26918", "+proj=utm +zone=18 +datum=NAD83 +units=m +no_defs");
+
 /**
  * Rules & environment overlays for every parcel that already has a shape.
  *
@@ -17,6 +21,10 @@ import {
  *   USFWS NWI          wetlands            complete coverage of the two-county bbox
  *   NYS SHPO NR        historic.district   State / National Register polygons
  *   Town + Village of Catskill zoning      zoning.district only where official GIS exists
+ *   NYSDEC remedial    env.remedial        points within ~60 m of a lot
+ *   NYSDEC bulk tanks  env.bulk_storage    Open Data NY pteg-c78n, same 60 m join
+ *
+ * Spills are not joined at lot level: the public incidents table has no coordinates.
  *
  * New York has no statewide zoning layer. Hudson, Kinderhook, Chatham, Coxsackie,
  * Athens, Cairo, and the rest of Columbia / Greene publish codes (often as PDFs)
@@ -32,6 +40,8 @@ export const SRC_NWI = "src_nwi_wetlands";
 export const SRC_SHPO = "src_nys_shpo_nr";
 export const SRC_CATSKILL_TOWN = "src_catskill_town_zoning";
 export const SRC_CATSKILL_VILLAGE = "src_catskill_village_zoning";
+export const SRC_DEC_REMEDIAL = "src_nysdec_remedial";
+export const SRC_DEC_TANKS = "src_nysdec_bulk_storage";
 
 export const OVERLAY_SOURCE_IDS = [
   SRC_FEMA,
@@ -39,6 +49,8 @@ export const OVERLAY_SOURCE_IDS = [
   SRC_SHPO,
   SRC_CATSKILL_TOWN,
   SRC_CATSKILL_VILLAGE,
+  SRC_DEC_REMEDIAL,
+  SRC_DEC_TANKS,
 ] as const;
 
 const FEMA_URL = "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28";
@@ -49,6 +61,10 @@ const CATSKILL_TOWN_URL =
   "https://services8.arcgis.com/MVX6tbvWftyS3KBR/ArcGIS/rest/services/Town_of_Catskill_Zoning_Layers/FeatureServer/0";
 const CATSKILL_VILLAGE_URL =
   "https://services8.arcgis.com/MVX6tbvWftyS3KBR/ArcGIS/rest/services/Town_of_Catskill_Zoning_Layers/FeatureServer/1";
+const DEC_REMEDIAL_URL =
+  "https://services6.arcgis.com/DZHaqZm9cxOD4CWM/arcgis/rest/services/Remediation_Sites/FeatureServer/1";
+const DEC_TANKS_URL = "https://data.ny.gov/resource/pteg-c78n.json";
+const NEAR_METERS = 60;
 
 export const OVERLAY_SOURCES: SourceDef[] = [
   {
@@ -101,13 +117,35 @@ export const OVERLAY_SOURCES: SourceDef[] = [
     license: "Official village zoning polygons. Village district wins over the surrounding town layer.",
     coverage: "Village of Catskill only.",
   },
+  {
+    id: SRC_DEC_REMEDIAL,
+    name: "NYSDEC remediation sites",
+    authority: "New York State Department of Environmental Conservation — Division of Environmental Remediation",
+    type: "government",
+    jurisdiction: "New York",
+    url: "https://dec.ny.gov/environmental-protection/site-cleanup/database-search",
+    license: "DEC remediation / brownfield points. Screening layer, not a cleanup determination.",
+    coverage: "Remediation Sites FeatureServer points within ~60 m of a Columbia or Greene parcel",
+  },
+  {
+    id: SRC_DEC_TANKS,
+    name: "NYSDEC bulk storage facilities",
+    authority: "New York State Department of Environmental Conservation",
+    type: "government",
+    jurisdiction: "New York",
+    url: "https://data.ny.gov/d/pteg-c78n",
+    license: "Open Data NY pteg-c78n. Facility-level petroleum / chemical / major oil storage, not a tank inspection.",
+    coverage: "Columbia and Greene facilities joined to lots within ~60 m",
+  },
 ];
 
 export const NONE_FLOOD = "No FEMA flood hazard zone mapped on this lot";
 export const NONE_WETLANDS = "No NWI-mapped wetland on this lot";
 export const NONE_HISTORIC = "Not in a listed State or National Register district";
+export const NONE_REMEDIAL = "No NYSDEC remedial or brownfield site mapped on or immediately next to this lot";
+export const NONE_TANKS = "No NYSDEC bulk storage facility mapped on or immediately next to this lot";
 
-export type OverlayLayer = "flood" | "wetlands" | "historic" | "zoning";
+export type OverlayLayer = "flood" | "wetlands" | "historic" | "zoning" | "remedial" | "tanks";
 
 export interface OverlayStats {
   layer: OverlayLayer;
@@ -242,6 +280,68 @@ export function formatZoning(hits: ZoningHit[]): string | null {
   return parts.length ? parts.join("; ") : null;
 }
 
+export interface RemedialHit {
+  name: string;
+  program: string | null;
+  siteClass: string | null;
+  siteCode: string | null;
+}
+
+export interface TankHit {
+  name: string;
+  programType: string | null;
+  status: string | null;
+  locality: string | null;
+  programNumber: string | null;
+}
+
+const TANK_PROGRAM: Record<string, string> = {
+  CBS: "chemical bulk storage",
+  PBS: "petroleum bulk storage",
+  MOSF: "major oil storage",
+};
+
+function capLabels(parts: string[], extra: number): string {
+  if (extra > 0) parts.push(`${extra} more`);
+  return parts.join("; ");
+}
+
+export function formatRemedial(hits: RemedialHit[]): string {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (const hit of hits) {
+    const name = hit.name.trim();
+    if (!name) continue;
+    const key = (hit.siteCode ?? name).trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const bits = [clean(hit.program), hit.siteClass ? `class ${hit.siteClass}` : null].filter(Boolean);
+    parts.push(bits.length ? `${name} (${bits.join(", ")})` : name);
+  }
+  if (!parts.length) return NONE_REMEDIAL;
+  return capLabels(parts.slice(0, 3), Math.max(0, parts.length - 3));
+}
+
+export function formatBulkStorage(hits: TankHit[]): string {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (const hit of hits) {
+    const name = hit.name.trim();
+    if (!name) continue;
+    const key = (hit.programNumber ?? name).trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const kind = TANK_PROGRAM[hit.programType?.toUpperCase() ?? ""] ?? clean(hit.programType);
+    const status = clean(hit.status);
+    const locality = clean(hit.locality);
+    const detail = [kind, status].filter(Boolean).join(", ");
+    const place = locality ? ` (${locality})` : "";
+    parts.push(detail ? `${name} — ${detail}${place}` : `${name}${place}`);
+  }
+  if (!parts.length) return NONE_TANKS;
+  return capLabels(parts.slice(0, 3), Math.max(0, parts.length - 3));
+}
+
 interface IdPage {
   objectIdFieldName?: string;
   objectIds?: number[];
@@ -332,14 +432,25 @@ async function fetchArcGisFeatures(
       if (fromGeo.length) return fromGeo;
       const esri = await fetchJson<EsriPage>(`${endpoint}?${new URLSearchParams({ f: "json", ...shared })}`, undefined, 2, 120_000);
       if (esri.error) throw new Error(esri.error.message ?? `ArcGIS error ${esri.error.code}`);
-      return (esri.features ?? []).flatMap((feature) => {
+      return (esri.features ?? []).flatMap((feature): GeoJsonFeature[] => {
         const rings = feature.geometry?.rings;
-        if (!rings?.length) return [];
-        return [{
-          type: "Feature" as const,
-          properties: feature.attributes ?? {},
-          geometry: { type: "Polygon", coordinates: rings },
-        }];
+        if (rings?.length) {
+          return [{
+            type: "Feature",
+            properties: feature.attributes ?? {},
+            geometry: { type: "Polygon", coordinates: rings },
+          }];
+        }
+        const x = feature.geometry?.x;
+        const y = feature.geometry?.y;
+        if (typeof x === "number" && typeof y === "number") {
+          return [{
+            type: "Feature",
+            properties: feature.attributes ?? {},
+            geometry: { type: "Point", coordinates: [x, y] },
+          }];
+        }
+        return [];
       });
     } catch (error) {
       if (ids.length === 1) {
@@ -361,6 +472,7 @@ async function loadOverlayTable(
   sql: Sql,
   table: string,
   rows: Array<{ label: string; extra: Record<string, unknown>; geojson: string }>,
+  mode: "polygon" | "any" = "polygon",
 ): Promise<number> {
   // UNLOGGED (not TEMP): the importer uses a connection pool, so a temp table
   // created on one client is invisible to the next query.
@@ -387,7 +499,12 @@ async function loadOverlayTable(
       ),
       shaped AS (
         SELECT label, extra,
-               ST_SetSRID(ST_CollectionExtract(ST_MakeValid(ST_GeomFromGeoJSON(geojson)), 3), 4326) AS geom
+               ST_SetSRID(
+                 ${mode === "polygon"
+                   ? sql.unsafe("ST_CollectionExtract(ST_MakeValid(ST_GeomFromGeoJSON(geojson)), 3)")
+                   : sql.unsafe("ST_MakeValid(ST_GeomFromGeoJSON(geojson))")},
+                 4326
+               ) AS geom
         FROM input
       )
       INSERT INTO ${sql(table)} (label, extra, geom)
@@ -420,6 +537,22 @@ async function intersectProperties(sql: Sql, table: string): Promise<JoinHit[]> 
            ) AS hits
     FROM property_geometries pg
     LEFT JOIN ${sql(table)} o ON ST_Intersects(pg.geom, o.geom)
+    WHERE pg.is_current
+    GROUP BY pg.property_id
+  `;
+}
+
+async function nearProperties(sql: Sql, table: string, meters = NEAR_METERS): Promise<JoinHit[]> {
+  await sql.unsafe(`CREATE INDEX IF NOT EXISTS ${table}_geog ON ${table} USING GIST (geography(geom))`);
+  return sql<JoinHit[]>`
+    SELECT pg.property_id,
+           COALESCE(
+             json_agg(json_build_object('label', o.label, 'extra', o.extra))
+               FILTER (WHERE o.label IS NOT NULL),
+             '[]'::json
+           ) AS hits
+    FROM property_geometries pg
+    LEFT JOIN ${sql(table)} o ON ST_DWithin(pg.geom::geography, o.geom::geography, ${meters})
     WHERE pg.is_current
     GROUP BY pg.property_id
   `;
@@ -694,11 +827,164 @@ export async function importZoning(sql: Sql): Promise<OverlayStats> {
   };
 }
 
+export async function importRemedial(sql: Sql): Promise<OverlayStats> {
+  console.log("Overlays: NYSDEC remediation sites…");
+  const features = await fetchArcGisFeatures(DEC_REMEDIAL_URL, "SITENAME,PROGRAM,SITECLASS,SITECODE,COUNTY,DETAIL_URL", 80);
+  const stored = await loadOverlayTable(
+    sql,
+    "overlay_remedial",
+    featureRows(features, (props) => {
+      const name = clean(attr(props, "SITENAME"));
+      if (!name) return null;
+      return {
+        label: name,
+        extra: {
+          program: clean(attr(props, "PROGRAM")),
+          siteClass: clean(attr(props, "SITECLASS")),
+          siteCode: clean(attr(props, "SITECODE")),
+        },
+      };
+    }),
+    "any",
+  );
+  const joined = await nearProperties(sql, "overlay_remedial");
+  const rows: Asrt[] = [];
+  let positive = 0;
+  for (const row of joined) {
+    const hits: RemedialHit[] = parseHits(row.hits).map((hit) => ({
+      name: hit.label,
+      program: clean(hit.extra.program),
+      siteClass: clean(hit.extra.siteClass),
+      siteCode: clean(hit.extra.siteCode),
+    }));
+    const value = formatRemedial(hits);
+    if (value !== NONE_REMEDIAL) positive += 1;
+    rows.push(fact(row.property_id, "env.remedial", value, SRC_DEC_REMEDIAL, OVERLAY_AS_OF, hits.length ? 0.88 : 0.82));
+  }
+  await replaceSourceFacts(sql, SRC_DEC_REMEDIAL, rows);
+  await dropOverlayTable(sql, "overlay_remedial");
+  await recordSnapshot(sql, "snp_nysdec_remedial", SRC_DEC_REMEDIAL, `${stored} DEC sites → ${rows.length} parcel facts`);
+  return {
+    layer: "remedial",
+    features: stored,
+    assertions: rows.length,
+    positive,
+    notes: [`${positive} parcels within ${NEAR_METERS} m of a NYSDEC remedial or brownfield site`],
+  };
+}
+
+interface TankRow {
+  program_number?: string;
+  program_type?: string;
+  program_facility_name?: string;
+  site_status_name?: string;
+  locality?: string;
+  county?: string;
+  utmx?: string;
+  utmy?: string;
+  georeference?: { type?: string; coordinates?: number[] };
+}
+
+function tankCoord(row: TankRow): [number, number] | null {
+  const coords = row.georeference?.coordinates;
+  if (Array.isArray(coords) && coords.length >= 2) {
+    const lng = Number(coords[0]);
+    const lat = Number(coords[1]);
+    if (Number.isFinite(lng) && Number.isFinite(lat)) return [lng, lat];
+  }
+  const east = num(row.utmx);
+  const north = num(row.utmy);
+  if (east === null || north === null) return null;
+  const [lng, lat] = proj4("EPSG:26918", "WGS84", [east, north]) as [number, number];
+  return Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null;
+}
+
+async function fetchTankRows(): Promise<TankRow[]> {
+  const rows: TankRow[] = [];
+  const page = 5000;
+  let offset = 0;
+  for (;;) {
+    const params = new URLSearchParams({
+      $where: "county in ('Columbia','Greene')",
+      $limit: String(page),
+      $offset: String(offset),
+      $order: "program_number",
+    });
+    const batch = await fetchJson<TankRow[]>(`${DEC_TANKS_URL}?${params}`);
+    rows.push(...batch);
+    process.stdout.write(`    bulk storage rows: ${rows.length}\r`);
+    if (batch.length < page) break;
+    offset += page;
+  }
+  console.log(`    bulk storage rows: ${rows.length}`);
+  return rows;
+}
+
+export async function importTanks(sql: Sql): Promise<OverlayStats> {
+  console.log("Overlays: NYSDEC bulk storage facilities…");
+  const raw = await fetchTankRows();
+  const grouped = new Map<string, TankRow[]>();
+  for (const row of raw) {
+    const programNumber = clean(row.program_number);
+    if (!programNumber) continue;
+    const list = grouped.get(programNumber) ?? [];
+    list.push(row);
+    grouped.set(programNumber, list);
+  }
+  const sites: Array<{ label: string; extra: Record<string, unknown>; geojson: string }> = [];
+  for (const [programNumber, list] of grouped) {
+    const located = list.find((row) => tankCoord(row));
+    const coord = located ? tankCoord(located) : null;
+    if (!coord) continue;
+    const active = list.find((row) => /active/i.test(clean(row.site_status_name) ?? ""));
+    const pick = active ?? located!;
+    const name = clean(pick.program_facility_name) ?? programNumber;
+    sites.push({
+      label: name,
+      extra: {
+        programType: clean(pick.program_type),
+        status: clean(pick.site_status_name),
+        locality: clean(pick.locality),
+        programNumber,
+      },
+      geojson: JSON.stringify({ type: "Point", coordinates: coord }),
+    });
+  }
+  const stored = await loadOverlayTable(sql, "overlay_tanks", sites, "any");
+  const joined = await nearProperties(sql, "overlay_tanks");
+  const rows: Asrt[] = [];
+  let positive = 0;
+  for (const row of joined) {
+    const hits: TankHit[] = parseHits(row.hits).map((hit) => ({
+      name: hit.label,
+      programType: clean(hit.extra.programType),
+      status: clean(hit.extra.status),
+      locality: clean(hit.extra.locality),
+      programNumber: clean(hit.extra.programNumber),
+    }));
+    const value = formatBulkStorage(hits);
+    if (value !== NONE_TANKS) positive += 1;
+    rows.push(fact(row.property_id, "env.bulk_storage", value, SRC_DEC_TANKS, OVERLAY_AS_OF, hits.length ? 0.88 : 0.82));
+  }
+  await replaceSourceFacts(sql, SRC_DEC_TANKS, rows);
+  await dropOverlayTable(sql, "overlay_tanks");
+  await recordSnapshot(sql, "snp_nysdec_bulk_storage", SRC_DEC_TANKS, `${stored} facilities → ${rows.length} parcel facts`);
+  return {
+    layer: "tanks",
+    features: stored,
+    assertions: rows.length,
+    positive,
+    notes: [`${positive} parcels within ${NEAR_METERS} m of a NYSDEC bulk storage facility`],
+  };
+}
+
 const LAYERS: Record<OverlayLayer, (sql: Sql) => Promise<OverlayStats>> = {
   flood: importFlood,
   wetlands: importWetlands,
   historic: importHistoric,
   zoning: importZoning,
+  remedial: importRemedial,
+  tanks: importTanks,
 };
 
 export async function importOverlays(sql: Sql, only?: OverlayLayer[]): Promise<OverlayStats[]> {

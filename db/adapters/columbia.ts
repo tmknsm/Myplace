@@ -13,6 +13,7 @@ import {
   type Batch,
   type Sql,
 } from "../lib.ts";
+import { columbiaExtraFacts } from "../roll-fields.ts";
 
 /**
  * Columbia County does not authorize NYS to redistribute its tax-map polygons, so this
@@ -150,7 +151,7 @@ function rollStreetKey(row: RollRow): string | null {
   return `${number.toLowerCase()}|${normalizeStreet(street)}`;
 }
 
-async function fetchRoll(year: string): Promise<RollRow[]> {
+export async function fetchRoll(year: string): Promise<RollRow[]> {
   const rows: RollRow[] = [];
   let offset = 0;
   for (;;) {
@@ -430,6 +431,7 @@ export async function importColumbia(sql: Sql): Promise<ImportStats> {
       ["market_value_estimate", num(row.full_market_value)],
       ["owner_name_public", owner],
       ["school_district", school ? `${school} School District` : null],
+      ...columbiaExtraFacts(row),
     ]);
 
     const old = priorByKey.get(key);

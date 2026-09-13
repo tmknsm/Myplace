@@ -194,6 +194,9 @@ function PropertyPageView() {
           </section>
           <section className="section">
             <h2>Records</h2>
+            <div className="group">
+              {facts("records").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
+            </div>
             <div className="group coverage">
               {Object.entries(property.coverage).map(([key, value]) => (
                 <div key={key}><span>{key.replace("_", " ")}</span> {value}</div>

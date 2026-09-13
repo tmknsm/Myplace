@@ -7,6 +7,10 @@ import { connect, deleteCounty, seedAdmin, seedVocabulary, wipePropertyTables } 
  *
  *   tsx db/import.ts                  full import: wipes property tables and reloads every county
  *   tsx db/import.ts --county=Greene  reload one county in place (users, claims on other counties survive)
+ *
+ * Both paths delete existing parcels. To add unused roll fields without touching
+ * the rest of the database, use `npm run db:backfill-fields`. Hosted Neon / RDS
+ * wipes are refused unless ALLOW_HOSTED_DB_RESET=1.
  */
 
 const ADAPTERS: Record<string, (sql: ReturnType<typeof connect>) => Promise<ImportStats>> = {

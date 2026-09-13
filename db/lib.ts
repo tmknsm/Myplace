@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import postgres from "postgres";
 import { FIELD_VOCAB } from "../server/src/vocab.ts";
+import { assertSafeToWipe } from "./safety.ts";
 
 export type Sql = postgres.Sql;
 
@@ -121,6 +122,7 @@ export async function recordSnapshot(sql: Sql, snapshotId: string, sourceId: str
 
 /** Remove every property-derived row plus users. Used by full imports and the offline seed. */
 export async function wipePropertyTables(sql: Sql): Promise<void> {
+  assertSafeToWipe();
   await sql`DELETE FROM emails`;
   await sql`DELETE FROM handoff_invitations`;
   await sql`DELETE FROM contribution_assertions`;
@@ -145,6 +147,7 @@ export async function wipePropertyTables(sql: Sql): Promise<void> {
 
 /** Drop one county's parcels (cascades through identities, geometry, assertions, events, claims). */
 export async function deleteCounty(sql: Sql, county: string): Promise<number> {
+  assertSafeToWipe();
   const rows = await sql<{ n: number }[]>`
     WITH gone AS (DELETE FROM properties WHERE county = ${county} RETURNING 1)
     SELECT count(*)::int AS n FROM gone

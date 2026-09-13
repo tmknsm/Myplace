@@ -2,14 +2,15 @@ import { importOverlays, type OverlayLayer } from "./adapters/overlays.ts";
 import { connect } from "./lib.ts";
 
 /**
- * Join public flood / wetland / historic / Catskill zoning layers onto existing parcels.
+ * Join public flood / wetland / historic / Catskill zoning / DEC layers onto existing parcels.
  * Does not wipe properties. Safe to re-run; each source's assertions are replaced.
  *
  *   npm run db:overlays
  *   npm run db:overlays -- --layer=flood,zoning
+ *   npm run db:overlays -- --layer=remedial,tanks
  */
 
-const LAYERS: OverlayLayer[] = ["flood", "wetlands", "historic", "zoning"];
+const LAYERS: OverlayLayer[] = ["flood", "wetlands", "historic", "zoning", "remedial", "tanks"];
 
 function parseLayers(): OverlayLayer[] | undefined {
   const arg = process.argv.find((item) => item.startsWith("--layer="));
@@ -29,7 +30,7 @@ async function main() {
   const counts = await sql<{ field_key: string; n: number }[]>`
     SELECT field_key, count(*)::int AS n
     FROM assertions
-    WHERE field_key IN ('flood.zone', 'wetlands', 'historic.district', 'zoning.district')
+    WHERE field_key IN ('flood.zone', 'wetlands', 'historic.district', 'zoning.district', 'env.remedial', 'env.bulk_storage')
     GROUP BY field_key
     ORDER BY field_key
   `;

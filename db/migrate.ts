@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
+import { assertSafeToWipe } from "./safety.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const reset = process.argv.includes("--reset");
@@ -37,6 +38,7 @@ CASCADE;
 
 async function main() {
   if (reset) {
+    assertSafeToWipe(url);
     await sql.unsafe(dropSql);
   }
 

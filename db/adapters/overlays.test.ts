@@ -2,11 +2,15 @@ import { expect, test } from "vitest";
 import {
   NONE_FLOOD,
   NONE_HISTORIC,
+  NONE_REMEDIAL,
+  NONE_TANKS,
   NONE_WETLANDS,
   attr,
   floodZoneRank,
+  formatBulkStorage,
   formatFloodZone,
   formatHistoric,
+  formatRemedial,
   formatWetlands,
   formatZoning,
   pickFloodLabel,
@@ -56,4 +60,27 @@ test("zoning only formats official Catskill hits and prefers the village", () =>
     { code: "RA", place: "Town of Catskill, 2013 official zoning", priority: 1 },
     { code: "R-2", place: "Village of Catskill zoning", priority: 2 },
   ])).toBe("R-2 (Village of Catskill zoning); RA (Town of Catskill, 2013 official zoning)");
+});
+
+test("DEC remedial labels name the site and cap long lists", () => {
+  expect(formatRemedial([])).toBe(NONE_REMEDIAL);
+  expect(formatRemedial([{ name: "Hudson River PCBs", program: "Superfund", siteClass: "02", siteCode: "546031" }]))
+    .toBe("Hudson River PCBs (Superfund, class 02)");
+  expect(formatRemedial([
+    { name: "Site A", program: "BCP", siteClass: "A", siteCode: "1" },
+    { name: "Site B", program: "VCP", siteClass: "C", siteCode: "2" },
+    { name: "Site C", program: "ERP", siteClass: "N", siteCode: "3" },
+    { name: "Site D", program: "BCP", siteClass: "A", siteCode: "4" },
+  ])).toBe("Site A (BCP, class A); Site B (VCP, class C); Site C (ERP, class N); 1 more");
+});
+
+test("DEC bulk storage labels the facility program and status", () => {
+  expect(formatBulkStorage([])).toBe(NONE_TANKS);
+  expect(formatBulkStorage([{
+    name: "SWM HOLDINGS US, LLC",
+    programType: "CBS",
+    status: "Active",
+    locality: "ANCRAM",
+    programNumber: "4-000081",
+  }])).toBe("SWM HOLDINGS US, LLC — chemical bulk storage, Active (ANCRAM)");
 });

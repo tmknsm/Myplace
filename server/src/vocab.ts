@@ -26,14 +26,29 @@ export const FIELD_VOCAB: FieldDef[] = [
   { key: "property_class", label: "Property class", group: "overview", layer: "official", valueType: "string" },
   { key: "year_built", label: "Year built", group: "overview", layer: "official", valueType: "number" },
   { key: "building_area", label: "Building area", group: "overview", layer: "official", valueType: "area", unit: "sq ft" },
+  { key: "bedrooms", label: "Bedrooms", group: "overview", layer: "official", valueType: "number" },
+  { key: "bathrooms", label: "Full bathrooms", group: "overview", layer: "official", valueType: "number" },
+  { key: "kitchens", label: "Kitchens", group: "overview", layer: "official", valueType: "number" },
+  { key: "building.style", label: "Building style", group: "overview", layer: "official", valueType: "string" },
+  { key: "building.heat", label: "Heat (roll)", group: "overview", layer: "official", valueType: "string" },
+  { key: "building.fuel", label: "Fuel (roll)", group: "overview", layer: "official", valueType: "string" },
+  { key: "lot.frontage", label: "Frontage", group: "overview", layer: "official", valueType: "number", unit: "ft" },
+  { key: "lot.depth", label: "Depth", group: "overview", layer: "official", valueType: "number", unit: "ft" },
   { key: "assessment.land", label: "Land assessment", group: "overview", layer: "official", valueType: "money" },
   { key: "assessment.total", label: "Total assessment", group: "overview", layer: "official", valueType: "money" },
+  { key: "assessment.county_taxable", label: "County taxable value", group: "overview", layer: "official", valueType: "money" },
+  { key: "assessment.town_taxable", label: "Town taxable value", group: "overview", layer: "official", valueType: "money" },
+  { key: "assessment.school_taxable", label: "School taxable value", group: "overview", layer: "official", valueType: "money" },
   { key: "market_value_estimate", label: "Full market value", group: "overview", layer: "official", valueType: "money" },
+  { key: "exemptions.summary", label: "Exemptions on the roll", group: "overview", layer: "official", valueType: "string" },
   { key: "taxes.county_town", label: "County / town taxes", group: "overview", layer: "official", valueType: "money" },
   { key: "last_sale.date", label: "Last known sale", group: "overview", layer: "official", valueType: "date" },
   { key: "last_sale.price", label: "Last known sale price", group: "overview", layer: "official", valueType: "money" },
   { key: "owner_name_public", label: "Owner of record", group: "overview", layer: "official", valueType: "string" },
   { key: "school_district", label: "School district", group: "location", layer: "official", valueType: "string" },
+  { key: "ag.district", label: "Agricultural district", group: "location", layer: "official", valueType: "string" },
+  { key: "deed.book", label: "Deed book", group: "records", layer: "official", valueType: "string" },
+  { key: "deed.page", label: "Deed page", group: "records", layer: "official", valueType: "string" },
   { key: "utility.electric", label: "Electric", group: "location", layer: "official", valueType: "string" },
   { key: "utility.gas", label: "Natural gas", group: "location", layer: "official", valueType: "string" },
   { key: "utility.water", label: "Water", group: "location", layer: "official", valueType: "string" },
@@ -42,6 +57,8 @@ export const FIELD_VOCAB: FieldDef[] = [
   { key: "flood.zone", label: "FEMA flood zone", group: "rules", layer: "official", valueType: "string" },
   { key: "wetlands", label: "Wetlands", group: "rules", layer: "official", valueType: "string" },
   { key: "historic.district", label: "Historic district", group: "rules", layer: "official", valueType: "string" },
+  { key: "env.remedial", label: "DEC remedial / brownfield", group: "rules", layer: "official", valueType: "string" },
+  { key: "env.bulk_storage", label: "DEC bulk storage", group: "rules", layer: "official", valueType: "string" },
   { key: "roof.type", label: "Roof", group: "owner", layer: "owner", valueType: "string" },
   { key: "roof.year", label: "Roof year", group: "owner", layer: "owner", valueType: "number" },
   { key: "heating", label: "Heating", group: "owner", layer: "owner", valueType: "string" },
@@ -71,6 +88,9 @@ export function formatFieldValue(field: FieldDef, value: unknown): string | null
   }
   if (field.valueType === "area" && typeof value === "number") {
     return `${value.toLocaleString("en-US")} ${field.unit ?? ""}`.trim();
+  }
+  if (field.valueType === "number" && typeof value === "number" && field.unit) {
+    return `${value.toLocaleString("en-US")} ${field.unit}`;
   }
   if (field.valueType === "date") {
     const date = typeof value === "string" ? new Date(value) : value instanceof Date ? value : null;

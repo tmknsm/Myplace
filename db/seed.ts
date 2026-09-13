@@ -86,6 +86,12 @@ type Featured = {
   flood?: string;
   wetlands?: string;
   historic?: string;
+  deedBook?: string;
+  deedPage?: string;
+  countyTaxable?: number;
+  townTaxable?: number;
+  schoolTaxable?: number;
+  exemptions?: string;
 };
 
 const featured: Featured[] = [
@@ -98,6 +104,7 @@ const featured: Featured[] = [
     owner: "Warren Street Holdings LLC", school: "Hudson City School District",
     electric: "National Grid", gas: "NYSEG", water: "City of Hudson", sewer: "Public sewer",
     zoning: "R-C Residential Commercial", flood: "X", historic: "Warren Street Historic District",
+    deedBook: "842", deedPage: "17", countyTaxable: 485000, townTaxable: 485000, schoolTaxable: 485000,
   },
   {
     n: 2, municipality: "Hudson", city: "Hudson", zip: "12534",
@@ -406,6 +413,12 @@ async function main() {
       ["flood.zone", parcel.flood],
       ["wetlands", parcel.wetlands],
       ["historic.district", parcel.historic],
+      ["deed.book", parcel.deedBook],
+      ["deed.page", parcel.deedPage],
+      ["assessment.county_taxable", parcel.countyTaxable],
+      ["assessment.town_taxable", parcel.townTaxable],
+      ["assessment.school_taxable", parcel.schoolTaxable],
+      ["exemptions.summary", parcel.exemptions],
     ];
 
     for (const [key, value] of official) {

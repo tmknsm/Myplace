@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import postgres from "postgres";
+import { isHostedDatabase } from "../../db/safety.ts";
 import { app } from "./app.ts";
 import { closeSql, setSql } from "./db.ts";
 import { assembleFacts, type AssertionRow } from "./services/assertions.ts";
 
 const url = process.env.DATABASE_URL ?? "postgres://ubuntu:myplace@localhost:5432/myplace_test";
-if (/neon\.tech|amazonaws\.com/i.test(url) && !process.env.ALLOW_HOSTED_DB_TESTS) {
+if (isHostedDatabase(url) && !process.env.ALLOW_HOSTED_DB_TESTS) {
   throw new Error(
     "Refusing to run app tests against a hosted database. Use `npm test` (myplace_test), not `npx vitest`.",
   );
