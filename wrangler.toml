@@ -22,7 +22,7 @@ APP_ORIGIN = ""
 # config from DATABASE_URL and writes its id here.
 [[hyperdrive]]
 binding = "HYPERDRIVE"
-id = "REPLACE_WITH_HYPERDRIVE_ID"
+id = "d7f6274a1eb4473d8c09c68759c4c7fd"
 
 [[r2_buckets]]
 binding = "DOCUMENTS_BUCKET"
