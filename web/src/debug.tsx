@@ -246,7 +246,7 @@ export function DebugSheet({ onClose }: { onClose: () => void }) {
             <Link to="/admin" onClick={onClose}>Admin review desk</Link>
             <Link to="/signin" onClick={onClose}>Sign in as someone else</Link>
           </div>
-          <p className="meta-line">Admin: <code>admin@myplace.local</code>, code <code>000000</code> after <code>db:seed</code>.</p>
+          <p className="meta-line">Sign-in shortcut: any email, code <code>000000</code>. Admin: <code>admin@myplace.local</code>.</p>
         </section>
       </aside>
     </div>

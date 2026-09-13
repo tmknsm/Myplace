@@ -492,3 +492,15 @@ test("debug PIN claim grants ownership and a follow-up page load sees the owner"
   expect(pageBody.viewer.role).toBe("owner");
   expect(pageBody.property.maintainers).toHaveLength(1);
 });
+
+test("debug sign-in accepts the 000000 shortcut", async () => {
+  const res = await app.request("http://localhost/api/auth/verify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "admin@myplace.local", code: "000000" }),
+  });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.user.primary_email).toBe("admin@myplace.local");
+  expect(res.headers.get("set-cookie") ?? "").toMatch(/myplace_session=/);
+});
