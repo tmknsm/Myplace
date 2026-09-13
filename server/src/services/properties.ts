@@ -46,7 +46,7 @@ export async function loadPropertyPage(propertyId: string) {
     LIMIT 50
   `;
   const maintainers = await sql`
-    SELECT m.maintainer_id, m.role, m.verified_at, u.display_name, u.primary_email
+    SELECT m.maintainer_id, m.user_id, m.role, m.verified_at, u.display_name, u.primary_email
     FROM property_maintainers m
     JOIN users u ON u.user_id = m.user_id
     WHERE m.property_id = ${propertyId} AND m.revoked_at IS NULL

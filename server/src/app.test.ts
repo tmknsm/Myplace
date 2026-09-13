@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "vitest";
 import postgres from "postgres";
 import { isHostedDatabase } from "../../db/safety.ts";
+import { applyMigrations, dropSql } from "../../db/schema.ts";
 import { app } from "./app.ts";
 import { closeSql, setSql } from "./db.ts";
 import { assembleFacts, type AssertionRow } from "./services/assertions.ts";
@@ -15,21 +16,8 @@ if (isHostedDatabase(url) && !process.env.ALLOW_HOSTED_DB_TESTS) {
 async function resetDb() {
   const sql = postgres(url, { max: 1 });
   setSql(sql);
-  const { readFileSync, readdirSync } = await import("node:fs");
-  const { dirname, join } = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-  const dir = join(dirname(fileURLToPath(import.meta.url)), "../../db/migrations");
-  await sql.unsafe(`
-    DROP TABLE IF EXISTS
-      field_vocabulary, handoff_invitations, emails, property_relationships,
-      contribution_assertions, contributions, documents, property_maintainers,
-      ownership_claims, property_events, assertions, property_addresses,
-      property_geometries, parcel_identities, source_snapshots, properties,
-      sources, auth_codes, sessions, user_emails, users CASCADE;
-  `);
-  for (const file of readdirSync(dir).filter((name) => name.endsWith(".sql")).sort()) {
-    await sql.unsafe(readFileSync(join(dir, file), "utf8"));
-  }
+  await sql.unsafe(dropSql);
+  await applyMigrations(sql, () => undefined);
   return sql;
 }
 
@@ -45,7 +33,12 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await sql`DELETE FROM emails`;
+  await sql`DELETE FROM notification_preferences`;
+  await sql`DELETE FROM handoff_invitations`;
+  await sql`DELETE FROM contribution_assertions`;
+  await sql`DELETE FROM contributions`;
   await sql`DELETE FROM documents`;
+  await sql`DELETE FROM property_improvements`;
   await sql`DELETE FROM property_maintainers`;
   await sql`DELETE FROM ownership_claims`;
   await sql`DELETE FROM property_events`;

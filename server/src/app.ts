@@ -17,18 +17,38 @@ import {
 } from "./auth.ts";
 import { config, isDevExperience } from "./config.ts";
 import { getSql } from "./db.ts";
+import { DEBUG_CLAIM_PIN, DEBUG_OWNER_EMAIL, debugEnabled, pinMatches } from "./debug.ts";
 import { id } from "./ids.ts";
-import { insertAssertion } from "./services/assertions.ts";
+import { insertAssertion, retractOwnerAssertion } from "./services/assertions.ts";
 import { emitEvent } from "./services/events.ts";
 import {
   adminClaimEmail,
   authCodeEmail,
   claimReceivedEmail,
   claimReviewedEmail,
+  coOwnerInviteEmail,
   handoffEmail,
+  ownershipRevokedEmail,
   sendMail,
 } from "./services/mail.ts";
 import { COUNTY_PROFILES, DEFAULT_MAP, isGeometryQuality } from "./counties.ts";
+import {
+  DOCUMENT_TYPES,
+  IMPROVEMENT_CATEGORIES,
+  loadDocuments,
+  loadImprovements,
+  loadOpenDisputes,
+  loadPendingInvitations,
+  loadPreferences,
+  openDispute,
+  parseCostCents,
+  parseDate,
+  pendingInvitationFor,
+  PREFERENCE_OPTIONS,
+  savePreferences,
+  TRANSFERABLE_TYPES,
+} from "./services/owner.ts";
+import { addCoMaintainer, grantOwnership, revokeOwnership } from "./services/ownership.ts";
 import {
   loadPropertyCore,
   loadPropertyPage,
@@ -40,7 +60,7 @@ import {
   TILE_MIN_ZOOM,
 } from "./services/properties.ts";
 import { documentKey, getDocument, putDocument } from "./services/storage.ts";
-import { FIELD_VOCAB } from "./vocab.ts";
+import { FIELD_BY_KEY, FIELD_VOCAB, ownerWritable } from "./vocab.ts";
 
 export const app = new Hono<AppEnv>();
 
@@ -102,9 +122,14 @@ app.get("/api/meta", async (c) => {
     demonstration: counties.some((county) => county.parcelCount > 0 && county.geometryQuality === "demonstration"),
     ownerVerification: "manual_review",
     devMailbox: isDevExperience(),
+    // Local-only shortcuts (PIN claim, debug sheet). Always false in production.
+    debug: debugEnabled(),
     counties,
     map: { ...DEFAULT_MAP, tiles: "/api/tiles/{z}/{x}/{y}.mvt", tileLayer: TILE_LAYER, minZoom: TILE_MIN_ZOOM, maxZoom: TILE_MAX_ZOOM },
     vocab: FIELD_VOCAB,
+    improvementCategories: IMPROVEMENT_CATEGORIES,
+    documentTypes: DOCUMENT_TYPES,
+    preferenceOptions: PREFERENCE_OPTIONS,
   });
 });
 
@@ -270,7 +295,44 @@ app.get("/api/properties/:id", async (c) => {
   if (!page) return c.json({ error: "Property not found" }, 404);
   const user = c.get("user");
   const maintainer = user ? await isMaintainer(user.user_id, page.property_id) : false;
-  return c.json({ property: page, viewer: { maintainer, admin: Boolean(user?.is_admin) } });
+  const sql = getSql();
+  const role = maintainer && user
+    ? (await sql<{ role: string; verified_at: string }[]>`
+        SELECT role, verified_at FROM property_maintainers
+        WHERE property_id = ${page.property_id} AND user_id = ${user.user_id} AND revoked_at IS NULL
+      `)[0] ?? null
+    : null;
+  const disputes = await loadOpenDisputes(page.property_id);
+  const facts = page.facts.map((fact) => {
+    const dispute = disputes.find((item) => item.fieldKey === fact.fieldKey);
+    return dispute ? { ...fact, dispute } : fact;
+  });
+  const [improvements, documents, invitations, invitation, preferences, openClaim] = await Promise.all([
+    loadImprovements(page.property_id, maintainer),
+    loadDocuments(page.property_id, maintainer),
+    maintainer ? loadPendingInvitations(page.property_id) : Promise.resolve([]),
+    user && !maintainer ? pendingInvitationFor(page.property_id, user.primary_email) : Promise.resolve(null),
+    maintainer && user ? loadPreferences(user.user_id, page.property_id) : Promise.resolve(null),
+    user
+      ? sql<{ claim_id: string; status: string }[]>`
+          SELECT claim_id, status FROM ownership_claims
+          WHERE property_id = ${page.property_id} AND user_id = ${user.user_id} AND status IN ('draft', 'pending')
+          ORDER BY created_at DESC LIMIT 1
+        `.then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+  ]);
+  return c.json({
+    property: { ...page, facts, improvements, documents, invitations, disputes },
+    viewer: {
+      maintainer,
+      role: role?.role ?? null,
+      verifiedAt: role?.verified_at ?? null,
+      admin: Boolean(user?.is_admin),
+      invitation,
+      preferences,
+      openClaim,
+    },
+  });
 });
 
 async function addressOf(propertyId: string): Promise<string> {
@@ -409,10 +471,22 @@ app.post("/api/properties/:id/documents", async (c) => {
   if (!(file instanceof File)) return c.json({ error: "Choose a file to upload." }, 400);
   if (file.size > 15 * 1024 * 1024) return c.json({ error: "Files must be 15 MB or smaller." }, 400);
 
-  const claimId = typeof form.claimId === "string" ? form.claimId : null;
-  const visibility = typeof form.visibility === "string" ? form.visibility : "private";
-  const transferability = typeof form.transferability === "string" ? form.transferability : "personal";
-  const documentType = typeof form.documentType === "string" ? form.documentType : "other";
+  const claimId = typeof form.claimId === "string" && form.claimId ? form.claimId : null;
+  const improvementId = typeof form.improvementId === "string" && form.improvementId ? form.improvementId : null;
+  const caption = typeof form.caption === "string" && form.caption.trim() ? form.caption.trim() : null;
+  const isImage = file.type.startsWith("image/");
+  const requestedType = typeof form.documentType === "string" && form.documentType ? form.documentType : null;
+  const documentType = requestedType ?? (improvementId ? (isImage ? "photo" : "receipt") : isImage ? "photo" : "other");
+  const visibility = typeof form.visibility === "string" && form.visibility ? form.visibility : "private";
+  const transferability = typeof form.transferability === "string" && form.transferability
+    ? form.transferability
+    : TRANSFERABLE_TYPES.has(documentType) ? "property_transferable" : "personal";
+  if (!["private", "property_transferable", "public"].includes(visibility)) {
+    return c.json({ error: "Unknown visibility." }, 400);
+  }
+  if (!["personal", "property_transferable"].includes(transferability)) {
+    return c.json({ error: "Unknown transferability." }, 400);
+  }
 
   if (claimId) {
     const claim = await sql`
@@ -423,29 +497,36 @@ app.post("/api/properties/:id/documents", async (c) => {
   } else if (!(await isMaintainer(user.user_id, propertyId)) && !user.is_admin) {
     return c.json({ error: "Only a current maintainer can upload to this record." }, 403);
   }
+  if (improvementId) {
+    const improvement = await sql`
+      SELECT improvement_id FROM property_improvements
+      WHERE improvement_id = ${improvementId} AND property_id = ${propertyId} AND removed_at IS NULL
+    `;
+    if (!improvement[0]) return c.json({ error: "Improvement not found" }, 404);
+  }
 
   const documentId = id("doc");
   const key = documentKey(propertyId, documentId, file.name);
   await putDocument(key, new Uint8Array(await file.arrayBuffer()));
   await sql`
     INSERT INTO documents (
-      document_id, property_id, claim_id, uploaded_by, storage_key, original_filename,
-      mime_type, byte_size, document_type, visibility, transferability
+      document_id, property_id, claim_id, improvement_id, uploaded_by, storage_key, original_filename,
+      mime_type, byte_size, document_type, visibility, transferability, caption
     ) VALUES (
-      ${documentId}, ${propertyId}, ${claimId}, ${user.user_id}, ${key}, ${file.name},
-      ${file.type || "application/octet-stream"}, ${file.size}, ${documentType}, ${visibility}, ${transferability}
+      ${documentId}, ${propertyId}, ${claimId}, ${improvementId}, ${user.user_id}, ${key}, ${file.name},
+      ${file.type || "application/octet-stream"}, ${file.size}, ${documentType}, ${visibility}, ${transferability}, ${caption}
     )
   `;
   if (!claimId) {
     await emitEvent({
       propertyId,
-      eventType: "document.added",
-      actorType: "user",
+      eventType: isImage ? "photo.added" : "document.added",
+      actorType: "verified_owner",
       actorId: user.user_id,
-      payload: { document_id: documentId, document_type: documentType, visibility, transferability },
+      payload: { document_id: documentId, document_type: documentType, visibility, transferability, improvement_id: improvementId },
     });
   }
-  return c.json({ documentId }, 201);
+  return c.json({ documentId, documentType, visibility, transferability }, 201);
 });
 
 app.get("/api/properties/:id/documents", async (c) => {
@@ -453,36 +534,326 @@ app.get("/api/properties/:id/documents", async (c) => {
   const propertyId = c.req.param("id");
   const maintainer = await isMaintainer(user.user_id, propertyId);
   if (!maintainer && !user.is_admin) return c.json({ error: "Forbidden" }, 403);
-  const sql = getSql();
-  const documents = await sql`
-    SELECT document_id, original_filename, document_type, visibility, transferability,
-           mime_type, byte_size, created_at, claim_id
-    FROM documents
-    WHERE property_id = ${propertyId} AND claim_id IS NULL
-    ORDER BY created_at DESC
-  `;
-  return c.json({ documents });
+  return c.json({ documents: await loadDocuments(propertyId, true) });
 });
 
-app.patch("/api/documents/:id", async (c) => {
+async function loadOwnedDocument(c: Parameters<typeof requireUser>[0], documentId: string) {
   const user = requireUser(c);
   const sql = getSql();
-  const rows = await sql<{ document_id: string; property_id: string }[]>`
-    SELECT document_id, property_id FROM documents WHERE document_id = ${c.req.param("id")}
+  const rows = await sql<{ document_id: string; property_id: string; document_type: string | null }[]>`
+    SELECT document_id, property_id, document_type FROM documents WHERE document_id = ${documentId} AND removed_at IS NULL
   `;
   const doc = rows[0];
-  if (!doc) return c.json({ error: "Not found" }, 404);
+  if (!doc) throw Object.assign(new Error("Not found"), { status: 404 });
   if (!(await isMaintainer(user.user_id, doc.property_id)) && !user.is_admin) {
-    return c.json({ error: "Forbidden" }, 403);
+    throw Object.assign(new Error("Forbidden"), { status: 403 });
   }
-  const body = await c.req.json<{ visibility?: string; transferability?: string }>();
+  return { user, doc };
+}
+
+app.patch("/api/documents/:id", async (c) => {
+  const { doc } = await loadOwnedDocument(c, c.req.param("id"));
+  const sql = getSql();
+  const body = await c.req.json<{ visibility?: string; transferability?: string; documentType?: string; caption?: string }>();
+  if (body.visibility && !["private", "property_transferable", "public"].includes(body.visibility)) {
+    return c.json({ error: "Unknown visibility." }, 400);
+  }
+  if (body.transferability && !["personal", "property_transferable"].includes(body.transferability)) {
+    return c.json({ error: "Unknown transferability." }, 400);
+  }
   await sql`
     UPDATE documents
     SET
       visibility = COALESCE(${body.visibility ?? null}, visibility),
-      transferability = COALESCE(${body.transferability ?? null}, transferability)
+      transferability = COALESCE(${body.transferability ?? null}, transferability),
+      document_type = COALESCE(${body.documentType ?? null}, document_type),
+      caption = CASE WHEN ${body.caption === undefined} THEN caption ELSE ${body.caption ?? null} END
     WHERE document_id = ${doc.document_id}
   `;
+  return c.json({ ok: true });
+});
+
+app.delete("/api/documents/:id", async (c) => {
+  const { user, doc } = await loadOwnedDocument(c, c.req.param("id"));
+  const sql = getSql();
+  await sql`UPDATE documents SET removed_at = now() WHERE document_id = ${doc.document_id}`;
+  await emitEvent({
+    propertyId: doc.property_id,
+    eventType: "document.removed",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { document_id: doc.document_id, document_type: doc.document_type },
+  });
+  return c.json({ ok: true });
+});
+
+async function requireMaintainer(c: Parameters<typeof requireUser>[0], propertyId: string) {
+  const user = requireUser(c);
+  if (!(await isMaintainer(user.user_id, propertyId))) {
+    throw Object.assign(new Error("Only a current maintainer can do that."), { status: 403 });
+  }
+  return user;
+}
+
+app.post("/api/properties/:id/improvements", async (c) => {
+  const propertyId = c.req.param("id");
+  const user = await requireMaintainer(c, propertyId);
+  const body = await c.req.json<{
+    title?: string;
+    category?: string;
+    performedAt?: string;
+    cost?: string | number;
+    contractor?: string;
+    notes?: string;
+    visibility?: string;
+  }>();
+  const title = body.title?.trim() ?? "";
+  if (!title) return c.json({ error: "Give the improvement a short title." }, 400);
+  const category = (IMPROVEMENT_CATEGORIES as readonly string[]).includes(body.category ?? "") ? body.category! : "other";
+  const visibility = body.visibility === "public" ? "public" : "private";
+  const sql = getSql();
+  const improvementId = id("imp");
+  await sql`
+    INSERT INTO property_improvements (
+      improvement_id, property_id, created_by, title, category, performed_at, cost_cents, contractor, notes, visibility
+    ) VALUES (
+      ${improvementId}, ${propertyId}, ${user.user_id}, ${title}, ${category}, ${parseDate(body.performedAt)},
+      ${parseCostCents(body.cost)}, ${body.contractor?.trim() || null}, ${body.notes?.trim() || null}, ${visibility}
+    )
+  `;
+  await emitEvent({
+    propertyId,
+    eventType: "improvement.added",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { improvement_id: improvementId, title, category },
+    effectiveAt: parseDate(body.performedAt) ?? new Date(),
+  });
+  const [improvement] = await loadImprovements(propertyId, true).then((list) => list.filter((row) => row.improvement_id === improvementId));
+  return c.json({ improvement }, 201);
+});
+
+async function loadOwnedImprovement(c: Parameters<typeof requireUser>[0], improvementId: string) {
+  const user = requireUser(c);
+  const sql = getSql();
+  const rows = await sql<{ improvement_id: string; property_id: string; title: string }[]>`
+    SELECT improvement_id, property_id, title FROM property_improvements
+    WHERE improvement_id = ${improvementId} AND removed_at IS NULL
+  `;
+  const improvement = rows[0];
+  if (!improvement) throw Object.assign(new Error("Improvement not found"), { status: 404 });
+  if (!(await isMaintainer(user.user_id, improvement.property_id))) {
+    throw Object.assign(new Error("Only a current maintainer can do that."), { status: 403 });
+  }
+  return { user, improvement };
+}
+
+app.patch("/api/improvements/:id", async (c) => {
+  const { user, improvement } = await loadOwnedImprovement(c, c.req.param("id"));
+  const body = await c.req.json<{
+    title?: string;
+    category?: string;
+    performedAt?: string | null;
+    cost?: string | number | null;
+    contractor?: string | null;
+    notes?: string | null;
+    visibility?: string;
+  }>();
+  const sql = getSql();
+  const title = body.title === undefined ? null : body.title.trim();
+  if (title === "") return c.json({ error: "Give the improvement a short title." }, 400);
+  const category = body.category !== undefined && (IMPROVEMENT_CATEGORIES as readonly string[]).includes(body.category)
+    ? body.category
+    : null;
+  const visibility = body.visibility === "public" || body.visibility === "private" ? body.visibility : null;
+  await sql`
+    UPDATE property_improvements
+    SET
+      title = COALESCE(${title}, title),
+      category = COALESCE(${category}, category),
+      visibility = COALESCE(${visibility}, visibility),
+      performed_at = CASE WHEN ${body.performedAt === undefined} THEN performed_at ELSE ${parseDate(body.performedAt)} END,
+      cost_cents = CASE WHEN ${body.cost === undefined} THEN cost_cents ELSE ${parseCostCents(body.cost)} END,
+      contractor = CASE WHEN ${body.contractor === undefined} THEN contractor ELSE ${body.contractor?.trim() || null} END,
+      notes = CASE WHEN ${body.notes === undefined} THEN notes ELSE ${body.notes?.trim() || null} END
+    WHERE improvement_id = ${improvement.improvement_id}
+  `;
+  await emitEvent({
+    propertyId: improvement.property_id,
+    eventType: "improvement.updated",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { improvement_id: improvement.improvement_id },
+  });
+  const [updated] = await loadImprovements(improvement.property_id, true)
+    .then((list) => list.filter((row) => row.improvement_id === improvement.improvement_id));
+  return c.json({ improvement: updated });
+});
+
+app.delete("/api/improvements/:id", async (c) => {
+  const { user, improvement } = await loadOwnedImprovement(c, c.req.param("id"));
+  const sql = getSql();
+  await sql`UPDATE property_improvements SET removed_at = now() WHERE improvement_id = ${improvement.improvement_id}`;
+  await sql`UPDATE documents SET removed_at = now() WHERE improvement_id = ${improvement.improvement_id} AND removed_at IS NULL`;
+  await emitEvent({
+    propertyId: improvement.property_id,
+    eventType: "improvement.removed",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { improvement_id: improvement.improvement_id, title: improvement.title },
+  });
+  return c.json({ ok: true });
+});
+
+app.post("/api/properties/:id/disputes", async (c) => {
+  const propertyId = c.req.param("id");
+  const user = await requireMaintainer(c, propertyId);
+  const body = await c.req.json<{ fieldKey?: string; proposedValue?: unknown; note?: string }>();
+  const field = FIELD_BY_KEY.get(body.fieldKey ?? "");
+  if (!field || field.layer === "owner") return c.json({ error: "Only official facts can be disputed." }, 400);
+  const note = body.note?.trim() || null;
+  const proposed = typeof body.proposedValue === "string" ? body.proposedValue.trim() || null : body.proposedValue ?? null;
+  if (!note && proposed === null) return c.json({ error: "Say what you believe is correct or why the fact is wrong." }, 400);
+  const contributionId = await openDispute({ propertyId, userId: user.user_id, fieldKey: field.key, proposedValue: proposed, note });
+  return c.json({ contributionId }, 201);
+});
+
+app.delete("/api/contributions/:id", async (c) => {
+  const user = requireUser(c);
+  const sql = getSql();
+  const rows = await sql<{ contribution_id: string; property_id: string; contributor_user_id: string | null; status: string }[]>`
+    SELECT contribution_id, property_id, contributor_user_id, status FROM contributions WHERE contribution_id = ${c.req.param("id")}
+  `;
+  const contribution = rows[0];
+  if (!contribution) return c.json({ error: "Not found" }, 404);
+  if (contribution.contributor_user_id !== user.user_id && !user.is_admin) return c.json({ error: "Forbidden" }, 403);
+  if (contribution.status !== "needs_review") return c.json({ error: "This contribution is already resolved." }, 400);
+  await sql`UPDATE contributions SET status = 'withdrawn', resolved_at = now(), resolved_by = ${user.user_id} WHERE contribution_id = ${contribution.contribution_id}`;
+  await emitEvent({
+    propertyId: contribution.property_id,
+    eventType: "contribution.withdrawn",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { contribution_id: contribution.contribution_id },
+  });
+  return c.json({ ok: true });
+});
+
+app.get("/api/properties/:id/preferences", async (c) => {
+  const propertyId = c.req.param("id");
+  const user = await requireMaintainer(c, propertyId);
+  return c.json({ preferences: await loadPreferences(user.user_id, propertyId), options: PREFERENCE_OPTIONS });
+});
+
+app.put("/api/properties/:id/preferences", async (c) => {
+  const propertyId = c.req.param("id");
+  const user = await requireMaintainer(c, propertyId);
+  const body = await c.req.json<{ preferences?: Record<string, unknown> }>();
+  const preferences = await savePreferences(user.user_id, propertyId, body.preferences ?? {});
+  return c.json({ preferences });
+});
+
+app.post("/api/properties/:id/maintainers/invite", async (c) => {
+  const propertyId = c.req.param("id");
+  const user = await requireMaintainer(c, propertyId);
+  const body = await c.req.json<{ email?: string }>();
+  const email = body.email?.trim().toLowerCase() ?? "";
+  if (!email.includes("@")) return c.json({ error: "Enter the co-owner’s email." }, 400);
+  if (email === user.primary_email) return c.json({ error: "You already maintain this record." }, 400);
+  const sql = getSql();
+  const already = await sql`
+    SELECT 1 FROM property_maintainers m JOIN users u ON u.user_id = m.user_id
+    WHERE m.property_id = ${propertyId} AND m.revoked_at IS NULL AND u.primary_email = ${email}
+  `;
+  if (already[0]) return c.json({ error: "That person already maintains this record." }, 409);
+  await sql`
+    UPDATE handoff_invitations SET status = 'superseded'
+    WHERE property_id = ${propertyId} AND invited_email = ${email} AND role = 'co_owner' AND status = 'sent'
+  `;
+  const invitationId = id("inv");
+  await sql`
+    INSERT INTO handoff_invitations (invitation_id, property_id, invited_email, invited_by, role)
+    VALUES (${invitationId}, ${propertyId}, ${email}, ${user.user_id}, 'co_owner')
+  `;
+  const address = await addressOf(propertyId);
+  const template = coOwnerInviteEmail(config.appOrigin, address, propertyId, user.display_name || user.primary_email);
+  await sendMail({
+    stream: "ownership",
+    toEmail: email,
+    subject: template.subject,
+    html: template.html,
+    text: template.text,
+    templateKey: "co_owner_invite",
+    payload: { invitationId, propertyId },
+  });
+  await emitEvent({
+    propertyId,
+    eventType: "ownership.co_maintainer_invited",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { invitation_id: invitationId, invited_email: email },
+  });
+  return c.json({ invitationId }, 201);
+});
+
+app.post("/api/invitations/:id/accept", async (c) => {
+  const user = requireUser(c);
+  const sql = getSql();
+  const rows = await sql<{ invitation_id: string; property_id: string; invited_email: string; role: string; status: string }[]>`
+    SELECT invitation_id, property_id, invited_email, role, status FROM handoff_invitations WHERE invitation_id = ${c.req.param("id")}
+  `;
+  const invitation = rows[0];
+  if (!invitation || invitation.invited_email !== user.primary_email) return c.json({ error: "Invitation not found" }, 404);
+  if (invitation.status !== "sent") return c.json({ error: "This invitation is no longer open." }, 400);
+  if (invitation.role !== "co_owner") {
+    return c.json({ error: "Handoff invitations are accepted by completing ownership verification.", claimPath: `/property/${invitation.property_id}/claim` }, 400);
+  }
+  await addCoMaintainer({ propertyId: invitation.property_id, userId: user.user_id, invitationId: invitation.invitation_id, actorId: user.user_id });
+  return c.json({ ok: true, propertyId: invitation.property_id });
+});
+
+app.delete("/api/invitations/:id", async (c) => {
+  const user = requireUser(c);
+  const sql = getSql();
+  const rows = await sql<{ invitation_id: string; property_id: string; status: string }[]>`
+    SELECT invitation_id, property_id, status FROM handoff_invitations WHERE invitation_id = ${c.req.param("id")}
+  `;
+  const invitation = rows[0];
+  if (!invitation) return c.json({ error: "Invitation not found" }, 404);
+  if (!(await isMaintainer(user.user_id, invitation.property_id))) return c.json({ error: "Forbidden" }, 403);
+  if (invitation.status !== "sent") return c.json({ error: "This invitation is no longer open." }, 400);
+  await sql`UPDATE handoff_invitations SET status = 'cancelled' WHERE invitation_id = ${invitation.invitation_id}`;
+  return c.json({ ok: true });
+});
+
+app.post("/api/properties/:id/maintainers/:maintainerId/remove", async (c) => {
+  const propertyId = c.req.param("id");
+  const user = await requireMaintainer(c, propertyId);
+  const sql = getSql();
+  const me = await sql<{ role: string }[]>`
+    SELECT role FROM property_maintainers WHERE property_id = ${propertyId} AND user_id = ${user.user_id} AND revoked_at IS NULL
+  `;
+  if (me[0]?.role !== "owner") return c.json({ error: "Only an owner can remove a co-maintainer." }, 403);
+  const target = await sql<{ user_id: string; role: string; primary_email: string }[]>`
+    SELECT m.user_id, m.role, u.primary_email FROM property_maintainers m JOIN users u ON u.user_id = m.user_id
+    WHERE m.maintainer_id = ${c.req.param("maintainerId")} AND m.property_id = ${propertyId} AND m.revoked_at IS NULL
+  `;
+  const row = target[0];
+  if (!row) return c.json({ error: "Maintainer not found" }, 404);
+  if (row.user_id === user.user_id) return c.json({ error: "Use a handoff to end your own maintainer role." }, 400);
+  if (row.role === "owner") return c.json({ error: "Another owner can only be replaced through a verified claim." }, 400);
+  await revokeOwnership({ propertyId, userId: row.user_id, actorType: "verified_owner", actorId: user.user_id, reason: "removed_by_owner" });
+  const address = await addressOf(propertyId);
+  const template = ownershipRevokedEmail(config.appOrigin, address, propertyId);
+  await sendMail({
+    stream: "ownership",
+    toEmail: row.primary_email,
+    toUserId: row.user_id,
+    subject: template.subject,
+    html: template.html,
+    text: template.text,
+    templateKey: "maintainer_removed",
+  });
   return c.json({ ok: true });
 });
 
@@ -525,32 +896,62 @@ app.post("/api/properties/:id/owner-fields", async (c) => {
   const body = await c.req.json<{ fields?: Record<string, unknown> }>();
   const fields = body.fields ?? {};
   const sql = getSql();
-  const contributionId = id("con");
-  const entries = Object.entries(fields).filter(([, value]) => value !== "" && value !== null && value !== undefined);
-  await sql`
-    INSERT INTO contributions (
-      contribution_id, property_id, contributor_user_id, contributor_type, status, summary, resolved_at, resolved_by
-    ) VALUES (
-      ${contributionId}, ${propertyId}, ${user.user_id}, 'verified_owner', 'accepted',
-      ${`Owner updated ${entries.length} field${entries.length === 1 ? "" : "s"}`}, now(), ${user.user_id}
-    )
-  `;
-  for (const [fieldKey, value] of entries) {
-    await sql`
-      INSERT INTO contribution_assertions (contribution_assertion_id, contribution_id, field_key, value_json)
-      VALUES (${id("cas")}, ${contributionId}, ${fieldKey}, ${sql.json({ value } as never)})
-    `;
-    await insertAssertion({
-      propertyId,
-      fieldKey,
-      value,
-      sourceType: "verified_owner",
-      actorType: "verified_owner",
-      actorId: user.user_id,
-      eventType: "owner_assertion.added",
-    });
+  const unknown = Object.keys(fields).find((key) => !ownerWritable(FIELD_BY_KEY.get(key)));
+  if (unknown) return c.json({ error: `${unknown} is not an owner-maintained field.` }, 400);
+
+  const cleared: string[] = [];
+  const entries: Array<[string, unknown]> = [];
+  for (const [fieldKey, raw] of Object.entries(fields)) {
+    if (raw === "" || raw === null || raw === undefined) {
+      cleared.push(fieldKey);
+      continue;
+    }
+    const field = FIELD_BY_KEY.get(fieldKey)!;
+    let value: unknown = typeof raw === "string" ? raw.trim() : raw;
+    if (field.valueType === "number" || field.valueType === "money" || field.valueType === "acres" || field.valueType === "area") {
+      const n = Number(String(value).replace(/[$,\s]/g, ""));
+      if (!Number.isFinite(n)) return c.json({ error: `${field.label} must be a number.` }, 400);
+      value = n;
+    }
+    if (field.valueType === "date") {
+      const parsed = parseDate(value);
+      if (!parsed) return c.json({ error: `${field.label} must be a date.` }, 400);
+      value = parsed;
+    }
+    entries.push([fieldKey, value]);
   }
-  return c.json({ contributionId, updated: entries.length });
+
+  let removed = 0;
+  for (const fieldKey of cleared) removed += await retractOwnerAssertion(propertyId, fieldKey, user.user_id);
+
+  let contributionId: string | null = null;
+  if (entries.length) {
+    contributionId = id("con");
+    await sql`
+      INSERT INTO contributions (
+        contribution_id, property_id, contributor_user_id, contributor_type, status, summary, resolved_at, resolved_by
+      ) VALUES (
+        ${contributionId}, ${propertyId}, ${user.user_id}, 'verified_owner', 'accepted',
+        ${`Owner updated ${entries.length} field${entries.length === 1 ? "" : "s"}`}, now(), ${user.user_id}
+      )
+    `;
+    for (const [fieldKey, value] of entries) {
+      await sql`
+        INSERT INTO contribution_assertions (contribution_assertion_id, contribution_id, field_key, value_json)
+        VALUES (${id("cas")}, ${contributionId}, ${fieldKey}, ${sql.json({ value } as never)})
+      `;
+      await insertAssertion({
+        propertyId,
+        fieldKey,
+        value,
+        sourceType: "verified_owner",
+        actorType: "verified_owner",
+        actorId: user.user_id,
+        eventType: "owner_assertion.added",
+      });
+    }
+  }
+  return c.json({ contributionId, updated: entries.length, removed });
 });
 
 app.post("/api/properties/:id/handoff", async (c) => {
@@ -622,33 +1023,13 @@ app.post("/api/admin/claims/:id/review", async (c) => {
   if (claim.status !== "pending") return c.json({ error: "This claim is no longer pending." }, 400);
 
   if (body.decision === "verified") {
-    await sql`
-      UPDATE property_maintainers
-      SET revoked_at = now()
-      WHERE property_id = ${claim.property_id} AND revoked_at IS NULL AND user_id <> ${claim.user_id}
-    `;
-    await sql`
-      INSERT INTO property_maintainers (maintainer_id, property_id, user_id, role)
-      VALUES (${id("mnt")}, ${claim.property_id}, ${claim.user_id}, 'owner')
-    `;
-    await sql`
-      UPDATE ownership_claims
-      SET status = 'verified', verified_at = now(), reviewed_by = ${admin.user_id}, reviewer_note = ${body.note ?? null}
-      WHERE claim_id = ${claim.claim_id}
-    `;
-    await sql`
-      UPDATE ownership_claims
-      SET status = 'superseded'
-      WHERE property_id = ${claim.property_id}
-        AND claim_id <> ${claim.claim_id}
-        AND status IN ('verified')
-    `;
-    await emitEvent({
+    await grantOwnership({
       propertyId: claim.property_id,
-      eventType: "ownership.claimed",
+      userId: claim.user_id,
+      claimId: claim.claim_id,
       actorType: "platform_admin",
       actorId: admin.user_id,
-      payload: { claim_id: claim.claim_id, user_id: claim.user_id },
+      reviewerNote: body.note ?? null,
     });
   } else {
     await sql`
@@ -715,6 +1096,138 @@ app.get("/api/dev/mailbox/:id", async (c) => {
   if (!email) return c.json({ error: "Not found" }, 404);
   await sql`UPDATE emails SET read_at = COALESCE(read_at, now()) WHERE email_id = ${email.email_id}`;
   return c.json({ email });
+});
+
+// ---------------------------------------------------------------------------
+// Debug shortcuts. Local development only: every route below returns 404 when
+// `debugEnabled()` is false, which is the case for every production build.
+// ---------------------------------------------------------------------------
+
+app.use("/api/dev/debug/*", async (c, next) => {
+  if (!debugEnabled()) return c.json({ error: "Not found" }, 404);
+  await next();
+});
+
+app.get("/api/dev/debug/state", async (c) => {
+  const sql = getSql();
+  const user = c.get("user");
+  const maintainers = await sql`
+    SELECT m.maintainer_id, m.property_id, m.role, m.verified_at, m.user_id,
+           u.primary_email, u.display_name, a.formatted, p.municipality, p.county,
+           (SELECT c.method FROM ownership_claims c
+             WHERE c.property_id = m.property_id AND c.user_id = m.user_id AND c.status = 'verified'
+             ORDER BY c.verified_at DESC NULLS LAST LIMIT 1) AS method
+    FROM property_maintainers m
+    JOIN users u ON u.user_id = m.user_id
+    JOIN properties p ON p.property_id = m.property_id
+    LEFT JOIN property_addresses a ON a.property_id = m.property_id AND a.is_current
+    WHERE m.revoked_at IS NULL
+    ORDER BY m.verified_at DESC
+  `;
+  return c.json({
+    pin: DEBUG_CLAIM_PIN,
+    debugOwnerEmail: DEBUG_OWNER_EMAIL,
+    user,
+    maintainers: maintainers.map((row) => ({ ...row, mine: user ? row.user_id === user.user_id : false })),
+  });
+});
+
+/**
+ * Fake-claim a parcel with the hardcoded PIN. Produces exactly the rows the
+ * production review desk would: a verified claim, a maintainer role, the
+ * `ownership.claimed` event, and the "ownership verified" email.
+ */
+app.post("/api/dev/debug/claim/:id", async (c) => {
+  const propertyId = c.req.param("id");
+  const core = await loadPropertyCore(propertyId);
+  if (!core) return c.json({ error: "Property not found" }, 404);
+  const body = await c.req.json<{ pin?: string }>().catch(() => ({} as { pin?: string }));
+  if (!pinMatches(body.pin)) return c.json({ error: "That PIN is not correct." }, 400);
+
+  let user = c.get("user");
+  let signedIn = false;
+  if (!user) {
+    user = await upsertUser(DEBUG_OWNER_EMAIL);
+    attachSessionCookie(c, await createSession(user.user_id));
+    signedIn = true;
+  }
+  if (await isMaintainer(user.user_id, propertyId)) {
+    return c.json({ ok: true, alreadyMaintainer: true, user, signedIn });
+  }
+
+  const sql = getSql();
+  await sql`
+    UPDATE ownership_claims SET status = 'superseded'
+    WHERE property_id = ${propertyId} AND user_id = ${user.user_id} AND status IN ('draft', 'pending')
+  `;
+  const claimId = id("clm");
+  await sql`
+    INSERT INTO ownership_claims (
+      claim_id, property_id, user_id, method, status, attestation_accepted, notes, submitted_at
+    ) VALUES (
+      ${claimId}, ${propertyId}, ${user.user_id}, 'debug_pin', 'pending', true, 'Debug PIN claim (local development)', now()
+    )
+  `;
+  await emitEvent({
+    propertyId,
+    eventType: "ownership.claim_submitted",
+    actorType: "user",
+    actorId: user.user_id,
+    payload: { claim_id: claimId, method: "debug_pin" },
+  });
+  await grantOwnership({
+    propertyId,
+    userId: user.user_id,
+    claimId,
+    actorType: "debug",
+    actorId: user.user_id,
+    reviewerNote: "Verified by debug PIN. Local development only.",
+  });
+  const template = claimReviewedEmail(config.appOrigin, core.formatted ?? "this property", propertyId, true);
+  await sendMail({
+    stream: "ownership",
+    toEmail: user.primary_email,
+    toUserId: user.user_id,
+    subject: template.subject,
+    html: template.html,
+    text: template.text,
+    templateKey: "claim_verified",
+    payload: { claimId, propertyId, debug: true },
+  });
+  return c.json({ ok: true, claimId, user, signedIn }, 201);
+});
+
+/** Give up a maintainer role. Defaults to the signed-in user; the debug sheet may name another. */
+app.post("/api/dev/debug/revoke/:id", async (c) => {
+  const propertyId = c.req.param("id");
+  const body = await c.req.json<{ userId?: string }>().catch(() => ({} as { userId?: string }));
+  const current = c.get("user");
+  const userId = body.userId ?? current?.user_id;
+  if (!userId) return c.json({ error: "Nobody to revoke. Sign in or name a user." }, 400);
+  const revoked = await revokeOwnership({
+    propertyId,
+    userId,
+    actorType: "debug",
+    actorId: current?.user_id ?? null,
+    reason: "debug_revoke",
+  });
+  if (!revoked) return c.json({ error: "That user does not maintain this property." }, 404);
+  const sql = getSql();
+  const target = await sql<{ primary_email: string }[]>`SELECT primary_email FROM users WHERE user_id = ${userId}`;
+  if (target[0]) {
+    const template = ownershipRevokedEmail(config.appOrigin, await addressOf(propertyId), propertyId);
+    await sendMail({
+      stream: "ownership",
+      toEmail: target[0].primary_email,
+      toUserId: userId,
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+      templateKey: "maintainer_removed",
+      payload: { propertyId, debug: true },
+    });
+  }
+  return c.json({ ok: true });
 });
 
 export default app;

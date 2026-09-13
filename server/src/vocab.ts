@@ -49,10 +49,16 @@ export const FIELD_VOCAB: FieldDef[] = [
   { key: "ag.district", label: "Agricultural district", group: "location", layer: "official", valueType: "string" },
   { key: "deed.book", label: "Deed book", group: "records", layer: "official", valueType: "string" },
   { key: "deed.page", label: "Deed page", group: "records", layer: "official", valueType: "string" },
-  { key: "utility.electric", label: "Electric", group: "location", layer: "official", valueType: "string" },
-  { key: "utility.gas", label: "Natural gas", group: "location", layer: "official", valueType: "string" },
-  { key: "utility.water", label: "Water", group: "location", layer: "official", valueType: "string" },
-  { key: "utility.sewer", label: "Sewer / septic", group: "location", layer: "official", valueType: "string" },
+  // "either" fields have no statewide source yet. An official assertion wins when
+  // one exists; otherwise the verified owner can fill the blank and the fact is
+  // labeled owner-reported rather than presented as official.
+  { key: "utility.electric", label: "Electric", group: "location", layer: "either", valueType: "string" },
+  { key: "utility.gas", label: "Natural gas", group: "location", layer: "either", valueType: "string" },
+  { key: "utility.water", label: "Water", group: "location", layer: "either", valueType: "string" },
+  { key: "utility.sewer", label: "Sewer / septic", group: "location", layer: "either", valueType: "string" },
+  { key: "utility.internet", label: "Internet provider", group: "location", layer: "either", valueType: "string" },
+  { key: "utility.trash", label: "Trash / recycling", group: "location", layer: "either", valueType: "string" },
+  { key: "fire_district", label: "Fire district", group: "location", layer: "either", valueType: "string" },
   { key: "zoning.district", label: "Zoning district", group: "rules", layer: "official", valueType: "string" },
   { key: "flood.zone", label: "FEMA flood zone", group: "rules", layer: "official", valueType: "string" },
   { key: "wetlands", label: "Wetlands", group: "rules", layer: "official", valueType: "string" },
@@ -62,15 +68,26 @@ export const FIELD_VOCAB: FieldDef[] = [
   { key: "roof.type", label: "Roof", group: "owner", layer: "owner", valueType: "string" },
   { key: "roof.year", label: "Roof year", group: "owner", layer: "owner", valueType: "number" },
   { key: "heating", label: "Heating", group: "owner", layer: "owner", valueType: "string" },
+  { key: "heating.year", label: "Heating system year", group: "owner", layer: "owner", valueType: "number" },
   { key: "cooling", label: "Cooling", group: "owner", layer: "owner", valueType: "string" },
   { key: "water_heater", label: "Water heater", group: "owner", layer: "owner", valueType: "string" },
+  { key: "water_heater.year", label: "Water heater year", group: "owner", layer: "owner", valueType: "number" },
   { key: "electrical", label: "Electrical", group: "owner", layer: "owner", valueType: "string" },
   { key: "septic_or_well", label: "Septic / well", group: "owner", layer: "owner", valueType: "string" },
+  { key: "septic.last_service", label: "Septic last serviced", group: "owner", layer: "owner", valueType: "date" },
+  { key: "windows", label: "Windows", group: "owner", layer: "owner", valueType: "string" },
+  { key: "insulation", label: "Insulation", group: "owner", layer: "owner", valueType: "string" },
+  { key: "solar", label: "Solar / battery", group: "owner", layer: "owner", valueType: "string" },
   { key: "renovations", label: "Renovations", group: "owner", layer: "owner", valueType: "string" },
   { key: "additions", label: "Additions", group: "owner", layer: "owner", valueType: "string" },
   { key: "structures", label: "Other structures", group: "owner", layer: "owner", valueType: "string" },
   { key: "maintenance", label: "Maintenance notes", group: "owner", layer: "owner", valueType: "string" },
 ];
+
+/** Vocabulary entries a verified owner is allowed to write. */
+export function ownerWritable(field: FieldDef | undefined): field is FieldDef {
+  return Boolean(field && (field.layer === "owner" || field.layer === "either"));
+}
 
 export const FIELD_BY_KEY = new Map(FIELD_VOCAB.map((field) => [field.key, field]));
 
