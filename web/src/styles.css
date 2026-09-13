@@ -59,7 +59,7 @@ img, svg { max-width: 100%; }
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 10px max(var(--pad), env(safe-area-inset-right)) 10px max(var(--pad), env(safe-area-inset-left));
+  padding: 10px max(var(--pad), env(safe-area-inset-right)) 16px max(var(--pad), env(safe-area-inset-left));
 }
 .brand {
   text-decoration: none;
@@ -1366,7 +1366,7 @@ table small { display: block; }
   .topbar-main { gap: 10px; padding: 10px var(--pad); }
   .brand { min-width: 0; }
   .header-search.narrow-only {
-    padding: 0 max(var(--pad), env(safe-area-inset-right)) 10px max(var(--pad), env(safe-area-inset-left));
+    padding: 0 max(var(--pad), env(safe-area-inset-right)) 16px max(var(--pad), env(safe-area-inset-left));
   }
   .top-links { gap: 14px; }
 
