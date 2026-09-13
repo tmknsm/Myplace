@@ -271,8 +271,62 @@ export function PropertyPageView() {
 
   const sectionProps = { owner, propertyId: id, onChange: load, toast: showToast };
 
+  const hero = (
+    <figure className={`profile-hero ${cover ? "has-photo" : "is-map"}`} data-testid="profile-hero">
+      {cover ? (
+        <button type="button" className="hero-image" onClick={() => setLightbox(photos.indexOf(cover))} aria-label="Open cover photo">
+          <img src={fileUrl(cover)} alt={cover.caption ?? title} />
+        </button>
+      ) : (
+        <ParcelMap
+          embedded
+          selectedId={property.property_id}
+          selectedGeometry={property.geojson}
+          onSelect={(next) => navigate(`/property/${next}`)}
+          zoom={16}
+        />
+      )}
+      <figcaption className="hero-overlay">
+        <div className="hero-side">
+          {cover?.caption && <span className="hero-caption">{cover.caption}</span>}
+          {cover && owner && cover.visibility !== "public" && (
+            <button type="button" className="hero-pill warn" onClick={async () => {
+              await api.patchDocument(cover.document_id, { visibility: "public" });
+              showToast("Cover photo is now public.");
+              await load();
+            }}>Only you can see this cover · Make public</button>
+          )}
+          {!cover && owner && (
+            <label className="btn file-btn hero-cta" data-testid="cover-input-label">
+              Add a cover photo
+              <input type="file" accept="image/*" data-testid="cover-input" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
+            </label>
+          )}
+          {!cover && !owner && property.geometryQuality && (
+            <span className="hero-pill quiet">{property.geometryQuality === "official" ? "Official lot lines" : property.geometryQuality === "approximate" ? "Approximate lot lines" : "Demonstration sketch"}</span>
+          )}
+        </div>
+        {cover && (
+          <div className="hero-side">
+            <button type="button" className="hero-pill" onClick={() => scrollToId("photos")}>
+              {photos.length} photo{photos.length === 1 ? "" : "s"}
+            </button>
+            {owner && (
+              <label className="hero-pill file-btn">
+                Change cover
+                <input type="file" accept="image/*" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
+              </label>
+            )}
+          </div>
+        )}
+      </figcaption>
+    </figure>
+  );
+
   return (
     <div className="page wide profile" data-testid="property-profile">
+      <div className="profile-hero-band">{hero}</div>
+
       <header className="profile-head">
         <div className="profile-title">
           <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
@@ -321,56 +375,6 @@ export function PropertyPageView() {
           )}
         </div>
       </header>
-
-      <figure className={`profile-hero ${cover ? "has-photo" : "is-map"}`} data-testid="profile-hero">
-        {cover ? (
-          <button type="button" className="hero-image" onClick={() => setLightbox(photos.indexOf(cover))} aria-label="Open cover photo">
-            <img src={fileUrl(cover)} alt={cover.caption ?? title} />
-          </button>
-        ) : (
-          <ParcelMap
-            embedded
-            selectedId={property.property_id}
-            selectedGeometry={property.geojson}
-            onSelect={(next) => navigate(`/property/${next}`)}
-            zoom={16}
-          />
-        )}
-        <figcaption className="hero-overlay">
-          <div className="hero-side">
-            {cover?.caption && <span className="hero-caption">{cover.caption}</span>}
-            {cover && owner && cover.visibility !== "public" && (
-              <button type="button" className="hero-pill warn" onClick={async () => {
-                await api.patchDocument(cover.document_id, { visibility: "public" });
-                showToast("Cover photo is now public.");
-                await load();
-              }}>Only you can see this cover · Make public</button>
-            )}
-            {!cover && owner && (
-              <label className="btn file-btn hero-cta" data-testid="cover-input-label">
-                Add a cover photo
-                <input type="file" accept="image/*" data-testid="cover-input" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
-              </label>
-            )}
-            {!cover && !owner && property.geometryQuality && (
-              <span className="hero-pill quiet">{property.geometryQuality === "official" ? "Official lot lines" : property.geometryQuality === "approximate" ? "Approximate lot lines" : "Demonstration sketch"}</span>
-            )}
-          </div>
-          {cover && (
-            <div className="hero-side">
-              <button type="button" className="hero-pill" onClick={() => scrollToId("photos")}>
-                {photos.length} photo{photos.length === 1 ? "" : "s"}
-              </button>
-              {owner && (
-                <label className="hero-pill file-btn">
-                  Change cover
-                  <input type="file" accept="image/*" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
-                </label>
-              )}
-            </div>
-          )}
-        </figcaption>
-      </figure>
 
       <StatStrip facts={property.facts} />
 

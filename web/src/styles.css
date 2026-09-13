@@ -49,7 +49,7 @@ img, svg { max-width: 100%; }
   position: sticky;
   top: 0;
   z-index: 20;
-  border-bottom: 1px solid var(--hairline);
+  border-bottom: 0;
   background: color-mix(in srgb, var(--canvas) 78%, transparent);
   backdrop-filter: saturate(1.4) blur(20px);
   -webkit-backdrop-filter: saturate(1.4) blur(20px);
@@ -707,7 +707,15 @@ tr:last-child td { border-bottom: 0; }
 }
 
 /* ---- Property profile ---------------------------------------------------- */
-.profile { padding-top: 24px; }
+.profile { padding-top: 0; }
+/* Break out of .page so the hero runs edge to edge directly under the topbar. */
+.profile-hero-band {
+  width: 100vw;
+  margin: 0 calc(50% - 50vw) 22px;
+  background: var(--surface-2);
+  border-radius: 24px 24px 0 0;
+  overflow: hidden;
+}
 .profile-head {
   display: flex;
   align-items: flex-end;
@@ -742,15 +750,13 @@ tr:last-child td { border-bottom: 0; }
 .profile-hero {
   position: relative;
   margin: 0;
-  border-radius: 18px;
   overflow: hidden;
   background: var(--surface-2);
-  box-shadow: var(--shadow);
-  aspect-ratio: 21 / 9;
-  min-height: 280px;
-  max-height: 560px;
+  width: 100%;
+  height: clamp(320px, 56vh, 640px);
+  border-radius: 24px 24px 0 0;
 }
-.profile-hero.is-map { aspect-ratio: auto; height: clamp(320px, 46vh, 520px); }
+.profile-hero.is-map { height: clamp(320px, 50vh, 560px); }
 .hero-image {
   display: block;
   width: 100%;
@@ -768,7 +774,7 @@ tr:last-child td { border-bottom: 0; }
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  padding: 48px 16px 14px;
+  padding: 48px max(var(--pad), calc((100vw - 1120px) / 2 + var(--pad))) 16px;
   margin: 0;
   color: #fff;
   background: linear-gradient(to top, rgba(29, 29, 31, 0.55), rgba(29, 29, 31, 0));
@@ -1391,15 +1397,16 @@ table small { display: block; }
     max-height: 440px;
   }
 
-  .profile { padding-top: 16px; }
+  .profile { padding-top: 0; }
+  .profile-hero-band { margin-bottom: 16px; }
   .profile-head { gap: 14px; margin-bottom: 14px; align-items: flex-start; }
   .profile-head h1 { font-size: clamp(30px, 9vw, 40px); margin: 4px 0 8px; }
   .profile-actions { width: 100%; padding-bottom: 0; }
   .profile-actions .action-row.compact { width: 100%; }
   .profile-actions .btn { flex: 1 1 140px; }
-  .profile-hero { aspect-ratio: 4 / 3; min-height: 220px; max-height: 60dvh; border-radius: 16px; }
-  .profile-hero.is-map { height: 42dvh; min-height: 260px; max-height: 380px; }
-  .hero-overlay { padding: 40px 12px 12px; flex-wrap: wrap; }
+  .profile-hero { height: clamp(240px, 42dvh, 420px); }
+  .profile-hero.is-map { height: clamp(240px, 40dvh, 380px); }
+  .hero-overlay { padding: 40px var(--pad) 12px; flex-wrap: wrap; }
   .hero-side:last-child { margin-left: auto; }
   .stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stat { padding: 12px 14px; border-bottom: 1px solid var(--hairline); }
