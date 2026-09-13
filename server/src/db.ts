@@ -10,7 +10,12 @@ export function getSql(url = config.databaseUrl): Sql {
   const scoped = currentRuntime()?.sql;
   if (scoped) return scoped;
   if (shared) return shared;
-  shared = postgres(url, { max: 10 });
+  shared = postgres(url, {
+    max: 10,
+    idle_timeout: 20,
+    connect_timeout: 10,
+    max_lifetime: 60 * 15,
+  });
   return shared;
 }
 
