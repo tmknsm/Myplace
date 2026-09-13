@@ -3,6 +3,7 @@ import {
   NONE_FLOOD,
   NONE_HISTORIC,
   NONE_WETLANDS,
+  attr,
   floodZoneRank,
   formatFloodZone,
   formatHistoric,
@@ -40,6 +41,11 @@ test("historic labels distinguish districts from individual listings", () => {
     { name: "Warren Street Historic District", typeId: 3 },
     { name: "A house on Warren", typeId: 1 },
   ])).toBe("Historic district: Warren Street Historic District");
+});
+
+test("attr reads ArcGIS join-qualified field names", () => {
+  expect(attr({ "Wetlands.WETLAND_TYPE": "Freshwater Pond" }, "WETLAND_TYPE")).toBe("Freshwater Pond");
+  expect(attr({ FLD_ZONE: "AE" }, "FLD_ZONE")).toBe("AE");
 });
 
 test("zoning only formats official Catskill hits and prefers the village", () => {

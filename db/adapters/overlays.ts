@@ -128,6 +128,17 @@ interface GeoJsonPage {
   features?: GeoJsonFeature[];
   exceededTransferLimit?: boolean;
   properties?: { exceededTransferLimit?: boolean };
+  error?: { message?: string; code?: number };
+}
+
+interface EsriFeature {
+  attributes?: Record<string, unknown>;
+  geometry?: { rings?: number[][][]; x?: number; y?: number };
+}
+
+interface EsriPage {
+  features?: EsriFeature[];
+  error?: { message?: string; code?: number };
 }
 
 export interface FloodHit {
@@ -227,6 +238,18 @@ interface IdPage {
   objectIds?: number[];
 }
 
+/** Read a field from GeoJSON or qualified ArcGIS join aliases (`Wetlands.WETLAND_TYPE`). */
+export function attr(props: Record<string, unknown>, ...names: string[]): unknown {
+  for (const name of names) {
+    if (props[name] != null && props[name] !== "") return props[name];
+    const suffix = name.includes(".") ? name.split(".").pop()! : name;
+    for (const [key, value] of Object.entries(props)) {
+      if ((key === suffix || key.endsWith(`.${suffix}`)) && value != null && value !== "") return value;
+    }
+  }
+  return undefined;
+}
+
 function bboxTiles(bbox: string, step = 0.25): string[] {
   const [west, south, east, north] = bbox.split(",").map(Number);
   const tiles: string[] = [];
@@ -275,18 +298,30 @@ async function fetchArcGisFeatures(
   console.log(`    ${idList.length} object ids`);
   const features: GeoJsonFeature[] = [];
   const fetchBatch = async (ids: number[]): Promise<GeoJsonFeature[]> => {
-    const params = new URLSearchParams({
-      f: "geojson",
+    const shared = {
       objectIds: ids.join(","),
       outFields,
       returnGeometry: "true",
       outSR: "4326",
       geometryPrecision: "5",
       maxAllowableOffset: "0.00015",
-    });
+    };
     try {
-      const page = await fetchJson<GeoJsonPage>(`${endpoint}?${params}`, undefined, 2, 120_000);
-      return (page.features ?? []).filter((feature) => feature.geometry);
+      const geo = await fetchJson<GeoJsonPage>(`${endpoint}?${new URLSearchParams({ f: "geojson", ...shared })}`, undefined, 2, 120_000);
+      if (geo.error) throw new Error(geo.error.message ?? `ArcGIS error ${geo.error.code}`);
+      const fromGeo = (geo.features ?? []).filter((feature) => feature.geometry);
+      if (fromGeo.length) return fromGeo;
+      const esri = await fetchJson<EsriPage>(`${endpoint}?${new URLSearchParams({ f: "json", ...shared })}`, undefined, 2, 120_000);
+      if (esri.error) throw new Error(esri.error.message ?? `ArcGIS error ${esri.error.code}`);
+      return (esri.features ?? []).flatMap((feature) => {
+        const rings = feature.geometry?.rings;
+        if (!rings?.length) return [];
+        return [{
+          type: "Feature" as const,
+          properties: feature.attributes ?? {},
+          geometry: { type: "Polygon", coordinates: rings },
+        }];
+      });
     } catch (error) {
       if (ids.length === 1) {
         console.warn(`    skipped object ${ids[0]}: ${error instanceof Error ? error.message : error}`);
@@ -308,9 +343,11 @@ async function loadOverlayTable(
   table: string,
   rows: Array<{ label: string; extra: Record<string, unknown>; geojson: string }>,
 ): Promise<number> {
+  // UNLOGGED (not TEMP): the importer uses a connection pool, so a temp table
+  // created on one client is invisible to the next query.
   await sql.unsafe(`DROP TABLE IF EXISTS ${table}`);
   await sql.unsafe(`
-    CREATE TEMP TABLE ${table} (
+    CREATE UNLOGGED TABLE ${table} (
       label text NOT NULL,
       extra jsonb NOT NULL DEFAULT '{}'::jsonb,
       geom geometry(Geometry, 4326) NOT NULL
@@ -343,6 +380,10 @@ async function loadOverlayTable(
   }
   await sql.unsafe(`CREATE INDEX ${table}_gix ON ${table} USING GIST (geom)`);
   return stored;
+}
+
+async function dropOverlayTable(sql: Sql, table: string): Promise<void> {
+  await sql.unsafe(`DROP TABLE IF EXISTS ${table}`);
 }
 
 interface JoinHit {
@@ -427,11 +468,11 @@ export async function importFlood(sql: Sql): Promise<OverlayStats> {
     sql,
     "overlay_flood",
     featureRows(features, (props) => {
-      const zone = clean(props.FLD_ZONE);
+      const zone = clean(attr(props, "FLD_ZONE"));
       if (!zone) return null;
       return {
         label: zone,
-        extra: { subtype: clean(props.ZONE_SUBTY), sfha: clean(props.SFHA_TF) },
+        extra: { subtype: clean(attr(props, "ZONE_SUBTY")), sfha: clean(attr(props, "SFHA_TF")) },
       };
     }),
   );
@@ -449,6 +490,7 @@ export async function importFlood(sql: Sql): Promise<OverlayStats> {
     rows.push(fact(row.property_id, "flood.zone", value, SRC_FEMA, OVERLAY_AS_OF, hits.length ? 0.92 : 0.88));
   }
   await replaceSourceFacts(sql, SRC_FEMA, rows);
+  await dropOverlayTable(sql, "overlay_flood");
   await recordSnapshot(sql, "snp_fema_nfhl", SRC_FEMA, `${stored} flood polygons → ${rows.length} parcel facts`);
   return {
     layer: "flood",
@@ -461,15 +503,25 @@ export async function importFlood(sql: Sql): Promise<OverlayStats> {
 
 export async function importWetlands(sql: Sql): Promise<OverlayStats> {
   console.log("Overlays: USFWS National Wetlands Inventory…");
-  const features = await fetchArcGisFeatures(NWI_URL, "WETLAND_TYPE", 100);
+  const features = await fetchArcGisFeatures(NWI_URL, "Wetlands.WETLAND_TYPE", 80);
   const stored = await loadOverlayTable(
     sql,
     "overlay_wetlands",
     featureRows(features, (props) => {
-      const type = clean(props.WETLAND_TYPE) ?? "Wetland";
+      const type = clean(attr(props, "Wetlands.WETLAND_TYPE", "WETLAND_TYPE")) ?? "Wetland";
       return { label: type, extra: {} };
     }),
   );
+  if (stored === 0) {
+    await dropOverlayTable(sql, "overlay_wetlands");
+    return {
+      layer: "wetlands",
+      features: 0,
+      assertions: 0,
+      positive: 0,
+      notes: ["NWI returned no usable polygons; left wetlands unchanged rather than writing false negatives"],
+    };
+  }
   const joined = await intersectProperties(sql, "overlay_wetlands");
   const rows: Asrt[] = [];
   let positive = 0;
@@ -480,6 +532,7 @@ export async function importWetlands(sql: Sql): Promise<OverlayStats> {
     rows.push(fact(row.property_id, "wetlands", value, SRC_NWI, OVERLAY_AS_OF, types.length ? 0.9 : 0.86));
   }
   await replaceSourceFacts(sql, SRC_NWI, rows);
+  await dropOverlayTable(sql, "overlay_wetlands");
   await recordSnapshot(sql, "snp_nwi_wetlands", SRC_NWI, `${stored} wetland polygons → ${rows.length} parcel facts`);
   return {
     layer: "wetlands",
@@ -497,11 +550,11 @@ export async function importHistoric(sql: Sql): Promise<OverlayStats> {
     sql,
     "overlay_historic",
     featureRows(features, (props) => {
-      const county = clean(props.CountyName)?.toLowerCase();
+      const county = clean(attr(props, "CountyName"))?.toLowerCase();
       if (county && county !== "columbia" && county !== "greene") return null;
-      const name = clean(props.HistoricName);
+      const name = clean(attr(props, "HistoricName"));
       if (!name) return null;
-      const typeId = Number(props.NominationTypeId);
+      const typeId = Number(attr(props, "NominationTypeId"));
       return {
         label: name,
         extra: { typeId: Number.isFinite(typeId) ? typeId : null },
@@ -521,6 +574,7 @@ export async function importHistoric(sql: Sql): Promise<OverlayStats> {
     rows.push(fact(row.property_id, "historic.district", value, SRC_SHPO, OVERLAY_AS_OF, hits.length ? 0.9 : 0.86));
   }
   await replaceSourceFacts(sql, SRC_SHPO, rows);
+  await dropOverlayTable(sql, "overlay_historic");
   await recordSnapshot(sql, "snp_nys_shpo_nr", SRC_SHPO, `${stored} register polygons → ${rows.length} parcel facts`);
   return {
     layer: "historic",
@@ -538,12 +592,12 @@ export async function importZoning(sql: Sql): Promise<OverlayStats> {
     fetchArcGisFeatures(CATSKILL_VILLAGE_URL, "ZONING_DIS"),
   ]);
   const townRows = featureRows(townFeatures, (props) => {
-    const code = clean(props.Zone);
+    const code = clean(attr(props, "Zone"));
     if (!code) return null;
     return { label: code, extra: { place: "Town of Catskill, 2013 official zoning", priority: 1 } };
   });
   const villageRows = featureRows(villageFeatures, (props) => {
-    const code = clean(props.ZONING_DIS);
+    const code = clean(attr(props, "ZONING_DIS"));
     if (!code) return null;
     return { label: code, extra: { place: "Village of Catskill zoning", priority: 2 } };
   });
@@ -588,6 +642,8 @@ export async function importZoning(sql: Sql): Promise<OverlayStats> {
   }
   await replaceSourceFacts(sql, SRC_CATSKILL_TOWN, rows.filter((row) => row.source_id === SRC_CATSKILL_TOWN));
   await replaceSourceFacts(sql, SRC_CATSKILL_VILLAGE, rows.filter((row) => row.source_id === SRC_CATSKILL_VILLAGE));
+  await dropOverlayTable(sql, "overlay_zoning_town");
+  await dropOverlayTable(sql, "overlay_zoning_village");
   await recordSnapshot(
     sql,
     "snp_catskill_town_zoning",
