@@ -260,7 +260,17 @@ export function attr(props: Record<string, unknown>, ...names: string[]): unknow
 }
 
 function bboxTiles(bbox: string, step = 0.25): string[] {
-  const [west, south, east, north] = bbox.split(",").map(Number);
+  const parts = bbox.split(",").map(Number);
+  const west = parts[0];
+  const south = parts[1];
+  const east = parts[2];
+  const north = parts[3];
+  if (
+    west === undefined || south === undefined || east === undefined || north === undefined
+    || [west, south, east, north].some((n) => Number.isNaN(n))
+  ) {
+    return [bbox];
+  }
   const tiles: string[] = [];
   for (let x = west; x < east - 1e-9; x += step) {
     for (let y = south; y < north - 1e-9; y += step) {
