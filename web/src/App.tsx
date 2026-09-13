@@ -19,7 +19,9 @@ function Layout({ children }: { children: React.ReactNode }) {
     const node = topbarRef.current;
     if (!node) return;
     const sync = () => {
-      document.documentElement.style.setProperty("--topbar-height", `${Math.floor(node.getBoundingClientRect().height)}px`);
+      // Keep the fraction: rounding either way opens a hairline gap or tucks
+      // whatever docks beneath the header under its edge.
+      document.documentElement.style.setProperty("--topbar-height", `${node.getBoundingClientRect().height}px`);
     };
     sync();
     const observer = new ResizeObserver(sync);
@@ -32,6 +34,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   }, [headerSearch, user, meta?.debug]);
   return (
     <>
+      <div className="chrome-glass" aria-hidden="true" />
       <header className="topbar" ref={topbarRef}>
         <div className="topbar-main">
           <Link to="/" className="brand">

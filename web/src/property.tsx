@@ -616,7 +616,7 @@ function StatStrip({ facts }: { facts: Fact[] }) {
 
 function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) {
   const [active, setActive] = useState<string | null>(items[0]?.id ?? null);
-  const navRef = useRef<HTMLElement | null>(null);
+  const navRef = useRef<HTMLDivElement | null>(null);
   const ids = items.map((item) => item.id).join("|");
   useEffect(() => {
     const node = navRef.current;
@@ -632,6 +632,27 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
       document.documentElement.style.removeProperty("--profile-nav-height");
     };
   }, [ids]);
+  useEffect(() => {
+    const node = navRef.current;
+    if (!node) return;
+    const root = document.documentElement;
+    const check = () => {
+      // A stuck sticky element sits exactly at its `top`; inline it is further down.
+      const stickyTop = Number.parseFloat(getComputedStyle(node).top) || 0;
+      root.classList.toggle("nav-docked", node.getBoundingClientRect().top <= stickyTop + 0.5);
+    };
+    check();
+    // --topbar-height is written by the layout's effect, which runs after this one.
+    const frame = requestAnimationFrame(check);
+    window.addEventListener("scroll", check, { passive: true });
+    window.addEventListener("resize", check);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", check);
+      window.removeEventListener("resize", check);
+      root.classList.remove("nav-docked");
+    };
+  }, []);
   useEffect(() => {
     const nodes = ids.split("|").map((id) => document.getElementById(id)).filter((node): node is HTMLElement => Boolean(node));
     if (!nodes.length) return;
@@ -651,18 +672,20 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
     return () => observer.disconnect();
   }, [ids]);
   return (
-    <nav ref={navRef} className="side-nav profile-nav" aria-label="On this page">
-      {items.map((item) => (
-        <a
-          key={item.id}
-          href={`#${item.id}`}
-          className={active === item.id ? "on" : ""}
-          onClick={(event) => { event.preventDefault(); scrollToId(item.id); }}
-        >
-          {item.label}
-        </a>
-      ))}
-    </nav>
+    <div ref={navRef} className="profile-nav-wrap">
+      <nav className="side-nav profile-nav" aria-label="On this page">
+        {items.map((item) => (
+          <a
+            key={item.id}
+            href={`#${item.id}`}
+            className={active === item.id ? "on" : ""}
+            onClick={(event) => { event.preventDefault(); scrollToId(item.id); }}
+          >
+            {item.label}
+          </a>
+        ))}
+      </nav>
+    </div>
   );
 }
 

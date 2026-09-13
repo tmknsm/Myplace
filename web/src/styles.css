@@ -20,6 +20,9 @@
   --tap: 44px;
   --topbar-pad-bottom: 24px;
   --profile-nav-pad-y: 16px;
+  /* Frosted chrome shared by the top nav and anything that docks under it. */
+  --chrome-fill: color-mix(in srgb, var(--canvas) 78%, transparent);
+  --chrome-blur: saturate(1.4) blur(20px);
 }
 
 * { box-sizing: border-box; }
@@ -47,14 +50,36 @@ img, svg { max-width: 100%; }
 .narrow-only { display: none; }
 .action-row.narrow-only { display: none; }
 
+/*
+ * The header's frosted glass is a separate sheet stacked beneath it (and beneath
+ * anything that docks under the header) so it can grow to cover both as one
+ * continuous blur. A single surface is the only way to avoid a visible seam:
+ * two abutting backdrop-filters each blur only their own bounds, so content
+ * crossing the boundary reads as a hard edge even with identical fills.
+ */
+.chrome-glass {
+  position: sticky;
+  top: 0;
+  height: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+.chrome-glass::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--topbar-height, 0px);
+  background: var(--chrome-fill);
+  backdrop-filter: var(--chrome-blur);
+  -webkit-backdrop-filter: var(--chrome-blur);
+}
 .topbar {
   position: sticky;
   top: 0;
   z-index: 20;
   border-bottom: 0;
-  background: color-mix(in srgb, var(--canvas) 78%, transparent);
-  backdrop-filter: saturate(1.4) blur(20px);
-  -webkit-backdrop-filter: saturate(1.4) blur(20px);
   padding-top: env(safe-area-inset-top);
 }
 .topbar-main {
@@ -855,7 +880,8 @@ tr:last-child td { border-bottom: 0; }
   align-items: start;
   margin-top: 32px;
 }
-.profile-nav { top: var(--topbar-height, 84px); }
+.profile-nav-wrap { position: sticky; top: var(--topbar-height, 84px); min-width: 0; }
+.profile-nav { position: static; top: auto; }
 .profile-nav a { font-size: 14px; }
 .profile-main { min-width: 0; }
 .profile-main > .section:first-child,
@@ -1418,18 +1444,44 @@ table small { display: block; }
   .stat strong { font-size: 17px; }
   /* 22px original grid gap + the 16px that used to be nav padding-top. */
   .profile-grid { grid-template-columns: 1fr; gap: 12px; margin-top: 38px; min-width: 0; }
-  .profile-grid .profile-nav {
-    flex-direction: row;
-    overflow-x: auto;
+  .profile-grid .profile-nav-wrap {
     position: sticky;
     top: var(--topbar-height, calc(52px + env(safe-area-inset-top)));
     z-index: 15;
-    gap: 6px;
     margin: 0 calc(-1 * var(--pad));
+    min-width: 0;
+  }
+  /*
+   * Docked: the header's glass sheet grows to cover the tabs, so header and tab
+   * bar share one uninterrupted blur. The class flips while only canvas sits
+   * behind the bar (38px of margin above it, 12px below), so the swap itself
+   * changes no pixels. Nothing about the tabs' geometry changes.
+   */
+  html.nav-docked .chrome-glass::before {
+    height: calc(var(--topbar-height, 0px) + var(--profile-nav-height, 0px));
+  }
+  /* Until the dock class lands (at most a frame late), the bar frosts itself. */
+  .profile-grid .profile-nav-wrap::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--chrome-fill);
+    backdrop-filter: var(--chrome-blur);
+    -webkit-backdrop-filter: var(--chrome-blur);
+    pointer-events: none;
+  }
+  html.nav-docked .profile-grid .profile-nav-wrap::before { display: none; }
+  .profile-grid .profile-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    position: static;
+    top: auto;
+    gap: 6px;
+    margin: 0;
     padding: 0 var(--pad) var(--profile-nav-pad-y);
     min-width: 0;
-    /* Opaque canvas: invisible while inline, solid once stuck. No scroll-toggled styles. */
-    background: var(--canvas);
+    background: none;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }
