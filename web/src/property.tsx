@@ -151,9 +151,9 @@ export function PropertyPageView() {
   };
 
   return (
-    <div className="page wide">
+    <div className="page wide property-page">
       <div className={`property-layout ${owner ? "is-owner" : ""}`}>
-        <div className="property-head">
+        <div className="property-head group">
           <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
           <h1>{title}</h1>
           <p className="meta-line mono">{[locality, property.sbl].filter(Boolean).join(" · ")}</p>

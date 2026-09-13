@@ -1066,6 +1066,82 @@ table small { display: block; }
 .sheet-links a:hover { text-decoration: underline; }
 .sheet code { background: var(--surface); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
 
+/* ---- Property page: card system --------------------------------------- */
+/* Cards: 32px corners, 24px inner padding. Framed elements (photos, pills,
+   fields, buttons): 8px corners. Page margins and card-to-card gaps: 4px. */
+.page.property-page {
+  --radius: 32px;
+  --radius-sm: 8px;
+  --frame-radius: 8px;
+  --card-pad: 24px;
+  --gutter: 4px;
+  padding: var(--gutter) max(var(--gutter), env(safe-area-inset-right)) max(var(--gutter), env(safe-area-inset-bottom)) max(var(--gutter), env(safe-area-inset-left));
+}
+.property-page .property-layout { gap: var(--gutter); }
+.property-page .property-head { padding: var(--card-pad); }
+.property-page .map-panel { border-radius: var(--radius); }
+.property-page .map-legend { border-radius: var(--frame-radius); }
+.property-page .notice { padding: var(--card-pad); }
+.property-page .banner { padding: var(--card-pad); margin-bottom: var(--gutter); }
+.property-page .toast { margin-bottom: var(--gutter); }
+
+/* Section labels line up with card content. */
+.property-page .section > h2,
+.property-page .section-note,
+.property-page .subhead {
+  margin-left: var(--card-pad);
+  margin-right: var(--card-pad);
+}
+.property-page .section-head { margin: 0 var(--card-pad) 8px; }
+
+.property-page .group { padding: var(--card-pad); }
+.property-page .group + .group { margin-top: var(--gutter); }
+.property-page .form-card { margin-bottom: var(--gutter); }
+.property-page .improvement-list { gap: var(--gutter); }
+
+/* Rows keep full-bleed dividers and hover inside the padded card. */
+.property-page .group > .fact,
+.property-page .group > .row {
+  margin: 0 calc(-1 * var(--card-pad));
+  padding-left: var(--card-pad);
+  padding-right: var(--card-pad);
+}
+.property-page .group > .fact:first-child,
+.property-page .group > .row:first-child { padding-top: 0; }
+.property-page .group > .fact:last-child,
+.property-page .group > .row:last-child { padding-bottom: 0; }
+
+.property-page .coverage { padding: 12px var(--card-pad); }
+.property-page .coverage div { padding: 12px 16px; border-bottom: 0; }
+.property-page .coverage div:nth-child(odd) { padding-left: 0; }
+.property-page .coverage div:nth-child(even) { padding-right: 0; }
+.property-page .coverage div:nth-child(n + 3) { border-top: 1px solid var(--hairline); }
+
+.property-page .timeline { padding: 0 0 0 4px; }
+.property-page .timeline li:first-child { padding-top: 0; }
+.property-page .timeline li:first-child::before { top: 6px; }
+.property-page .timeline li:last-child { padding-bottom: 0; }
+
+.property-page .table-scroll { padding: 12px var(--card-pad); }
+.property-page th:first-child,
+.property-page td:first-child { padding-left: 0; }
+.property-page th:last-child,
+.property-page td:last-child { padding-right: 0; }
+
+/* Framed elements */
+.property-page .photo-grid { gap: var(--gutter); }
+.property-page .photo-strip { gap: var(--gutter); }
+.property-page .photo-card,
+.property-page .photo-thumb,
+.property-page .owner-chip,
+.property-page .chip,
+.property-page .badge,
+.property-page .segmented,
+.property-page .segmented button,
+.property-page .field,
+.property-page .mini-select,
+.property-page .add-value { border-radius: var(--frame-radius); }
+
 @media (max-width: 880px) {
   :root { --pad: 16px; }
 
@@ -1129,6 +1205,8 @@ table small { display: block; }
   .fact { grid-template-columns: 1fr; gap: 3px; padding: 14px 16px; }
   .coverage { grid-template-columns: 1fr; }
   .coverage div { border-right: 0; }
+  .property-page .coverage div { padding-left: 0; padding-right: 0; }
+  .property-page .coverage div:nth-child(n + 2) { border-top: 1px solid var(--hairline); }
   .method-grid, .card-grid { grid-template-columns: 1fr; }
   .wizard .action-row .btn { flex: 1 1 140px; }
   .manage-grid { grid-template-columns: 1fr; gap: 16px; }
