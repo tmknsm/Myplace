@@ -227,42 +227,78 @@ interface IdPage {
   objectIds?: number[];
 }
 
-async function fetchArcGisFeatures(
-  layerUrl: string,
-  outFields: string,
-  pageSize = 250,
-): Promise<GeoJsonFeature[]> {
-  const endpoint = `${layerUrl.replace(/\/$/, "")}/query`;
-  const idParams = new URLSearchParams({
+function bboxTiles(bbox: string, step = 0.25): string[] {
+  const [west, south, east, north] = bbox.split(",").map(Number);
+  const tiles: string[] = [];
+  for (let x = west; x < east - 1e-9; x += step) {
+    for (let y = south; y < north - 1e-9; y += step) {
+      tiles.push([x, y, Math.min(x + step, east), Math.min(y + step, north)].join(","));
+    }
+  }
+  return tiles.length ? tiles : [bbox];
+}
+
+async function fetchObjectIds(endpoint: string, bbox: string): Promise<number[]> {
+  const params = new URLSearchParams({
     f: "json",
     where: "1=1",
-    geometry: OVERLAY_BBOX,
+    geometry: bbox,
     geometryType: "esriGeometryEnvelope",
     inSR: "4326",
     spatialRel: "esriSpatialRelIntersects",
     returnIdsOnly: "true",
   });
-  const idPage = await fetchJson<IdPage>(`${endpoint}?${idParams}`);
-  const objectIds = idPage.objectIds ?? [];
-  if (objectIds.length === 0) {
+  const page = await fetchJson<IdPage>(`${endpoint}?${params}`, undefined, 3, 90_000);
+  return page.objectIds ?? [];
+}
+
+async function fetchArcGisFeatures(
+  layerUrl: string,
+  outFields: string,
+  pageSize = 80,
+): Promise<GeoJsonFeature[]> {
+  const endpoint = `${layerUrl.replace(/\/$/, "")}/query`;
+  const objectIds = new Set<number>();
+  for (const tile of bboxTiles(OVERLAY_BBOX)) {
+    try {
+      const ids = await fetchObjectIds(endpoint, tile);
+      for (const objectId of ids) objectIds.add(objectId);
+    } catch (error) {
+      console.warn(`    id query failed for ${tile}: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+  const idList = [...objectIds];
+  if (idList.length === 0) {
     console.log("    0 features");
     return [];
   }
-  console.log(`    ${objectIds.length} object ids`);
+  console.log(`    ${idList.length} object ids`);
   const features: GeoJsonFeature[] = [];
-  for (let i = 0; i < objectIds.length; i += pageSize) {
-    const batch = objectIds.slice(i, i + pageSize);
+  const fetchBatch = async (ids: number[]): Promise<GeoJsonFeature[]> => {
     const params = new URLSearchParams({
       f: "geojson",
-      objectIds: batch.join(","),
+      objectIds: ids.join(","),
       outFields,
       returnGeometry: "true",
       outSR: "4326",
       geometryPrecision: "5",
+      maxAllowableOffset: "0.00015",
     });
-    const page = await fetchJson<GeoJsonPage>(`${endpoint}?${params}`);
-    features.push(...(page.features ?? []).filter((feature) => feature.geometry));
-    console.log(`    ${features.length}/${objectIds.length} features`);
+    try {
+      const page = await fetchJson<GeoJsonPage>(`${endpoint}?${params}`, undefined, 2, 120_000);
+      return (page.features ?? []).filter((feature) => feature.geometry);
+    } catch (error) {
+      if (ids.length === 1) {
+        console.warn(`    skipped object ${ids[0]}: ${error instanceof Error ? error.message : error}`);
+        return [];
+      }
+      const mid = Math.ceil(ids.length / 2);
+      return [...await fetchBatch(ids.slice(0, mid)), ...await fetchBatch(ids.slice(mid))];
+    }
+  };
+  for (let i = 0; i < idList.length; i += pageSize) {
+    features.push(...await fetchBatch(idList.slice(i, i + pageSize)));
+    console.log(`    ${features.length}/${idList.length} features`);
   }
   return features;
 }
@@ -386,7 +422,7 @@ function featureRows(
 
 export async function importFlood(sql: Sql): Promise<OverlayStats> {
   console.log("Overlays: FEMA NFHL flood hazard zones…");
-  const features = await fetchArcGisFeatures(FEMA_URL, "FLD_ZONE,ZONE_SUBTY,SFHA_TF");
+  const features = await fetchArcGisFeatures(FEMA_URL, "FLD_ZONE,ZONE_SUBTY,SFHA_TF", 40);
   const stored = await loadOverlayTable(
     sql,
     "overlay_flood",
@@ -425,7 +461,7 @@ export async function importFlood(sql: Sql): Promise<OverlayStats> {
 
 export async function importWetlands(sql: Sql): Promise<OverlayStats> {
   console.log("Overlays: USFWS National Wetlands Inventory…");
-  const features = await fetchArcGisFeatures(NWI_URL, "WETLAND_TYPE");
+  const features = await fetchArcGisFeatures(NWI_URL, "WETLAND_TYPE", 100);
   const stored = await loadOverlayTable(
     sql,
     "overlay_wetlands",
