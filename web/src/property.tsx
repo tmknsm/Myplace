@@ -614,6 +614,8 @@ function StatStrip({ facts }: { facts: Fact[] }) {
   );
 }
 
+const SCROLL_DRIVEN = typeof CSS !== "undefined" && CSS.supports("animation-timeline: view()");
+
 function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) {
   const [active, setActive] = useState<string | null>(items[0]?.id ?? null);
   const navRef = useRef<HTMLDivElement | null>(null);
@@ -635,32 +637,27 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
   useEffect(() => {
     const node = navRef.current;
     if (!node) return;
+    // With scroll-driven animations the docking hand-off is pure CSS, driven by
+    // the compositor. Nothing here needs to run per frame.
+    if (SCROLL_DRIVEN) return;
     const root = document.documentElement;
+    let stickyTop = 0;
+    const measure = () => { stickyTop = Number.parseFloat(getComputedStyle(node).top) || 0; };
     const check = () => {
-      const styles = getComputedStyle(root);
-      const header = Number.parseFloat(styles.getPropertyValue("--topbar-height")) || 0;
-      const brandRow = Number.parseFloat(styles.getPropertyValue("--topbar-main-height")) || header;
-      // On narrow screens the tabs stick under the brand row, so on the way there
-      // they travel through the header's search row. How far they have come is the
-      // distance the search row slides up out of the way.
-      const searchRow = Math.max(0, header - brandRow);
-      const reach = header - node.getBoundingClientRect().top;
-      const penetration = Math.min(searchRow, Math.max(0, reach));
-      root.classList.toggle("nav-docked", reach >= -0.5);
-      root.classList.toggle("search-tucked", reach >= -0.5 && penetration >= searchRow - 0.5);
-      root.style.setProperty("--nav-penetration", `${penetration}px`);
+      // A stuck sticky element sits exactly at its `top`; inline it is further down.
+      root.classList.toggle("nav-docked", node.getBoundingClientRect().top <= stickyTop + 0.5);
     };
-    check();
+    const remeasure = () => { measure(); check(); };
+    remeasure();
     // --topbar-height is written by the layout's effect, which runs after this one.
-    const frame = requestAnimationFrame(check);
+    const frame = requestAnimationFrame(remeasure);
     window.addEventListener("scroll", check, { passive: true });
-    window.addEventListener("resize", check);
+    window.addEventListener("resize", remeasure);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", check);
-      window.removeEventListener("resize", check);
-      root.classList.remove("nav-docked", "search-tucked");
-      root.style.removeProperty("--nav-penetration");
+      window.removeEventListener("resize", remeasure);
+      root.classList.remove("nav-docked");
     };
   }, []);
   useEffect(() => {
@@ -668,8 +665,10 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
     if (!nodes.length) return;
     const visible = new Map<string, number>();
     const styles = getComputedStyle(document.documentElement);
-    // Once docked the chrome ends at brand row + tabs; the search row has slid away.
-    const topbar = Number.parseFloat(styles.getPropertyValue("--topbar-main-height")) || Number.parseFloat(styles.getPropertyValue("--topbar-height")) || 84;
+    // With the hand-off, the docked chrome ends at brand row + tabs (the search
+    // row has slid away); without it, the tabs sit under the whole header.
+    const header = Number.parseFloat(styles.getPropertyValue("--topbar-height")) || 84;
+    const topbar = (SCROLL_DRIVEN && Number.parseFloat(styles.getPropertyValue("--topbar-main-height"))) || header;
     const nav = Number.parseFloat(styles.getPropertyValue("--profile-nav-height")) || 68;
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {

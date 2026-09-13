@@ -22,6 +22,8 @@
   --profile-nav-pad-y: 16px;
   /* Docked tabs sit 10px (brand row padding) + this below the brand links: 16px, matching the bottom. */
   --profile-nav-pad-top: 6px;
+  /* Height of the header's narrow-screen search row (0 where the search lives in the brand row). */
+  --search-row-height: calc(var(--topbar-height, 0px) - var(--topbar-main-height, var(--topbar-height, 0px)));
   /* Frosted chrome shared by the top nav and anything that docks under it. */
   --chrome-fill: color-mix(in srgb, var(--canvas) 78%, transparent);
   --chrome-blur: saturate(1.4) blur(20px);
@@ -35,6 +37,8 @@ html {
 html, body, #root { min-height: 100%; }
 body {
   margin: 0;
+  /* Lets the header chrome animate against the profile grid's view timeline. */
+  timeline-scope: --profile-grid;
   background: var(--canvas);
   color: var(--ink);
   font-family: var(--font);
@@ -881,6 +885,11 @@ tr:last-child td { border-bottom: 0; }
   gap: 36px;
   align-items: start;
   margin-top: 32px;
+  /* Its top edge is where the tabs sit inline. Insetting both scrollport edges
+     to the header's bottom makes `cover 0` the moment the tabs touch the header,
+     and each px of `cover` thereafter one px of the tabs' travel upward. */
+  view-timeline: --profile-grid block;
+  view-timeline-inset: var(--topbar-height, 0px) calc(100% - var(--topbar-height, 0px));
 }
 .profile-nav-wrap { position: sticky; top: var(--topbar-height, 84px); min-width: 0; }
 .profile-nav { position: static; top: auto; }
@@ -1444,36 +1453,23 @@ table small { display: block; }
   .stat:nth-last-child(-n + 2):nth-child(odd),
   .stat:last-child { border-bottom: 0; }
   .stat strong { font-size: 17px; }
-  /* 38px of former spacing above the tabs, less the pad the wrapper now carries. */
-  .profile-grid { grid-template-columns: 1fr; gap: 12px; margin-top: calc(38px - var(--profile-nav-pad-top)); min-width: 0; }
-  /*
-   * The tabs stick under the brand row, not under the whole header. On the way
-   * there they travel through the search row's slot; --nav-penetration (set on
-   * scroll) is how far they have come, and drives everything else below so the
-   * search row, the tabs and the glass move as one.
-   */
+  /* 22px original grid gap + the 16px that used to be nav padding-top. */
+  .profile-grid { grid-template-columns: 1fr; gap: 12px; margin-top: 38px; min-width: 0; }
   .profile-grid .profile-nav-wrap {
     position: sticky;
-    top: var(--topbar-main-height, calc(64px + env(safe-area-inset-top)));
+    top: var(--topbar-height, calc(52px + env(safe-area-inset-top)));
     z-index: 15;
     margin: 0 calc(-1 * var(--pad));
-    padding-top: var(--profile-nav-pad-top);
     min-width: 0;
   }
-  /* The search row slides up behind the brand row by exactly the tabs' progress. */
-  html.nav-docked .topbar .header-search.narrow-only {
-    transform: translateY(calc(-1 * var(--nav-penetration, 0px)));
-    clip-path: inset(var(--nav-penetration, 0px) 0 0 0);
-  }
-  html.search-tucked .topbar .header-search.narrow-only { visibility: hidden; }
   /*
-   * Docked: the header's glass sheet grows to cover the tabs, so header and tab
-   * bar share one uninterrupted blur. Its bottom edge follows the tabs while
-   * they push the search row away, then rests at brand row + tabs. The class
-   * flips while only canvas sits behind the bar, so the swap changes no pixels.
+   * Fallback docking (no scroll-driven animations): the header's glass sheet
+   * grows to cover the tabs, so header and tab bar share one uninterrupted
+   * blur. The class flips while only canvas sits behind the bar (38px of margin
+   * above it, 12px below), so the swap itself changes no pixels.
    */
   html.nav-docked .chrome-glass::before {
-    height: calc(var(--topbar-height, 0px) + var(--profile-nav-height, 0px) - var(--nav-penetration, 0px));
+    height: calc(var(--topbar-height, 0px) + var(--profile-nav-height, 0px));
   }
   /* Until the dock class lands (at most a frame late), the bar frosts itself. */
   .profile-grid .profile-nav-wrap::before {
@@ -1510,8 +1506,53 @@ table small { display: block; }
     font-size: 13px;
   }
   .profile-grid .profile-nav a.on { color: #fff; background: var(--ink); box-shadow: none; }
-  .profile .section { margin-top: 28px; scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
-  .owner-tools-head { margin-top: 40px; scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
+  .profile .section { margin-top: 28px; scroll-margin-top: calc(var(--topbar-height, 112px) + var(--profile-nav-height, 68px)); }
+  .owner-tools-head { margin-top: 40px; scroll-margin-top: calc(var(--topbar-height, 112px) + var(--profile-nav-height, 68px)); }
+
+  /*
+   * Search hand-off. The tabs stick under the brand row, not under the whole
+   * header, so on the way there they travel through the search row's slot. A
+   * view timeline on the profile grid (whose top edge is the tabs' inline
+   * position) measures that travel: 0 when the tabs touch the header's bottom,
+   * 1 when they reach the brand row. The search row slides up behind the brand
+   * row and the glass sheet's bottom follows the tabs, all as compositor-driven
+   * transforms. No script runs per frame, and nothing lags the scroll.
+   */
+  @supports (animation-timeline: view()) {
+    .profile-grid { margin-top: calc(38px - var(--profile-nav-pad-top)); }
+    .profile-grid .profile-nav-wrap {
+      top: var(--topbar-main-height, calc(64px + env(safe-area-inset-top)));
+      padding-top: var(--profile-nav-pad-top);
+    }
+    /* The single sheet covers the tabs throughout; no interim glass of their own. */
+    .profile-grid .profile-nav-wrap::before { display: none; }
+    .chrome-glass::before {
+      /* Constant size once docking begins (a one-off step), then only translates. */
+      animation: chrome-sheet-grow both, chrome-sheet-slide both;
+      animation-timing-function: steps(1, jump-start), linear;
+      animation-timeline: --profile-grid;
+      animation-range: cover 0px cover var(--search-row-height);
+    }
+    .topbar .header-search.narrow-only {
+      animation: search-row-tuck linear both;
+      animation-timeline: --profile-grid;
+      animation-range: cover 0px cover var(--search-row-height);
+    }
+    .profile .section { scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
+    .owner-tools-head { scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
+  }
+  @keyframes chrome-sheet-grow {
+    from { height: var(--topbar-height, 0px); }
+    to { height: calc(var(--topbar-height, 0px) + var(--profile-nav-height, 0px)); }
+  }
+  @keyframes chrome-sheet-slide {
+    from { transform: translateY(0); }
+    to { transform: translateY(calc(-1 * var(--search-row-height))); }
+  }
+  @keyframes search-row-tuck {
+    from { transform: translateY(0); clip-path: inset(0 0 0 0); }
+    to { transform: translateY(calc(-1 * var(--search-row-height))); clip-path: inset(var(--search-row-height) 0 0 0); }
+  }
   .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .photo-grid.featured > .photo-card:first-child { grid-column: span 2; grid-row: auto; }
   .photo-grid.featured > .photo-card:first-child .photo-open { aspect-ratio: 16 / 10; min-height: 0; }
