@@ -1,26 +1,21 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, type AdminClaim, type Claim, type CountyMeta, type Doc, type MailMessage, type MailSummary, type PropertyPage, type Viewer } from "./api";
+import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary } from "./api";
 import { useAuth } from "./auth";
-import { eventLabel, FactRow, ParcelMap, SearchBox } from "./components";
+import { eventLabel, ParcelMap, SearchBox } from "./components";
+import { DebugSheet } from "./debug";
+import { useMeta } from "./meta";
+import { PropertyPageView } from "./property";
 
 function Layout({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
   const location = useLocation();
-  const [dev, setDev] = useState(false);
-  useEffect(() => {
-    api.meta().then((m) => setDev(m.devMailbox)).catch(() => undefined);
-  }, []);
+  const meta = useMeta();
+  const [debugOpen, setDebugOpen] = useState(false);
   const headerSearch = location.pathname !== "/" && !/^\/(signin|dev|admin)/.test(location.pathname);
+  useEffect(() => setDebugOpen(false), [location.pathname]);
   return (
     <>
-      {dev && (
-        <div className="devbar">
-          <Link to="/dev/mailbox">Mailbox</Link>
-          <Link to="/admin">Admin</Link>
-          <span className="wide-only">Manual review · production UI</span>
-        </div>
-      )}
       <header className="topbar">
         <div className="topbar-main">
           <Link to="/" className="brand">
@@ -35,6 +30,9 @@ function Layout({ children }: { children: React.ReactNode }) {
           <nav className="top-links">
             <Link to="/map">Map</Link>
             {user?.is_admin && <Link to="/admin" className="wide-only">Admin</Link>}
+            {meta?.debug && (
+              <button type="button" className="text-btn debug-link" data-testid="debug-link" onClick={() => setDebugOpen(true)}>Debug</button>
+            )}
             {user ? (
               <>
                 <Link to="/account">{user.display_name ? user.display_name.split(" ")[0] : "Account"}</Link>
@@ -52,21 +50,17 @@ function Layout({ children }: { children: React.ReactNode }) {
         )}
       </header>
       {children}
+      {meta?.debug && debugOpen && <DebugSheet onClose={() => setDebugOpen(false)} />}
     </>
   );
 }
 
 function HomePage() {
   const navigate = useNavigate();
-  const [count, setCount] = useState<number | null>(null);
-  const [counties, setCounties] = useState<CountyMeta[]>([]);
+  const meta = useMeta();
   const [focus, setFocus] = useState<string>("all");
-  useEffect(() => {
-    api.meta().then((m) => {
-      setCount(m.propertyCount);
-      setCounties(m.counties ?? []);
-    }).catch(() => undefined);
-  }, []);
+  const count = meta?.propertyCount ?? null;
+  const counties = meta?.counties ?? [];
   const selected = counties.find((county) => county.id === focus);
   return (
     <div className="hero">
@@ -120,105 +114,6 @@ function MapPage() {
   return (
     <div className="map-page">
       <ParcelMap legend zoom={11.6} onSelect={(id) => navigate(`/property/${id}`)} />
-    </div>
-  );
-}
-
-function PropertyPageView() {
-  const { id } = useParams();
-  const { user } = useAuth();
-  const [data, setData] = useState<{ property: PropertyPage; viewer: Viewer } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!id) return;
-    api.property(id).then(setData).catch((err) => setError(err.message));
-  }, [id]);
-
-  if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!data) return <div className="page">Loading record…</div>;
-  const { property, viewer } = data;
-  const facts = (group: string) => property.facts.filter((f) => f.group === group);
-  const title = property.formatted?.split(",")[0] ?? "Untitled parcel";
-  const locality = property.formatted?.includes(",")
-    ? property.formatted.slice(property.formatted.indexOf(",") + 1).trim()
-    : null;
-  return (
-    <div className="page wide">
-      <div className="property-layout">
-        <div className="property-head">
-          <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
-          <h1>{title}</h1>
-          <p className="meta-line mono">{[locality, property.sbl].filter(Boolean).join(" · ")}</p>
-          <div className="action-row">
-            {viewer.maintainer ? (
-              <Link className="btn" to={`/property/${property.property_id}/manage`}>Maintain owner record</Link>
-            ) : (
-              <Link className="btn" to={user ? `/property/${property.property_id}/claim` : `/signin?next=/property/${property.property_id}/claim`}>
-                Claim this property
-              </Link>
-            )}
-          </div>
-        </div>
-        <div className="map-panel">
-          <ParcelMap
-            embedded
-            selectedId={property.property_id}
-            selectedGeometry={property.geojson}
-            onSelect={(next) => { window.location.href = `/property/${next}`; }}
-            zoom={16}
-          />
-        </div>
-        <div className="notice property-notice">
-          {property.geometryNotice ?? "Lot lines are not available for this parcel."}
-          {" "}Every important fact shows its source.
-        </div>
-        <div className="dossier">
-          <section className="section">
-            <h2>Overview</h2>
-            <div className="group">
-              {facts("overview").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
-            </div>
-          </section>
-          <section className="section">
-            <h2>Location & services</h2>
-            <div className="group">
-              {facts("location").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
-            </div>
-          </section>
-          <section className="section">
-            <h2>Rules & environment</h2>
-            <div className="group">
-              {facts("rules").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
-            </div>
-          </section>
-          <section className="section">
-            <h2>Records</h2>
-            <div className="group">
-              {facts("records").map((fact) => <FactRow key={fact.fieldKey} fact={fact} />)}
-            </div>
-            <div className="group coverage">
-              {Object.entries(property.coverage).map(([key, value]) => (
-                <div key={key}><span>{key.replace("_", " ")}</span> {value}</div>
-              ))}
-            </div>
-          </section>
-          <section className="section">
-            <h2>History</h2>
-            <p className="meta-line" style={{ margin: "0 4px 10px" }}>{property.historyNote}</p>
-            <div className="group">
-              <ol className="timeline">
-                {property.events.map((event) => (
-                  <li key={event.event_id}>
-                    <strong>{eventLabel(event.event_type)}</strong>
-                    <small>{new Date(event.effective_at ?? event.created_at).toLocaleDateString()}</small>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </section>
-        </div>
-      </div>
     </div>
   );
 }
@@ -372,7 +267,7 @@ function ClaimStatusPage() {
         <div className="notice">Most reviews complete within one to two business days. We will email you when a reviewer finishes.</div>
       )}
       {status === "verified" && (
-        <p><a className="btn" href={`/property/${id}/manage`}>Open the owner record</a></p>
+        <p><Link className="btn" to={`/property/${id}`}>Open the owner record</Link></p>
       )}
       {status === "rejected" && claim.reviewer_note && <p>{claim.reviewer_note}</p>}
       <section className="section">
@@ -386,132 +281,10 @@ function ClaimStatusPage() {
   );
 }
 
-function ManagePage() {
+/** Older emails link here; the owner record now lives on the property page itself. */
+function ManageRedirect() {
   const { id } = useParams();
-  const { user } = useAuth();
-  const [tab, setTab] = useState("record");
-  const [data, setData] = useState<{ property: PropertyPage; viewer: Viewer } | null>(null);
-  const [docs, setDocs] = useState<Doc[]>([]);
-  const [fields, setFields] = useState<Record<string, string>>({});
-  const [handoffEmail, setHandoffEmail] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
-
-  const load = () => {
-    if (!id) return;
-    api.property(id).then((d) => {
-      setData(d);
-      const next: Record<string, string> = {};
-      for (const fact of d.property.facts.filter((f) => f.layer === "owner")) {
-        next[fact.fieldKey] = fact.value === null || fact.value === undefined ? "" : String(fact.value);
-      }
-      setFields(next);
-    });
-    api.documents(id).then((d) => setDocs(d.documents)).catch(() => setDocs([]));
-  };
-
-  useEffect(load, [id]);
-  if (!user) return <Navigate to={`/signin?next=/property/${id}/manage`} replace />;
-  if (!data) return <div className="page">Loading owner record…</div>;
-  if (!data.viewer.maintainer && !data.viewer.admin) {
-    return <div className="page">You are not a current maintainer of this property.</div>;
-  }
-
-  const ownerFacts = data.property.facts.filter((f) => f.layer === "owner");
-  return (
-    <div className="page wide">
-      <div className="kicker">Owner maintainer</div>
-      <h1 className="display">{data.property.formatted}</h1>
-      <div className="manage-grid">
-        <div className="side-nav">
-          {([["record", "Property record"], ["documents", "Documents"], ["history", "Record history"], ["handoff", "Handoff"]] as const).map(([key, label]) => (
-            <button key={key} className={tab === key ? "on" : ""} onClick={() => setTab(key)}>{label}</button>
-          ))}
-        </div>
-        <div>
-          {message && <div className="notice" style={{ marginBottom: 16 }}>{message}</div>}
-          {tab === "record" && (
-            <>
-              <p>These fields live on the owner-maintained layer. They do not replace official assessments or parcel identity.</p>
-              {ownerFacts.map((fact) => (
-                <label className="stack" key={fact.fieldKey}>
-                  <span>{fact.label}</span>
-                  <input className="field" value={fields[fact.fieldKey] ?? ""} onChange={(e) => setFields({ ...fields, [fact.fieldKey]: e.target.value })} />
-                </label>
-              ))}
-              <button className="btn" onClick={async () => {
-                if (!id) return;
-                await api.saveOwnerFields(id, fields);
-                setMessage("Owner record updated. The change is now part of the property event history.");
-                load();
-              }}>Save owner record</button>
-            </>
-          )}
-          {tab === "documents" && (
-            <>
-              <p>Mark a document as property-transferable if the next owner should inherit it. Mortgage, insurance, and personal notes stay private.</p>
-              <input type="file" onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file || !id) return;
-                await api.upload(id, file, { documentType: "owner_record", visibility: "private", transferability: "property_transferable" });
-                load();
-              }} />
-              <div className="table-scroll">
-              <table>
-                <thead><tr><th>File</th><th>Visibility</th><th>Transfer</th></tr></thead>
-                <tbody>
-                  {docs.map((doc) => (
-                    <tr key={doc.document_id}>
-                      <td><a href={`/api/documents/${doc.document_id}/file`} target="_blank" rel="noreferrer">{doc.original_filename}</a></td>
-                      <td>
-                        <select value={doc.visibility} onChange={(e) => api.patchDocument(doc.document_id, { visibility: e.target.value }).then(load)}>
-                          <option value="private">Private</option>
-                          <option value="property_transferable">Visible on transfer</option>
-                          <option value="public">Public</option>
-                        </select>
-                      </td>
-                      <td>
-                        <select value={doc.transferability} onChange={(e) => api.patchDocument(doc.document_id, { transferability: e.target.value }).then(load)}>
-                          <option value="personal">Personal</option>
-                          <option value="property_transferable">Goes with the property</option>
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-            </>
-          )}
-          {tab === "history" && (
-            <div className="group">
-              <ol className="timeline">
-                {data.property.events.map((event) => (
-                  <li key={event.event_id}>
-                    <strong>{eventLabel(event.event_type)}</strong>
-                    <small>{new Date(event.effective_at ?? event.created_at).toLocaleString()}</small>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
-          {tab === "handoff" && (
-            <>
-              <p>Invite the buyer to claim this property. After they are verified, your maintainer access ends. Personal documents do not transfer.</p>
-              <label className="stack">
-                <span>Buyer email</span>
-                <input className="field" value={handoffEmail} onChange={(e) => setHandoffEmail(e.target.value)} />
-              </label>
-              <button className="btn" onClick={async () => {
-                if (!id) return;
-                await api.handoff(id, handoffEmail);
-                setMessage(`Invitation sent to ${handoffEmail}.`);
-              }}>Send handoff invitation</button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  return <Navigate to={`/property/${id}`} replace />;
 }
 
 function SignInPage() {
@@ -611,7 +384,7 @@ function AccountPage() {
         <div className="group">
           {properties.length === 0 && <div className="row"><span className="meta-line">None yet</span></div>}
           {properties.map((p) => (
-            <a className="row" key={p.property_id} href={`/property/${p.property_id}/manage`}>{p.formatted}</a>
+            <Link className="row" key={p.property_id} to={`/property/${p.property_id}`}>{p.formatted}</Link>
           ))}
         </div>
       </section>
@@ -759,7 +532,7 @@ export function App() {
         <Route path="/property/:id" element={<PropertyPageView />} />
         <Route path="/property/:id/claim" element={<ClaimPage />} />
         <Route path="/property/:id/claim/:claimId" element={<ClaimStatusPage />} />
-        <Route path="/property/:id/manage" element={<ManagePage />} />
+        <Route path="/property/:id/manage" element={<ManageRedirect />} />
         <Route path="/signin" element={<SignInPage />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/admin" element={<AdminPage />} />

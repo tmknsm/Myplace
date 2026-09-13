@@ -3,7 +3,7 @@ import { getSql } from "../db.ts";
 import { id } from "../ids.ts";
 import { emitEvent } from "./events.ts";
 
-export type FactStatus = "available" | "unknown" | "conflicting" | "inferred";
+export type FactStatus = "available" | "unknown" | "conflicting" | "inferred" | "owner_reported";
 
 export interface AssertionRow {
   assertion_id: string;
@@ -72,7 +72,15 @@ export function assembleFacts(rows: AssertionRow[]): FactView[] {
     const official = accepted.filter((row) => row.source_type === "government" || row.source_type === "platform_admin");
     const inferred = accepted.filter((row) => row.source_type === "platform_inference");
     const owner = accepted.filter((row) => row.source_type === "verified_owner");
-    const primaryPool = field.layer === "owner" ? owner : official.length ? official : inferred;
+    const primaryPool = field.layer === "owner"
+      ? owner
+      : official.length
+        ? official
+        : inferred.length
+          ? inferred
+          : field.layer === "either"
+            ? owner
+            : [];
 
     let status: FactStatus = "unknown";
     let chosen: AssertionRow | undefined;
@@ -82,6 +90,9 @@ export function assembleFacts(rows: AssertionRow[]): FactView[] {
     } else if (field.layer !== "owner" && official.length === 0 && inferred.length > 0) {
       status = "inferred";
       chosen = inferred[0];
+    } else if (field.layer === "either" && official.length === 0 && owner.length > 0) {
+      status = "owner_reported";
+      chosen = owner[0];
     } else {
       const distinct = primaryPool.filter((row, index, all) =>
         all.findIndex((other) => valuesEqual(other.value_json, row.value_json)) === index,
@@ -133,6 +144,29 @@ export async function loadAssertionRows(propertyId: string): Promise<AssertionRo
     WHERE a.property_id = ${propertyId}
     ORDER BY a.effective_at DESC NULLS LAST, a.created_at DESC
   `;
+}
+
+/** Withdraw the owner's current value for a field without touching any other layer. */
+export async function retractOwnerAssertion(propertyId: string, fieldKey: string, actorId: string | null): Promise<number> {
+  if (!FIELD_BY_KEY.has(fieldKey)) throw new Error(`Unknown field ${fieldKey}`);
+  const sql = getSql();
+  const rows = await sql<{ assertion_id: string }[]>`
+    UPDATE assertions
+    SET status = 'retracted'
+    WHERE property_id = ${propertyId} AND field_key = ${fieldKey}
+      AND source_type = 'verified_owner' AND status = 'accepted'
+    RETURNING assertion_id
+  `;
+  if (rows.length) {
+    await emitEvent({
+      propertyId,
+      eventType: "owner_assertion.removed",
+      actorType: "verified_owner",
+      actorId,
+      payload: { field_key: fieldKey, assertion_ids: rows.map((row) => row.assertion_id) },
+    });
+  }
+  return rows.length;
 }
 
 export async function insertAssertion(input: {

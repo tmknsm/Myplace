@@ -159,6 +159,36 @@ export function handoffEmail(appOrigin: string, address: string, propertyId: str
   };
 }
 
+export function coOwnerInviteEmail(appOrigin: string, address: string, propertyId: string, fromName: string) {
+  const href = `${appOrigin}/property/${propertyId}`;
+  return {
+    subject: `${fromName} invited you to co-maintain ${address}`,
+    html: shell(
+      "You were invited to co-maintain a property record",
+      `<p>${fromName} added you as a co-owner of the record for <strong>${address}</strong>.</p>
+       <p>Sign in with this email address and open the property to accept. You will be able to maintain the owner record, upload documents, and see the full history alongside them.</p>`,
+      "Open the property",
+      href,
+    ),
+    text: `${fromName} invited you to co-maintain ${address}. Sign in and open ${href} to accept.`,
+  };
+}
+
+export function ownershipRevokedEmail(appOrigin: string, address: string, propertyId: string) {
+  const href = `${appOrigin}/property/${propertyId}`;
+  return {
+    subject: `Your maintainer access to ${address} has ended`,
+    html: shell(
+      "Maintainer access ended",
+      `<p>You are no longer a maintainer of the record for <strong>${address}</strong>.</p>
+       <p>The public record stays available. Documents you marked as property-transferable remain with the property; personal documents stay private to you.</p>`,
+      "View the property",
+      href,
+    ),
+    text: `Your maintainer access to ${address} has ended. View ${href}`,
+  };
+}
+
 export function adminClaimEmail(appOrigin: string, address: string, claimId: string) {
   const href = `${appOrigin}/admin/claims/${claimId}`;
   return {

@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api, type Fact, type SearchHit } from "./api";
+import { useMeta } from "./meta";
 
 export function SearchBox({ compact = false, autoFocus = false }: { compact?: boolean; autoFocus?: boolean }) {
   const [q, setQ] = useState("");
@@ -143,18 +144,17 @@ export function ParcelMap({
   const onSelectRef = useRef(onSelect);
   const geometryRef = useRef(selectedGeometry);
   const [qualities, setQualities] = useState<string[]>([]);
+  const meta = useMeta();
   onSelectRef.current = onSelect;
   geometryRef.current = selectedGeometry;
 
   useEffect(() => {
-    if (!legend) return;
-    api.meta().then((meta) => {
-      const present = new Set<string>(
-        meta.counties.filter((county) => county.shapeCount > 0 && county.geometryQuality).map((county) => county.geometryQuality!),
-      );
-      setQualities(QUALITY_ORDER.filter((quality) => present.has(quality)));
-    }).catch(() => setQualities(QUALITY_ORDER));
-  }, [legend]);
+    if (!legend || !meta) return;
+    const present = new Set<string>(
+      meta.counties.filter((county) => county.shapeCount > 0 && county.geometryQuality).map((county) => county.geometryQuality!),
+    );
+    setQualities(QUALITY_ORDER.filter((quality) => present.has(quality)));
+  }, [legend, meta]);
 
   useEffect(() => {
     if (!ref.current || mapRef.current) return;
@@ -261,50 +261,62 @@ export function ParcelMap({
   );
 }
 
-function unknownHint(fieldKey: string): string {
+export function unknownHint(fieldKey: string, layer: Fact["layer"]): string {
   if (fieldKey === "zoning.district") return "No published GIS zoning layer for this municipality yet.";
   if (fieldKey === "env.remedial") return "No DEC remedial join for this lot yet.";
   if (fieldKey === "env.bulk_storage") return "No DEC bulk-storage join for this lot yet.";
+  if (layer === "either") return "No connected source yet. The owner can fill this in.";
+  if (layer === "owner") return "Not recorded by the owner yet.";
   return "No connected source yet.";
 }
 
-export function FactRow({ fact }: { fact: Fact }) {
-  return (
-    <div className="fact">
-      <div className="fact-label">{fact.label}</div>
-      <div className="fact-value">
-        <strong>{fact.display ?? "—"}</strong>
-        {fact.status !== "available" && (
-          <span className={`badge ${fact.status}`}>{fact.status}</span>
-        )}
-        <div className="sources">
-          {fact.status === "unknown" && (
-            <div>{unknownHint(fact.fieldKey)}</div>
-          )}
-          {fact.assertions.map((assertion) => (
-            <div key={assertion.assertionId}>
-              {assertion.display} · {assertion.sourceName}
-              {assertion.effectiveAt ? ` · ${new Date(assertion.effectiveAt).getFullYear()}` : ""}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+export const STATUS_LABEL: Record<Fact["status"], string> = {
+  available: "available",
+  unknown: "unknown",
+  conflicting: "conflicting",
+  inferred: "inferred",
+  owner_reported: "owner-reported",
+};
 
 export function eventLabel(type: string): string {
   const labels: Record<string, string> = {
     "parcel.imported": "Parcel record imported",
+    "parcel.geometry_updated": "Parcel geometry refreshed",
     "assessment.updated": "Assessment updated",
     "sale.recorded": "Recorded sale",
     "ownership.claim_submitted": "Ownership claim submitted",
     "ownership.claimed": "Owner maintainer verified",
     "ownership.claim_rejected": "Ownership claim rejected",
+    "ownership.revoked": "Maintainer access ended",
     "ownership.handoff_invited": "Handoff invitation sent",
+    "ownership.co_maintainer_invited": "Co-owner invited",
+    "ownership.co_maintainer_added": "Co-owner joined the record",
     "owner_assertion.added": "Owner record updated",
+    "owner_assertion.removed": "Owner record entry cleared",
+    "assertion.disputed": "Owner disputed an official fact",
+    "contribution.withdrawn": "Dispute withdrawn",
+    "contribution.accepted": "Contribution accepted",
+    "improvement.added": "Improvement recorded",
+    "improvement.updated": "Improvement updated",
+    "improvement.removed": "Improvement removed",
     "document.added": "Document added",
+    "document.removed": "Document removed",
+    "photo.added": "Photo added",
     "assertion.updated": "Assertion updated",
   };
-  return labels[type] ?? type;
+  return labels[type] ?? type.replace(/[._]/g, " ");
+}
+
+export function actorLabel(actorType: string | null | undefined): string | null {
+  const labels: Record<string, string> = {
+    source: "Official source",
+    government: "Official source",
+    verified_owner: "Owner",
+    platform_admin: "Records desk",
+    platform_inference: "Platform inference",
+    user: "User",
+    debug: "Debug",
+  };
+  if (!actorType) return null;
+  return labels[actorType] ?? actorType;
 }
