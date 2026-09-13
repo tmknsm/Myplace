@@ -633,8 +633,15 @@ export async function importZoning(sql: Sql): Promise<OverlayStats> {
   addHits(townJoin, "Town of Catskill, 2013 official zoning", 1);
   addHits(villageJoin, "Village of Catskill zoning", 2);
 
+  const allowed = new Set(
+    (await sql<{ property_id: string }[]>`
+      SELECT property_id FROM properties
+      WHERE county = 'Greene' AND municipality = 'Catskill'
+    `).map((row) => row.property_id),
+  );
   const rows: Asrt[] = [];
   for (const [propertyId, hits] of hitsByProperty) {
+    if (!allowed.has(propertyId)) continue;
     const value = formatZoning(hits);
     if (!value) continue;
     const village = hits.some((hit) => hit.priority >= 2);
@@ -671,7 +678,7 @@ export async function importZoning(sql: Sql): Promise<OverlayStats> {
     assertions: rows.length,
     positive: rows.length,
     notes: [
-      `${rows.length} Catskill parcels received an official zoning district`,
+      `${rows.length} Town/Village of Catskill parcels received an official zoning district`,
       "Other municipalities stay unknown — no published GIS zoning layer was found",
     ],
   };
