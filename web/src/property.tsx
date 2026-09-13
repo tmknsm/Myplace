@@ -323,10 +323,10 @@ export function PropertyPageView() {
   );
 
   return (
-    <div className="page wide profile" data-testid="property-profile">
+    <div className="page wide profile property-page" data-testid="property-profile">
       <div className="profile-hero-band">{hero}</div>
 
-      <header className="profile-head">
+      <header className="profile-head group">
         <div className="profile-title">
           <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
           <h1>{title}</h1>
