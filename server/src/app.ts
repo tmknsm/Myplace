@@ -35,7 +35,10 @@ import { FIELD_VOCAB } from "./vocab.ts";
 export const app = new Hono<AppEnv>();
 
 app.use("*", cors({
-  origin: [config.appOrigin, "http://localhost:5173", "http://127.0.0.1:5173"],
+  origin: (origin) => {
+    const allowed = [config.appOrigin, "http://localhost:5173", "http://127.0.0.1:5173"];
+    return allowed.includes(origin) ? origin : null;
+  },
   credentials: true,
 }));
 app.use("/api/*", authMiddleware);
@@ -404,7 +407,7 @@ app.get("/api/documents/:id/file", async (c) => {
     || await isMaintainer(user.user_id, doc.property_id);
   if (!allowed) return c.json({ error: "Forbidden" }, 403);
   const bytes = await getDocument(doc.storage_key);
-  return new Response(Buffer.from(bytes), {
+  return new Response(bytes as BodyInit, {
     headers: {
       "content-type": doc.mime_type || "application/octet-stream",
       "content-disposition": `inline; filename="${doc.original_filename ?? "document"}"`,

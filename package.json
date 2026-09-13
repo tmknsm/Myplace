@@ -8,6 +8,9 @@
     "dev:api": "tsx watch server/src/local.ts",
     "dev:web": "vite --config web/vite.config.ts --host 0.0.0.0",
     "build": "tsc -p server/tsconfig.json --noEmit && vite build --config web/vite.config.ts",
+    "deploy": "npm run build && wrangler deploy",
+    "cf:setup": "bash scripts/cloudflare-setup.sh",
+    "cf:dev": "wrangler dev",
     "db:migrate": "tsx db/migrate.ts",
     "db:seed": "tsx db/seed.ts",
     "db:reset": "tsx db/migrate.ts --reset && tsx db/seed.ts",
@@ -35,6 +38,7 @@
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "vite": "^7.1.5",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "^4.131.1"
   }
 }
