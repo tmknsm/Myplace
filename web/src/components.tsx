@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { api, type Fact, type ParcelCollection, type SearchHit } from "./api";
+import { api, type Fact, type SearchHit } from "./api";
 
 export function SearchBox({ compact = false, autoFocus = false }: { compact?: boolean; autoFocus?: boolean }) {
   const [q, setQ] = useState("");
@@ -59,9 +59,16 @@ export function SearchBox({ compact = false, autoFocus = false }: { compact?: bo
 
 const STYLE = "https://tiles.openfreemap.org/styles/positron";
 
+function ringsOf(geometry: { type: string; coordinates: unknown }): number[][] {
+  if (geometry.type === "MultiPolygon") {
+    return (geometry.coordinates as number[][][][]).flatMap((polygon) => polygon[0] ?? []);
+  }
+  return ((geometry.coordinates as number[][][])[0] ?? []) as number[][];
+}
+
 function applySelection(
   map: maplibregl.Map,
-  geometry?: { type: string; coordinates: number[][][] } | null,
+  geometry?: { type: string; coordinates: number[][][] | number[][][][] } | null,
 ) {
   const source = map.getSource("selected") as maplibregl.GeoJSONSource | undefined;
   if (!source || !geometry) return;
@@ -69,8 +76,8 @@ function applySelection(
     type: "FeatureCollection",
     features: [{ type: "Feature", properties: {}, geometry }],
   });
-  const ring = geometry.coordinates[0];
-  if (!ring?.[0]) return;
+  const ring = ringsOf(geometry);
+  if (!ring[0]) return;
   const lngs = ring.map((point) => point[0]!);
   const lats = ring.map((point) => point[1]!);
   map.fitBounds(
@@ -79,27 +86,75 @@ function applySelection(
   );
 }
 
+const QUALITY_COLORS: Record<string, string> = {
+  official: "#1d1d1f",
+  approximate: "#c47d1a",
+  demonstration: "#e23b32",
+};
+
+const QUALITY_LABELS: Record<string, string> = {
+  official: "Official lot lines",
+  approximate: "Approximate lot lines",
+  demonstration: "Demonstration sketch",
+};
+
+const QUALITY_ORDER = ["official", "approximate", "demonstration"];
+
+const fillColor: maplibregl.DataDrivenPropertyValueSpecification<string> = [
+  "match",
+  ["get", "geometryQuality"],
+  "official", QUALITY_COLORS.official!,
+  "approximate", QUALITY_COLORS.approximate!,
+  QUALITY_COLORS.demonstration!,
+];
+
+const TILES = {
+  url: `${window.location.origin}/api/tiles/{z}/{x}/{y}.mvt`,
+  layer: "parcels",
+  minZoom: 11,
+  maxZoom: 16,
+};
+
 export function ParcelMap({
   selectedId,
   selectedGeometry,
   onSelect,
-  center = [-73.77, 42.29],
-  zoom = 10.2,
+  center = [-73.828, 42.234],
+  zoom = 11.6,
   embedded = false,
+  focusKey,
+  focusCenter,
+  focusZoom,
+  legend = false,
 }: {
   selectedId?: string;
-  selectedGeometry?: { type: string; coordinates: number[][][] } | null;
+  selectedGeometry?: { type: string; coordinates: number[][][] | number[][][][] } | null;
   onSelect?: (id: string) => void;
   center?: [number, number];
   zoom?: number;
   embedded?: boolean;
+  focusKey?: string;
+  focusCenter?: [number, number];
+  focusZoom?: number;
+  legend?: boolean;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const onSelectRef = useRef(onSelect);
   const geometryRef = useRef(selectedGeometry);
+  const [qualities, setQualities] = useState<string[]>([]);
   onSelectRef.current = onSelect;
   geometryRef.current = selectedGeometry;
+
+  useEffect(() => {
+    if (!legend) return;
+    api.meta().then((meta) => {
+      const present = new Set<string>(
+        meta.counties.filter((county) => county.shapeCount > 0 && county.geometryQuality).map((county) => county.geometryQuality!),
+      );
+      setQualities(QUALITY_ORDER.filter((quality) => present.has(quality)));
+    }).catch(() => setQualities(QUALITY_ORDER));
+  }, [legend]);
 
   useEffect(() => {
     if (!ref.current || mapRef.current) return;
@@ -113,32 +168,31 @@ export function ParcelMap({
       touchPitch: false,
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }), "top-right");
-    const loadParcels = async () => {
-      if (!map.getSource("parcels") || map.getZoom() < 13) {
-        const source = map.getSource("parcels") as maplibregl.GeoJSONSource | undefined;
-        source?.setData({ type: "FeatureCollection", features: [] });
-        return;
-      }
-      const bounds = map.getBounds();
-      const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(",");
-      const data = await api.parcels(bbox);
-      const source = map.getSource("parcels") as maplibregl.GeoJSONSource | undefined;
-      source?.setData(data as unknown as ParcelCollection);
-    };
     map.on("load", () => {
       map.resize();
-      map.addSource("parcels", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      map.addSource("parcels", {
+        type: "vector",
+        tiles: [TILES.url],
+        minzoom: TILES.minZoom,
+        maxzoom: TILES.maxZoom,
+        promoteId: "property_id",
+      });
       map.addLayer({
         id: "parcel-fill",
         type: "fill",
         source: "parcels",
-        paint: { "fill-color": "#e23b32", "fill-opacity": 0.14 },
+        "source-layer": TILES.layer,
+        paint: { "fill-color": fillColor, "fill-opacity": ["interpolate", ["linear"], ["zoom"], 11, 0.08, 14, 0.14] },
       });
       map.addLayer({
         id: "parcel-line",
         type: "line",
         source: "parcels",
-        paint: { "line-color": "#e23b32", "line-width": 1 },
+        "source-layer": TILES.layer,
+        paint: {
+          "line-color": fillColor,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.3, 14, 0.8, 17, 1.4],
+        },
       });
       map.addSource("selected", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addLayer({
@@ -160,9 +214,7 @@ export function ParcelMap({
       map.on("mouseenter", "parcel-fill", () => { map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", "parcel-fill", () => { map.getCanvas().style.cursor = ""; });
       applySelection(map, geometryRef.current);
-      void loadParcels();
     });
-    map.on("moveend", () => { void loadParcels(); });
     const onResize = () => map.resize();
     window.addEventListener("resize", onResize);
     window.addEventListener("orientationchange", onResize);
@@ -183,7 +235,26 @@ export function ParcelMap({
     applySelection(map, selectedGeometry);
   }, [selectedId, selectedGeometry]);
 
-  return <div ref={ref} className="map-shell" />;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focusCenter) return;
+    map.flyTo({ center: focusCenter, zoom: focusZoom ?? 15, essential: true, duration: 800 });
+  }, [focusKey, focusCenter, focusZoom]);
+
+  return (
+    <div className="map-shell">
+      <div ref={ref} className="map-canvas" />
+      {legend && qualities.length > 0 && (
+        <div className="map-legend">
+          {qualities.map((quality) => (
+            <span key={quality}>
+              <i className="swatch" style={{ background: QUALITY_COLORS[quality] }} /> {QUALITY_LABELS[quality]}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function FactRow({ fact }: { fact: Fact }) {

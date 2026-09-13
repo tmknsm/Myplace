@@ -21,6 +21,7 @@ export const FIELD_VOCAB: FieldDef[] = [
   { key: "county", label: "County", group: "overview", layer: "official", valueType: "string" },
   { key: "parcel.sbl", label: "Parcel ID (SBL)", group: "overview", layer: "official", valueType: "string" },
   { key: "parcel.swis", label: "SWIS", group: "overview", layer: "official", valueType: "string" },
+  { key: "geometry.kind", label: "Lot lines", group: "location", layer: "official", valueType: "string" },
   { key: "acreage", label: "Acreage", group: "overview", layer: "official", valueType: "acres" },
   { key: "property_class", label: "Property class", group: "overview", layer: "official", valueType: "string" },
   { key: "year_built", label: "Year built", group: "overview", layer: "official", valueType: "number" },
