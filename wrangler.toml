@@ -16,7 +16,7 @@ enabled = true
 NODE_ENV = "production"
 DEV_MAILBOX = "false"
 # Leave empty to use the deployed origin (workers.dev or custom domain) for email links.
-APP_ORIGIN = ""
+APP_ORIGIN = "https://myplace.6point1five.workers.dev"
 
 # Postgres (with PostGIS) reached through Hyperdrive. `npm run cf:setup` creates the
 # config from DATABASE_URL and writes its id here.

@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import {
@@ -47,13 +46,20 @@ export const app = new Hono<AppEnv>();
 
 app.use("*", cors({
   origin: (origin) => {
+    if (!origin) return origin;
     const allowed = [config.appOrigin, "http://localhost:5173", "http://127.0.0.1:5173"];
-    return allowed.includes(origin) ? origin : null;
+    if (allowed.includes(origin)) return origin;
+    try {
+      const host = new URL(origin).hostname;
+      if (host.endsWith(".workers.dev") || host === "localhost" || host === "127.0.0.1") return origin;
+    } catch {
+      return null;
+    }
+    return null;
   },
   credentials: true,
 }));
 app.use("/api/*", authMiddleware);
-app.use("/api/tiles/*", compress({ contentTypeFilter: (type) => type.includes("vnd.mapbox-vector-tile") }));
 
 app.onError((error, c) => {
   const status = error instanceof HTTPException
@@ -199,7 +205,10 @@ app.get("/api/tiles/:z/:x/:y", async (c) => {
   if (z < TILE_MIN_ZOOM) return new Response(null, { status: 204, headers });
   const tile = await parcelTile(z, x, y);
   if (!tile) return new Response(null, { status: 204, headers });
-  return new Response(tile as unknown as BodyInit, { status: 200, headers });
+  // Copy into a fresh ArrayBuffer so MapLibre gets raw protobuf, not a gzip
+  // wrapper or a postgres.js view that some mobile browsers fail to parse.
+  const body = Uint8Array.from(tile);
+  return new Response(body, { status: 200, headers });
 });
 
 app.get("/api/geo/counties", async (c) => {

@@ -166,6 +166,10 @@ export function ParcelMap({
       attributionControl: { compact: true },
       cooperativeGestures: embedded,
       touchPitch: false,
+      transformRequest: (url, type) => {
+        if (type === "Tile") return { url, headers: { "Accept-Encoding": "identity" } };
+        return { url };
+      },
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false, visualizePitch: false }), "top-right");
     map.on("load", () => {
@@ -182,7 +186,7 @@ export function ParcelMap({
         type: "fill",
         source: "parcels",
         "source-layer": TILES.layer,
-        paint: { "fill-color": fillColor, "fill-opacity": ["interpolate", ["linear"], ["zoom"], 11, 0.08, 14, 0.14] },
+        paint: { "fill-color": fillColor, "fill-opacity": ["interpolate", ["linear"], ["zoom"], 11, 0.16, 14, 0.28] },
       });
       map.addLayer({
         id: "parcel-line",
@@ -191,7 +195,7 @@ export function ParcelMap({
         "source-layer": TILES.layer,
         paint: {
           "line-color": fillColor,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.3, 14, 0.8, 17, 1.4],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.7, 14, 1.2, 17, 2],
         },
       });
       map.addSource("selected", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
