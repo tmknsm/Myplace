@@ -339,13 +339,19 @@ test("owner contributions are public on the profile until the owner makes them p
   expect(factOf(ownerAgain, "heating").value).toBe("Gas boiler");
   expect(factOf(ownerAgain, "heating").visibility).toBe("private");
 
-  // Official facts cannot be toggled.
+  // Official values can never be hidden: the toggle only reaches owner assertions,
+  // so on a field with no owner fill it changes nothing.
+  const before = factOf(publicBody, "assessment.total");
   const official = await app.request("http://localhost/api/properties/prop_test/owner-fields/visibility", {
     method: "POST",
     headers: { "content-type": "application/json", cookie: ownerCookie },
     body: JSON.stringify({ fieldKey: "assessment.total", visibility: "private" }),
   });
-  expect(official.status).toBe(400);
+  expect(official.status).toBe(200);
+  expect((await official.json()).changed).toBe(0);
+  publicBody = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(factOf(publicBody, "assessment.total").status).toBe(before.status);
+  expect(factOf(publicBody, "assessment.total").value).toEqual(before.value);
 });
 
 test("cover photo is served publicly while private photos stay behind sign-in", async () => {
