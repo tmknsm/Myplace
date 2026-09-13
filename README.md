@@ -33,8 +33,18 @@ The offline sample seed (`npm run db:seed`) uses a third tier, `demonstration`, 
 ```bash
 npm run db:import                    # full reload of every county (~2 minutes, needs network)
 npm run db:import -- --county=Greene # reload one county in place; users and claims survive
+npm run db:overlays                  # FEMA flood, NWI wetlands, SHPO historic, Catskill zoning
 npm run db:seed                      # offline 160-parcel sample instead
 ```
+
+`db:overlays` does not wipe parcels. It spatially joins public layers onto lots that already have a shape:
+
+| Fact | Source | Coverage |
+| --- | --- | --- |
+| FEMA flood zone | FEMA National Flood Hazard Layer | Every parcel with a shape; lots that miss the NFHL polygons are labeled explicitly |
+| Wetlands | USFWS National Wetlands Inventory | Same; NWI is a screening layer, not a jurisdictional delineation |
+| Historic district | NYS SHPO National Register listings | Districts and individual listings; everyone else is “not in a listed district” |
+| Zoning district | Town + Village of Catskill official GIS (2013) | **Catskill only.** New York has no statewide zoning layer; other municipalities stay unknown rather than inventing a district |
 
 Importers live in `db/adapters/`; adding a county means adding one adapter and one profile in `server/src/counties.ts`.
 
