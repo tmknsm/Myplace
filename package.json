@@ -13,6 +13,7 @@
     "cf:dev": "wrangler dev",
     "db:migrate": "tsx db/migrate.ts",
     "db:import": "tsx db/import.ts",
+    "db:overlays": "tsx db/import-overlays.ts",
     "db:seed": "tsx db/seed.ts",
     "db:reset": "tsx db/migrate.ts --reset && tsx db/import.ts",
     "db:reset:sample": "tsx db/migrate.ts --reset && tsx db/seed.ts",

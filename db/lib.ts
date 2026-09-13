@@ -197,6 +197,36 @@ export async function insertRows<T extends object>(
   }
 }
 
+/** Insert or replace assertions by primary key so overlay re-runs stay idempotent. */
+export async function upsertAssertions(sql: Sql, rows: Asrt[], size = 400): Promise<void> {
+  const columns: Array<keyof Asrt & string> = [
+    "assertion_id",
+    "property_id",
+    "field_key",
+    "value_json",
+    "source_id",
+    "source_type",
+    "effective_at",
+    "observed_at",
+    "confidence",
+    "status",
+  ];
+  for (const part of chunk(rows, size)) {
+    const values = sql(part as unknown as Record<string, unknown>[], ...columns);
+    await sql`
+      INSERT INTO assertions ${values}
+      ON CONFLICT (assertion_id) DO UPDATE SET
+        value_json = EXCLUDED.value_json,
+        source_id = EXCLUDED.source_id,
+        source_type = EXCLUDED.source_type,
+        effective_at = EXCLUDED.effective_at,
+        observed_at = EXCLUDED.observed_at,
+        confidence = EXCLUDED.confidence,
+        status = EXCLUDED.status
+    `;
+  }
+}
+
 export interface GeometryRow {
   geometry_id: string;
   property_id: string;

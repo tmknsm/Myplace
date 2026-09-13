@@ -271,7 +271,12 @@ export function FactRow({ fact }: { fact: Fact }) {
           <span className={`badge ${fact.status}`}>{fact.status}</span>
         )}
         <div className="sources">
-          {fact.status === "unknown" && <div>No connected source yet.</div>}
+          {fact.status === "unknown" && fact.fieldKey === "zoning.district" && (
+            <div>No published GIS zoning layer for this municipality yet.</div>
+          )}
+          {fact.status === "unknown" && fact.fieldKey !== "zoning.district" && (
+            <div>No connected source yet.</div>
+          )}
           {fact.assertions.map((assertion) => (
             <div key={assertion.assertionId}>
               {assertion.display} · {assertion.sourceName}
