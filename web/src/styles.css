@@ -51,7 +51,9 @@ img, svg { max-width: 100%; }
   top: 0;
   z-index: 20;
   border-bottom: 0;
-  background: var(--canvas);
+  background: color-mix(in srgb, var(--canvas) 78%, transparent);
+  backdrop-filter: saturate(1.4) blur(20px);
+  -webkit-backdrop-filter: saturate(1.4) blur(20px);
   padding-top: env(safe-area-inset-top);
 }
 .topbar-main {
@@ -1423,7 +1425,9 @@ table small { display: block; }
     gap: 6px;
     margin: 0 calc(-1 * var(--pad));
     padding: 16px var(--pad);
-    background: var(--canvas);
+    background: color-mix(in srgb, var(--canvas) 88%, transparent);
+    backdrop-filter: saturate(1.4) blur(20px);
+    -webkit-backdrop-filter: saturate(1.4) blur(20px);
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }
