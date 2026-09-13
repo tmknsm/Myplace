@@ -19,6 +19,7 @@
   --pad: 22px;
   --tap: 44px;
   --topbar-pad-bottom: 24px;
+  --profile-nav-pad-y: 16px;
 }
 
 * { box-sizing: border-box; }
@@ -502,7 +503,7 @@ label.stack span { display: block; margin-bottom: 6px; font-size: 13px; color: v
   grid-template-columns: 200px 1fr;
   gap: 24px;
 }
-.side-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: calc(var(--topbar-height, 84px) - var(--topbar-pad-bottom) - 1px); }
+.side-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: calc(var(--topbar-height, 84px) - 1px); }
 .side-nav button, .side-nav a {
   background: none;
   border: 0;
@@ -854,7 +855,7 @@ tr:last-child td { border-bottom: 0; }
   align-items: start;
   margin-top: 32px;
 }
-.profile-nav { top: calc(var(--topbar-height, 84px) - var(--topbar-pad-bottom) - 1px); }
+.profile-nav { top: calc(var(--topbar-height, 84px) - 1px); }
 .profile-nav a { font-size: 14px; }
 .profile-main { min-width: 0; }
 .profile-main > .section:first-child,
@@ -1420,11 +1421,11 @@ table small { display: block; }
     flex-direction: row;
     overflow-x: auto;
     position: sticky;
-    top: calc(var(--topbar-height, calc(52px + env(safe-area-inset-top))) - var(--topbar-pad-bottom) - 1px);
+    top: calc(var(--topbar-height, calc(52px + env(safe-area-inset-top))) - var(--profile-nav-pad-y) - 1px);
     z-index: 15;
     gap: 6px;
     margin: 0 calc(-1 * var(--pad));
-    padding: 16px var(--pad);
+    padding: var(--profile-nav-pad-y) var(--pad);
     background: color-mix(in srgb, var(--canvas) 88%, transparent);
     backdrop-filter: saturate(1.4) blur(20px);
     -webkit-backdrop-filter: saturate(1.4) blur(20px);
