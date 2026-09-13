@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary } from "./api";
 import { useAuth } from "./auth";
@@ -13,10 +13,26 @@ function Layout({ children }: { children: React.ReactNode }) {
   const meta = useMeta();
   const [debugOpen, setDebugOpen] = useState(false);
   const headerSearch = location.pathname !== "/" && !/^\/(signin|dev|admin)/.test(location.pathname);
+  const topbarRef = useRef<HTMLElement | null>(null);
   useEffect(() => setDebugOpen(false), [location.pathname]);
+  useEffect(() => {
+    const node = topbarRef.current;
+    if (!node) return;
+    const sync = () => {
+      document.documentElement.style.setProperty("--topbar-height", `${Math.round(node.getBoundingClientRect().height)}px`);
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(node);
+    window.addEventListener("resize", sync);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, [headerSearch, user, meta?.debug]);
   return (
     <>
-      <header className="topbar">
+      <header className="topbar" ref={topbarRef}>
         <div className="topbar-main">
           <Link to="/" className="brand">
             <i className="mark" aria-hidden="true" />

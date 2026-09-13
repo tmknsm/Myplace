@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PropertyPage, type Viewer } from "./api";
 import { useAuth } from "./auth";
@@ -616,11 +616,29 @@ function StatStrip({ facts }: { facts: Fact[] }) {
 
 function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) {
   const [active, setActive] = useState<string | null>(items[0]?.id ?? null);
+  const navRef = useRef<HTMLElement | null>(null);
   const ids = items.map((item) => item.id).join("|");
+  useEffect(() => {
+    const node = navRef.current;
+    if (!node) return;
+    const sync = () => {
+      document.documentElement.style.setProperty("--profile-nav-height", `${Math.round(node.getBoundingClientRect().height)}px`);
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      document.documentElement.style.removeProperty("--profile-nav-height");
+    };
+  }, [ids]);
   useEffect(() => {
     const nodes = ids.split("|").map((id) => document.getElementById(id)).filter((node): node is HTMLElement => Boolean(node));
     if (!nodes.length) return;
     const visible = new Map<string, number>();
+    const styles = getComputedStyle(document.documentElement);
+    const topbar = Number.parseFloat(styles.getPropertyValue("--topbar-height")) || 84;
+    const nav = Number.parseFloat(styles.getPropertyValue("--profile-nav-height")) || 68;
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (entry.isIntersecting) visible.set(entry.target.id, entry.boundingClientRect.top);
@@ -628,12 +646,12 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
       }
       const top = [...visible.entries()].sort((a, b) => a[1] - b[1])[0];
       if (top) setActive(top[0]);
-    }, { rootMargin: "-96px 0px -55% 0px", threshold: 0 });
+    }, { rootMargin: `-${topbar + nav}px 0px -55% 0px`, threshold: 0 });
     nodes.forEach((node) => observer.observe(node));
     return () => observer.disconnect();
   }, [ids]);
   return (
-    <nav className="side-nav profile-nav" aria-label="On this page">
+    <nav ref={navRef} className="side-nav profile-nav" aria-label="On this page">
       {items.map((item) => (
         <a
           key={item.id}
