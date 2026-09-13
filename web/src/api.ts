@@ -17,17 +17,34 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
+export interface Meta {
+  product: string;
+  coverage: string;
+  propertyCount: number;
+  demonstration: boolean;
+  ownerVerification: string;
+  devMailbox: boolean;
+  /** Local-development shortcuts are available (PIN claim, debug sheet). Never true in production. */
+  debug: boolean;
+  counties: CountyMeta[];
+  map: { center: [number, number]; zoom: number; tiles: string; tileLayer: string; minZoom: number; maxZoom: number };
+  vocab: FieldDef[];
+  improvementCategories: string[];
+  documentTypes: string[];
+  preferenceOptions: Record<string, string[]>;
+}
+
+export interface FieldDef {
+  key: string;
+  label: string;
+  group: string;
+  layer: "official" | "owner" | "either";
+  valueType: "string" | "number" | "money" | "date" | "area" | "acres";
+  unit?: string;
+}
+
 export const api = {
-  meta: () => request<{
-    product: string;
-    coverage: string;
-    propertyCount: number;
-    demonstration: boolean;
-    ownerVerification: string;
-    devMailbox: boolean;
-    counties: CountyMeta[];
-    map: { center: [number, number]; zoom: number; tiles: string; tileLayer: string; minZoom: number; maxZoom: number };
-  }>("/api/meta"),
+  meta: () => request<Meta>("/api/meta"),
   me: () => request<{ user: User | null }>("/api/auth/me"),
   requestCode: (email: string) =>
     request<{ ok: boolean }>("/api/auth/request-code", { method: "POST", body: JSON.stringify({ email }) }),
@@ -52,18 +69,46 @@ export const api = {
     return request<{ documentId: string }>(`/api/properties/${propertyId}/documents`, { method: "POST", body: form });
   },
   documents: (id: string) => request<{ documents: Doc[] }>(`/api/properties/${id}/documents`),
-  patchDocument: (id: string, body: { visibility?: string; transferability?: string }) =>
+  patchDocument: (id: string, body: { visibility?: string; transferability?: string; documentType?: string; caption?: string | null }) =>
     request<{ ok: boolean }>(`/api/documents/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteDocument: (id: string) => request<{ ok: boolean }>(`/api/documents/${id}`, { method: "DELETE" }),
   saveOwnerFields: (id: string, fields: Record<string, unknown>) =>
-    request<{ contributionId: string }>(`/api/properties/${id}/owner-fields`, {
+    request<{ contributionId: string | null; updated: number; removed: number }>(`/api/properties/${id}/owner-fields`, {
       method: "POST",
       body: JSON.stringify({ fields }),
     }),
+  createImprovement: (id: string, body: ImprovementInput) =>
+    request<{ improvement: Improvement }>(`/api/properties/${id}/improvements`, { method: "POST", body: JSON.stringify(body) }),
+  patchImprovement: (id: string, body: Partial<ImprovementInput>) =>
+    request<{ improvement: Improvement }>(`/api/improvements/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteImprovement: (id: string) => request<{ ok: boolean }>(`/api/improvements/${id}`, { method: "DELETE" }),
+  dispute: (id: string, body: { fieldKey: string; proposedValue?: string; note?: string }) =>
+    request<{ contributionId: string }>(`/api/properties/${id}/disputes`, { method: "POST", body: JSON.stringify(body) }),
+  withdrawContribution: (id: string) => request<{ ok: boolean }>(`/api/contributions/${id}`, { method: "DELETE" }),
+  savePreferences: (id: string, preferences: Record<string, string>) =>
+    request<{ preferences: Record<string, string> }>(`/api/properties/${id}/preferences`, {
+      method: "PUT",
+      body: JSON.stringify({ preferences }),
+    }),
+  inviteCoOwner: (id: string, email: string) =>
+    request<{ invitationId: string }>(`/api/properties/${id}/maintainers/invite`, { method: "POST", body: JSON.stringify({ email }) }),
+  acceptInvitation: (id: string) => request<{ ok: boolean; propertyId: string }>(`/api/invitations/${id}/accept`, { method: "POST" }),
+  cancelInvitation: (id: string) => request<{ ok: boolean }>(`/api/invitations/${id}`, { method: "DELETE" }),
+  removeMaintainer: (propertyId: string, maintainerId: string) =>
+    request<{ ok: boolean }>(`/api/properties/${propertyId}/maintainers/${maintainerId}/remove`, { method: "POST" }),
   handoff: (id: string, email: string) =>
     request<{ invitationId: string }>(`/api/properties/${id}/handoff`, {
       method: "POST",
       body: JSON.stringify({ email }),
     }),
+  debugState: () => request<DebugState>("/api/dev/debug/state"),
+  debugClaim: (id: string, pin: string) =>
+    request<{ ok: boolean; claimId?: string; alreadyMaintainer?: boolean; user: User; signedIn: boolean }>(`/api/dev/debug/claim/${id}`, {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
+  debugRevoke: (id: string, userId?: string) =>
+    request<{ ok: boolean }>(`/api/dev/debug/revoke/${id}`, { method: "POST", body: JSON.stringify({ userId }) }),
   adminClaims: (status = "pending") => request<{ claims: AdminClaim[] }>(`/api/admin/claims?status=${status}`),
   reviewClaim: (id: string, decision: "verified" | "rejected", note?: string) =>
     request<{ ok: boolean }>(`/api/admin/claims/${id}/review`, {
@@ -123,23 +168,95 @@ export interface SearchHit {
 
 export interface Viewer {
   maintainer: boolean;
+  role: string | null;
+  verifiedAt: string | null;
   admin: boolean;
+  invitation: { invitation_id: string; role: string; invited_by_name: string | null } | null;
+  preferences: Record<string, string> | null;
+  openClaim: { claim_id: string; status: string } | null;
 }
+
+export interface Dispute {
+  contributionId: string;
+  fieldKey: string;
+  label: string;
+  proposedValue: unknown;
+  note: string | null;
+  createdAt: string;
+  contributorUserId: string | null;
+}
+
+export type FactStatus = "available" | "unknown" | "conflicting" | "inferred" | "owner_reported";
 
 export interface Fact {
   fieldKey: string;
   label: string;
   group: string;
-  layer: string;
-  status: "available" | "unknown" | "conflicting" | "inferred";
+  layer: "official" | "owner" | "either";
+  status: FactStatus;
   value: unknown;
   display: string | null;
   assertions: Array<{
     assertionId: string;
+    value: unknown;
     display: string | null;
     sourceType: string;
     sourceName: string | null;
     effectiveAt: string | null;
+  }>;
+  dispute?: Dispute;
+}
+
+export interface ImprovementInput {
+  title: string;
+  category: string;
+  performedAt?: string | null;
+  cost?: string | number | null;
+  contractor?: string | null;
+  notes?: string | null;
+  visibility?: string;
+}
+
+export interface Improvement {
+  improvement_id: string;
+  property_id: string;
+  created_by: string | null;
+  title: string;
+  category: string;
+  performed_at: string | null;
+  cost_cents: number | null;
+  contractor: string | null;
+  notes: string | null;
+  visibility: string;
+  transferability: string;
+  created_at: string;
+  documents: Doc[];
+}
+
+export interface Invitation {
+  invitation_id: string;
+  invited_email: string;
+  role: string;
+  created_at: string;
+}
+
+export interface DebugState {
+  pin: string;
+  debugOwnerEmail: string;
+  user: User | null;
+  maintainers: Array<{
+    maintainer_id: string;
+    property_id: string;
+    role: string;
+    verified_at: string;
+    user_id: string;
+    primary_email: string;
+    display_name: string | null;
+    formatted: string | null;
+    municipality: string | null;
+    county: string;
+    method: string | null;
+    mine: boolean;
   }>;
 }
 
@@ -157,13 +274,18 @@ export interface PropertyPage {
   events: Array<{
     event_id: string;
     event_type: string;
+    actor_type?: string | null;
     payload_json: Record<string, unknown>;
     effective_at: string | null;
     created_at: string;
   }>;
-  maintainers: Array<{ role: string; display_name: string | null; primary_email: string }>;
+  maintainers: Array<{ maintainer_id: string; user_id: string; role: string; verified_at: string; display_name: string | null; primary_email: string }>;
   coverage: Record<string, string>;
   historyNote: string;
+  improvements: Improvement[];
+  documents: Doc[];
+  invitations: Invitation[];
+  disputes: Dispute[];
 }
 
 export interface Claim {
@@ -185,8 +307,11 @@ export interface Doc {
   document_id: string;
   original_filename: string;
   document_type: string;
+  mime_type?: string | null;
   visibility?: string;
   transferability?: string;
+  caption?: string | null;
+  improvement_id?: string | null;
   byte_size: number;
   created_at: string;
 }

@@ -81,7 +81,7 @@ export interface DocumentRow {
 export async function loadImprovements(propertyId: string, viewerIsMaintainer: boolean) {
   const sql = getSql();
   const improvements = await sql<ImprovementRow[]>`
-    SELECT improvement_id, property_id, created_by, title, category, performed_at, cost_cents,
+    SELECT improvement_id, property_id, created_by, title, category, performed_at::text AS performed_at, cost_cents,
            contractor, notes, visibility, transferability, created_at
     FROM property_improvements
     WHERE property_id = ${propertyId} AND removed_at IS NULL
