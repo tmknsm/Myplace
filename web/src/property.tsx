@@ -637,9 +637,18 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
     if (!node) return;
     const root = document.documentElement;
     const check = () => {
-      // A stuck sticky element sits exactly at its `top`; inline it is further down.
-      const stickyTop = Number.parseFloat(getComputedStyle(node).top) || 0;
-      root.classList.toggle("nav-docked", node.getBoundingClientRect().top <= stickyTop + 0.5);
+      const styles = getComputedStyle(root);
+      const header = Number.parseFloat(styles.getPropertyValue("--topbar-height")) || 0;
+      const brandRow = Number.parseFloat(styles.getPropertyValue("--topbar-main-height")) || header;
+      // On narrow screens the tabs stick under the brand row, so on the way there
+      // they travel through the header's search row. How far they have come is the
+      // distance the search row slides up out of the way.
+      const searchRow = Math.max(0, header - brandRow);
+      const reach = header - node.getBoundingClientRect().top;
+      const penetration = Math.min(searchRow, Math.max(0, reach));
+      root.classList.toggle("nav-docked", reach >= -0.5);
+      root.classList.toggle("search-tucked", reach >= -0.5 && penetration >= searchRow - 0.5);
+      root.style.setProperty("--nav-penetration", `${penetration}px`);
     };
     check();
     // --topbar-height is written by the layout's effect, which runs after this one.
@@ -650,7 +659,8 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", check);
       window.removeEventListener("resize", check);
-      root.classList.remove("nav-docked");
+      root.classList.remove("nav-docked", "search-tucked");
+      root.style.removeProperty("--nav-penetration");
     };
   }, []);
   useEffect(() => {
@@ -658,7 +668,8 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
     if (!nodes.length) return;
     const visible = new Map<string, number>();
     const styles = getComputedStyle(document.documentElement);
-    const topbar = Number.parseFloat(styles.getPropertyValue("--topbar-height")) || 84;
+    // Once docked the chrome ends at brand row + tabs; the search row has slid away.
+    const topbar = Number.parseFloat(styles.getPropertyValue("--topbar-main-height")) || Number.parseFloat(styles.getPropertyValue("--topbar-height")) || 84;
     const nav = Number.parseFloat(styles.getPropertyValue("--profile-nav-height")) || 68;
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {

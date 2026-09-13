@@ -20,6 +20,8 @@
   --tap: 44px;
   --topbar-pad-bottom: 24px;
   --profile-nav-pad-y: 16px;
+  /* Docked tabs sit 10px (brand row padding) + this below the brand links: 16px, matching the bottom. */
+  --profile-nav-pad-top: 6px;
   /* Frosted chrome shared by the top nav and anything that docks under it. */
   --chrome-fill: color-mix(in srgb, var(--canvas) 78%, transparent);
   --chrome-blur: saturate(1.4) blur(20px);
@@ -1442,23 +1444,36 @@ table small { display: block; }
   .stat:nth-last-child(-n + 2):nth-child(odd),
   .stat:last-child { border-bottom: 0; }
   .stat strong { font-size: 17px; }
-  /* 22px original grid gap + the 16px that used to be nav padding-top. */
-  .profile-grid { grid-template-columns: 1fr; gap: 12px; margin-top: 38px; min-width: 0; }
+  /* 38px of former spacing above the tabs, less the pad the wrapper now carries. */
+  .profile-grid { grid-template-columns: 1fr; gap: 12px; margin-top: calc(38px - var(--profile-nav-pad-top)); min-width: 0; }
+  /*
+   * The tabs stick under the brand row, not under the whole header. On the way
+   * there they travel through the search row's slot; --nav-penetration (set on
+   * scroll) is how far they have come, and drives everything else below so the
+   * search row, the tabs and the glass move as one.
+   */
   .profile-grid .profile-nav-wrap {
     position: sticky;
-    top: var(--topbar-height, calc(52px + env(safe-area-inset-top)));
+    top: var(--topbar-main-height, calc(64px + env(safe-area-inset-top)));
     z-index: 15;
     margin: 0 calc(-1 * var(--pad));
+    padding-top: var(--profile-nav-pad-top);
     min-width: 0;
   }
+  /* The search row slides up behind the brand row by exactly the tabs' progress. */
+  html.nav-docked .topbar .header-search.narrow-only {
+    transform: translateY(calc(-1 * var(--nav-penetration, 0px)));
+    clip-path: inset(var(--nav-penetration, 0px) 0 0 0);
+  }
+  html.search-tucked .topbar .header-search.narrow-only { visibility: hidden; }
   /*
    * Docked: the header's glass sheet grows to cover the tabs, so header and tab
-   * bar share one uninterrupted blur. The class flips while only canvas sits
-   * behind the bar (38px of margin above it, 12px below), so the swap itself
-   * changes no pixels. Nothing about the tabs' geometry changes.
+   * bar share one uninterrupted blur. Its bottom edge follows the tabs while
+   * they push the search row away, then rests at brand row + tabs. The class
+   * flips while only canvas sits behind the bar, so the swap changes no pixels.
    */
   html.nav-docked .chrome-glass::before {
-    height: calc(var(--topbar-height, 0px) + var(--profile-nav-height, 0px));
+    height: calc(var(--topbar-height, 0px) + var(--profile-nav-height, 0px) - var(--nav-penetration, 0px));
   }
   /* Until the dock class lands (at most a frame late), the bar frosts itself. */
   .profile-grid .profile-nav-wrap::before {
@@ -1495,8 +1510,8 @@ table small { display: block; }
     font-size: 13px;
   }
   .profile-grid .profile-nav a.on { color: #fff; background: var(--ink); box-shadow: none; }
-  .profile .section { margin-top: 28px; scroll-margin-top: calc(var(--topbar-height, 112px) + var(--profile-nav-height, 68px)); }
-  .owner-tools-head { margin-top: 40px; scroll-margin-top: calc(var(--topbar-height, 112px) + var(--profile-nav-height, 68px)); }
+  .profile .section { margin-top: 28px; scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
+  .owner-tools-head { margin-top: 40px; scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
   .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .photo-grid.featured > .photo-card:first-child { grid-column: span 2; grid-row: auto; }
   .photo-grid.featured > .photo-card:first-child .photo-open { aspect-ratio: 16 / 10; min-height: 0; }

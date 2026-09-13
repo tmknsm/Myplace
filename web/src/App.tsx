@@ -21,7 +21,11 @@ function Layout({ children }: { children: React.ReactNode }) {
     const sync = () => {
       // Keep the fraction: rounding either way opens a hairline gap or tucks
       // whatever docks beneath the header under its edge.
-      document.documentElement.style.setProperty("--topbar-height", `${node.getBoundingClientRect().height}px`);
+      const rect = node.getBoundingClientRect();
+      const main = node.querySelector(".topbar-main")?.getBoundingClientRect();
+      document.documentElement.style.setProperty("--topbar-height", `${rect.height}px`);
+      // Bottom of the brand row; on narrow screens the search row sits below it.
+      document.documentElement.style.setProperty("--topbar-main-height", `${main ? main.bottom - rect.top : rect.height}px`);
     };
     sync();
     const observer = new ResizeObserver(sync);
