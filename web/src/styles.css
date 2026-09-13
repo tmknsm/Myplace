@@ -18,7 +18,7 @@
   --radius-sm: 10px;
   --pad: 22px;
   --tap: 44px;
-  --topbar-pad-bottom: 16px;
+  --topbar-pad-bottom: 24px;
 }
 
 * { box-sizing: border-box; }
