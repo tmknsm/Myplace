@@ -311,7 +311,7 @@ img, svg { max-width: 100%; }
   font-size: 14px;
   overflow-wrap: break-word;
 }
-.mono { font-variant-numeric: tabular-nums; font-size: 13px; overflow-wrap: anywhere; }
+.mono { font-variant-numeric: tabular-nums; font-size: 13px; overflow-wrap: break-word; }
 
 .section { margin-top: 28px; }
 .section h2 {
@@ -339,7 +339,7 @@ img, svg { max-width: 100%; }
   border-bottom: 1px solid var(--hairline);
 }
 .fact-label { color: var(--muted); font-size: 14px; padding-top: 1px; overflow-wrap: break-word; word-break: normal; }
-.fact-value { font-size: 16px; overflow-wrap: anywhere; }
+.fact-value { font-size: 16px; overflow-wrap: break-word; }
 .fact-value strong { font-weight: 590; }
 .badge {
   display: inline-block;
