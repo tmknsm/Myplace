@@ -19,7 +19,7 @@ function Layout({ children }: { children: React.ReactNode }) {
     const node = topbarRef.current;
     if (!node) return;
     const sync = () => {
-      document.documentElement.style.setProperty("--topbar-height", `${Math.round(node.getBoundingClientRect().height)}px`);
+      document.documentElement.style.setProperty("--topbar-height", `${Math.ceil(node.getBoundingClientRect().height)}px`);
     };
     sync();
     const observer = new ResizeObserver(sync);
