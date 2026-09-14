@@ -27,7 +27,7 @@ const SKIP_TYPES = new Set([
 
 export function shouldOptimizePhoto(mime: string | undefined, byteLength: number): boolean {
   if (!mime?.startsWith("image/") || SKIP_TYPES.has(mime)) return false;
-  if ((mime === "image/webp" || mime === "image/avif") && byteLength > 0 && byteLength <= 1_500_000) return false;
+  if (mime === "image/webp" || mime === "image/avif") return false;
   return true;
 }
 

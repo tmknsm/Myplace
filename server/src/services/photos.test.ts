@@ -62,7 +62,7 @@ test("pdf and gif uploads are not re-encoded", async () => {
   expect(shouldOptimizePhoto("image/gif", 80_000)).toBe(false);
   expect(shouldOptimizePhoto("image/heic", 2_000_000)).toBe(false);
   expect(shouldOptimizePhoto("image/webp", 800_000)).toBe(false);
-  expect(shouldOptimizePhoto("image/webp", 2_000_000)).toBe(true);
+  expect(shouldOptimizePhoto("image/webp", 2_000_000)).toBe(false);
   const raw = new Uint8Array([1, 2, 3, 4]);
   const result = await optimizePhoto(raw, "application/pdf", "bill.pdf");
   expect(result.bytes).toEqual(raw);
@@ -78,13 +78,13 @@ test("a large png becomes a smaller webp without changing the picture size budge
   expect(result.bytes.byteLength).toBeLessThan(png.byteLength * 0.5);
 }, 20_000);
 
-test("16 MP iPhone stills stay inside the Worker encode budget", () => {
+test("16 MP iPhone stills skip Worker WASM so the isolate does not OOM", () => {
   const still = Uint8Array.from([
     0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x12, 0x0b, 0x0d, 0x88, 0x03,
     0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00, 0xff, 0xd9,
   ]);
   expect(imageDimensions(still)).toEqual({ width: 3464, height: 4619 });
-  expect(tooBigForWorker(still)).toBe(false);
+  expect(tooBigForWorker(still)).toBe(true);
 });
 
 test("a jpeg that would OOM the Worker is stored as-is instead of decoded", async () => {
