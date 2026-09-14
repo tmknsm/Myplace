@@ -1582,14 +1582,14 @@ table small { display: block; }
 .sheet code { background: var(--surface); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
 
 /* ---- Property page: card system --------------------------------------- */
-/* Cards: 32px corners, 24px vertical / 16px horizontal inner padding. Framed
-   elements (photos, pills, fields, buttons): 8px corners. Page margins: 16px.
-   Card-to-card gaps: 6px. */
+/* Cards: 32px corners, 16px inner padding. Framed elements (photos, pills,
+   fields, badges, buttons): 16px corners. Page margins: 16px. Card-to-card
+   gaps: 6px. */
 .page.property-page {
   --radius: 32px;
-  --radius-sm: 8px;
-  --frame-radius: 8px;
-  --card-pad: 24px;
+  --radius-sm: 16px;
+  --frame-radius: 16px;
+  --card-pad: 16px;
   --card-pad-x: 16px;
   --gutter: 6px;
   --page-margin: 16px;
@@ -1682,13 +1682,20 @@ table small { display: block; }
 .property-page .photo-strip { gap: var(--gutter); }
 .property-page .photo-card,
 .property-page .photo-thumb,
+.property-page .photo-flag,
 .property-page .owner-chip,
 .property-page .chip,
+.property-page .vis-chip,
 .property-page .badge,
+.property-page .hero-pill,
 .property-page .segmented,
 .property-page .segmented button,
 .property-page .field,
+.property-page textarea,
+.property-page select,
 .property-page .mini-select,
+.property-page .btn,
+.property-page .btn.small,
 .property-page .add-value { border-radius: var(--frame-radius); }
 
 @media (max-width: 880px) {
