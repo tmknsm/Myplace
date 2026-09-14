@@ -1374,27 +1374,43 @@ function attachmentVisibility(file: File, improvementVisibility: string): string
   return file.type.startsWith("image/") ? improvementVisibility : "private";
 }
 
+function dateInputValue(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.length >= 10 ? value.slice(0, 10) : value;
+}
+
+function costInputValue(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined) return "";
+  return String(cents / 100);
+}
+
 function ImprovementForm({
   propertyId,
   categories,
+  item,
   onCancel,
   onSaved,
+  onDeleted,
 }: {
   propertyId: string;
   categories: string[];
+  item?: Improvement;
   onCancel: () => void;
   onSaved: (attachments: number) => Promise<void> | void;
+  onDeleted?: () => Promise<void> | void;
 }) {
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("roof");
-  const [performedAt, setPerformedAt] = useState("");
-  const [cost, setCost] = useState("");
-  const [contractor, setContractor] = useState("");
-  const [notes, setNotes] = useState("");
-  const [visibility, setVisibility] = useState("public");
+  const [title, setTitle] = useState(item?.title ?? "");
+  const [category, setCategory] = useState(item?.category ?? "roof");
+  const [performedAt, setPerformedAt] = useState(dateInputValue(item?.performed_at));
+  const [cost, setCost] = useState(costInputValue(item?.cost_cents));
+  const [contractor, setContractor] = useState(item?.contractor ?? "");
+  const [notes, setNotes] = useState(item?.notes ?? "");
+  const [visibility, setVisibility] = useState(item?.visibility ?? "public");
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const editing = Boolean(item);
 
   return (
     <form className="group form-card" data-testid="improvement-form" onSubmit={async (event) => {
@@ -1402,9 +1418,12 @@ function ImprovementForm({
       setBusy(true);
       setError(null);
       try {
-        const created = await api.createImprovement(propertyId, { title, category, performedAt: performedAt || null, cost: cost || null, contractor: contractor || null, notes: notes || null, visibility });
+        const payload = { title, category, performedAt: performedAt || null, cost: cost || null, contractor: contractor || null, notes: notes || null, visibility };
+        const improvementId = item
+          ? (await api.patchImprovement(item.improvement_id, payload)).improvement.improvement_id
+          : (await api.createImprovement(propertyId, payload)).improvement.improvement_id;
         for (const file of files) {
-          await api.upload(propertyId, file, { improvementId: created.improvement.improvement_id, visibility: attachmentVisibility(file, visibility) });
+          await api.upload(propertyId, file, { improvementId, visibility: attachmentVisibility(file, visibility) });
         }
         await onSaved(files.length);
       } catch (err) {
@@ -1442,6 +1461,9 @@ function ImprovementForm({
         <label className="stack span-2">
           <span>Receipts and photos</span>
           <input className="field file" type="file" multiple accept="image/*,application/pdf,.heic" onChange={(event) => setFiles(Array.from(event.target.files ?? []))} data-testid="improvement-files" />
+          {editing && item && item.documents.length > 0 && (
+            <small className="meta-line">{item.documents.length} already attached. New files are added to those.</small>
+          )}
           {files.length > 0 && <small className="meta-line">{files.map((file) => file.name).join(", ")}</small>}
         </label>
         <label className="stack span-2 inline-choice">
@@ -1454,9 +1476,37 @@ function ImprovementForm({
       </div>
       {error && <p className="error">{error}</p>}
       <div className="action-row compact">
-        <button type="submit" className="btn" disabled={busy || !title.trim()} data-testid="improvement-save">{busy ? "Saving…" : "Save improvement"}</button>
+        <button type="submit" className="btn" disabled={busy || !title.trim()} data-testid="improvement-save">{busy ? "Saving…" : editing ? "Save changes" : "Save improvement"}</button>
         <button type="button" className="btn secondary" onClick={onCancel} disabled={busy}>Cancel</button>
       </div>
+      {editing && item && onDeleted && (
+        <div className="form-danger">
+          {confirmDelete ? (
+            <span className="confirm-inline">
+              Delete this improvement and its attachments?
+              <button
+                type="button"
+                className="text-link danger"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError(null);
+                  try {
+                    await api.deleteImprovement(item.improvement_id);
+                    await onDeleted();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Could not delete improvement");
+                    setBusy(false);
+                  }
+                }}
+              >Delete</button>
+              <button type="button" className="text-link" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep</button>
+            </span>
+          ) : (
+            <button type="button" className="text-link danger" disabled={busy} data-testid="improvement-delete" onClick={() => setConfirmDelete(true)}>Delete improvement</button>
+          )}
+        </div>
+      )}
     </form>
   );
 }
@@ -1477,7 +1527,7 @@ function ImprovementCard({
   toast: Toast;
 }) {
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState(false);
+  const [editing, setEditing] = useState(false);
   const images = item.documents.filter(isImage);
   const files = item.documents.filter((doc) => !isImage(doc));
   const meta = [
@@ -1500,24 +1550,30 @@ function ImprovementCard({
     }
   };
 
+  if (editing) {
+    return (
+      <ImprovementForm
+        propertyId={propertyId}
+        categories={categories}
+        item={item}
+        onCancel={() => setEditing(false)}
+        onSaved={async (count) => {
+          setEditing(false);
+          toast(count ? `Improvement updated with ${count} new attachment${count === 1 ? "" : "s"}.` : "Improvement updated.");
+          await onChange();
+        }}
+        onDeleted={async () => {
+          toast("Improvement removed.");
+          await onChange();
+        }}
+      />
+    );
+  }
+
   return (
     <article className={`group improvement-card ${item.visibility === "private" ? "is-private" : ""}`} data-testid="improvement-card">
       <header className="improvement-head">
-        {owner ? (
-          <select
-            className="category-select"
-            value={item.category}
-            aria-label="Category"
-            onChange={async (event) => {
-              await api.patchImprovement(item.improvement_id, { category: event.target.value });
-              await onChange();
-            }}
-          >
-            {categories.map((key) => <option key={key} value={key}>{CATEGORY_LABEL[key] ?? key}</option>)}
-          </select>
-        ) : (
-          <span className="chip">{CATEGORY_LABEL[item.category] ?? item.category}</span>
-        )}
+        <span className="chip">{CATEGORY_LABEL[item.category] ?? item.category}</span>
         <h3>{item.title}</h3>
         {meta.length > 0 && (
           <ul className="improvement-meta">
@@ -1572,19 +1628,7 @@ function ImprovementCard({
             <button type="button" className={item.visibility === "public" ? "on" : ""} onClick={async () => { await api.patchImprovement(item.improvement_id, { visibility: "public" }); await onChange(); }}>Public</button>
             <button type="button" className={item.visibility === "private" ? "on" : ""} onClick={async () => { await api.patchImprovement(item.improvement_id, { visibility: "private" }); await onChange(); }}>Private</button>
           </div>
-          {confirm ? (
-            <span className="confirm-inline">
-              Remove this improvement and its attachments?
-              <button type="button" className="text-link danger" onClick={async () => {
-                await api.deleteImprovement(item.improvement_id);
-                toast("Improvement removed.");
-                await onChange();
-              }}>Remove</button>
-              <button type="button" className="text-link" onClick={() => setConfirm(false)}>Keep</button>
-            </span>
-          ) : (
-            <button type="button" className="text-link danger" onClick={() => setConfirm(true)}>Remove</button>
-          )}
+          <button type="button" className="text-link" data-testid="improvement-edit" onClick={() => setEditing(true)}>Edit</button>
         </div>
       )}
     </article>
