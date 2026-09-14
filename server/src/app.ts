@@ -1250,6 +1250,19 @@ app.post("/api/dev/debug/claim/:id", async (c) => {
   }
 
   const sql = getSql();
+  const existingOwner = await sql<{ primary_email: string }[]>`
+    SELECT u.primary_email
+    FROM property_maintainers m
+    JOIN users u ON u.user_id = m.user_id
+    WHERE m.property_id = ${propertyId} AND m.revoked_at IS NULL
+    LIMIT 1
+  `;
+  if (existingOwner[0]) {
+    return c.json({
+      error: `This property already has a verified owner (${existingOwner[0].primary_email}). Debug claim will not displace them.`,
+    }, 409);
+  }
+
   await sql`
     UPDATE ownership_claims SET status = 'superseded'
     WHERE property_id = ${propertyId} AND user_id = ${user.user_id} AND status IN ('draft', 'pending')

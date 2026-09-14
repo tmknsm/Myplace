@@ -717,6 +717,22 @@ test("debug PIN claim grants ownership and a follow-up page load sees the owner"
   expect(pageBody.property.maintainers).toHaveLength(1);
 });
 
+test("debug PIN claim refuses to displace a verified owner", async () => {
+  await seedProperty();
+  await verifiedOwner("owner@example.com");
+  const claim = await app.request("http://localhost/api/dev/debug/claim/prop_test", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pin: DEBUG_CLAIM_PIN }),
+  });
+  expect(claim.status).toBe(409);
+  const page = await app.request("http://localhost/api/properties/prop_test");
+  const body = await page.json();
+  expect(body.property.maintainers).toEqual([
+    expect.objectContaining({ primary_email: "owner@example.com" }),
+  ]);
+});
+
 test("debug sign-in accepts the 000000 shortcut", async () => {
   const res = await app.request("http://localhost/api/auth/verify", {
     method: "POST",
