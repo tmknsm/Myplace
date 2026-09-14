@@ -123,6 +123,7 @@ export function ParcelMap({
   center = [-73.828, 42.234],
   zoom = 11.6,
   embedded = false,
+  visible = true,
   focusKey,
   focusCenter,
   focusZoom,
@@ -134,6 +135,8 @@ export function ParcelMap({
   center?: [number, number];
   zoom?: number;
   embedded?: boolean;
+  /** Resize when a hidden carousel slide becomes visible. */
+  visible?: boolean;
   focusKey?: string;
   focusCenter?: [number, number];
   focusZoom?: number;
@@ -244,6 +247,18 @@ export function ParcelMap({
     if (!map || !focusCenter) return;
     map.flyTo({ center: focusCenter, zoom: focusZoom ?? 15, essential: true, duration: 800 });
   }, [focusKey, focusCenter, focusZoom]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const resize = () => map.resize();
+    const frame = requestAnimationFrame(() => {
+      resize();
+      requestAnimationFrame(resize);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [visible]);
 
   return (
     <div className="map-shell">

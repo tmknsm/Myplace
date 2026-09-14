@@ -886,6 +886,11 @@ tr:last-child td { border-bottom: 0; }
   scroll-snap-align: start;
   scroll-snap-stop: always;
 }
+.hero-map-slide {
+  position: relative;
+  overflow: hidden;
+}
+.hero-map-slide .map-shell { position: absolute; inset: 0; }
 .hero-slide img {
   -webkit-user-drag: none;
   user-select: none;

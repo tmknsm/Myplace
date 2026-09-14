@@ -232,8 +232,12 @@ export function PropertyPageView() {
   const photos = property.documents.filter(isImage);
   const available = photos.filter(hasFile);
   const cover = available.find((doc) => doc.is_cover) ?? available[0] ?? null;
-  const slides = cover ? [cover, ...available.filter((doc) => doc !== cover)] : [];
-  const slide = slides[Math.min(heroIndex, Math.max(0, slides.length - 1))] ?? null;
+  const photoSlides = cover ? [cover, ...available.filter((doc) => doc !== cover)] : [];
+  const mapSlideIndex = photoSlides.length;
+  const heroSlideCount = mapSlideIndex + 1;
+  const heroSlide = Math.min(heroIndex, Math.max(0, heroSlideCount - 1));
+  const onMapSlide = heroSlide === mapSlideIndex;
+  const activePhoto = !onMapSlide ? photoSlides[heroSlide] ?? null : null;
   const summary = property.facts.find((fact) => fact.fieldKey === SUMMARY_KEY) ?? null;
   const hasSummary = Boolean(summary?.display);
   const systemsFacts = sections.get("systems") ?? [];
@@ -311,40 +315,42 @@ export function PropertyPageView() {
 
   const sectionProps = { owner, propertyId: id, onChange: refresh, toast: showToast };
 
+  const heroMap = (
+    <ParcelMap
+      embedded
+      visible={onMapSlide}
+      selectedId={property.property_id}
+      selectedGeometry={property.geojson}
+      onSelect={(next) => navigate(`/property/${next}`)}
+      zoom={16}
+    />
+  );
+
   const hero = (
-    <figure className={`profile-hero ${cover ? "has-photo" : "is-map"}`} data-testid="profile-hero">
-      {cover ? (
-        <HeroCarousel
-          slides={slides}
-          title={title}
-          index={heroIndex}
-          onIndex={setHeroIndex}
-          onOpen={(doc) => setLightbox(photos.indexOf(doc))}
-        />
-      ) : (
-        <ParcelMap
-          embedded
-          selectedId={property.property_id}
-          selectedGeometry={property.geojson}
-          onSelect={(next) => navigate(`/property/${next}`)}
-          zoom={16}
-        />
-      )}
+    <figure className={`profile-hero ${photoSlides.length ? "has-photo" : "is-map"}`} data-testid="profile-hero">
+      <HeroCarousel
+        photos={photoSlides}
+        title={title}
+        index={heroSlide}
+        onIndex={setHeroIndex}
+        onOpen={(doc) => setLightbox(photos.indexOf(doc))}
+        map={heroMap}
+      />
       <figcaption className="hero-overlay">
         <div className="hero-side">
-          {slide && owner && slide.visibility !== "public" && (
+          {activePhoto && owner && activePhoto.visibility !== "public" && (
             <button type="button" className="hero-pill warn" onClick={async () => {
-              await api.patchDocument(slide.document_id, { visibility: "public" });
-              showToast(slide.is_cover ? "Cover photo is now public." : "Photo is now public.");
+              await api.patchDocument(activePhoto.document_id, { visibility: "public" });
+              showToast(activePhoto.is_cover ? "Cover photo is now public." : "Photo is now public.");
               await load();
-            }}>Only you can see this {slide.is_cover ? "cover" : "photo"} · Make public</button>
+            }}>Only you can see this {activePhoto.is_cover ? "cover" : "photo"} · Make public</button>
           )}
-          {!cover && owner && (
+          {photoSlides.length === 0 && owner && (
             <PhotoFileButton className="btn hero-cta" busy={uploading} testId="cover-input" labelTestId="cover-input-label" onPick={(files) => uploadPhotos(files, { cover: true })} onError={reportPhotoError}>
               Add a cover photo
             </PhotoFileButton>
           )}
-          {!cover && !owner && property.geometryQuality && (
+          {onMapSlide && !owner && property.geometryQuality && (
             <span className="hero-pill quiet">{property.geometryQuality === "official" ? "Official lot lines" : property.geometryQuality === "approximate" ? "Approximate lot lines" : "Demonstration sketch"}</span>
           )}
         </div>
@@ -500,17 +506,6 @@ export function PropertyPageView() {
             facts={sections.get("location") ?? []}
             before={(
               <>
-                {cover && (
-                  <div className="map-card">
-                    <ParcelMap
-                      embedded
-                      selectedId={property.property_id}
-                      selectedGeometry={property.geojson}
-                      onSelect={(next) => navigate(`/property/${next}`)}
-                      zoom={16}
-                    />
-                  </div>
-                )}
                 <div className="notice property-notice">
                   {property.geometryNotice ?? "Lot lines are not available for this parcel."}
                   {" "}Every important fact shows its source.
@@ -684,21 +679,24 @@ function placeHeroThumb(el: HTMLElement | null, progress: number, count: number)
  * read which slide has settled so the dots can follow.
  */
 function HeroCarousel({
-  slides,
+  photos,
   title,
   index,
   onIndex,
   onOpen,
+  map,
 }: {
-  slides: Doc[];
+  photos: Doc[];
   title: string;
   index: number;
   onIndex: (index: number) => void;
   onOpen: (doc: Doc) => void;
+  map: ReactNode;
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const thumbRef = useRef<HTMLSpanElement | null>(null);
-  const count = slides.length;
+  const mapIndex = photos.length;
+  const count = mapIndex + 1;
   const current = Math.min(index, Math.max(0, count - 1));
 
   useEffect(() => {
@@ -725,13 +723,15 @@ function HeroCarousel({
 
   // A shorter list (photo removed) can leave the track past its last slide.
   useEffect(() => {
+    if (index > count - 1) onIndex(count - 1);
     const track = trackRef.current;
     if (!track) return;
     const width = track.clientWidth;
-    if (width && Math.round(track.scrollLeft / width) !== current) {
-      track.scrollTo({ left: current * width, behavior: "auto" });
+    const settled = Math.min(current, count - 1);
+    if (width && Math.round(track.scrollLeft / width) !== settled) {
+      track.scrollTo({ left: settled * width, behavior: "auto" });
     }
-  }, [count, current]);
+  }, [count, current, index, onIndex]);
 
   const goTo = (next: number) => {
     const track = trackRef.current;
@@ -743,13 +743,13 @@ function HeroCarousel({
   return (
     <>
       <div ref={trackRef} className="hero-track" data-testid="hero-track">
-        {slides.map((doc, i) => (
+        {photos.map((doc, i) => (
           <button
             key={doc.document_id}
             type="button"
             className="hero-image hero-slide"
             onClick={() => onOpen(doc)}
-            aria-label={`Open photo ${i + 1} of ${count}`}
+            aria-label={`Open photo ${i + 1} of ${photos.length}`}
             tabIndex={i === current ? 0 : -1}
           >
             <img
@@ -760,11 +760,14 @@ function HeroCarousel({
             />
           </button>
         ))}
+        <div className="hero-slide hero-map-slide" aria-label="Parcel map" data-testid="hero-map-slide">
+          {map}
+        </div>
       </div>
       {count > 1 && (
-        <div className="hero-dots" role="tablist" aria-label="Photos">
+        <div className="hero-dots" role="tablist" aria-label="Hero">
           <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
-          {slides.map((doc, i) => (
+          {photos.map((doc, i) => (
             <button
               key={doc.document_id}
               type="button"
@@ -775,6 +778,14 @@ function HeroCarousel({
               onClick={() => goTo(i)}
             />
           ))}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={current === mapIndex}
+            aria-label="Map"
+            className={current === mapIndex ? "on" : ""}
+            onClick={() => goTo(mapIndex)}
+          />
         </div>
       )}
     </>
