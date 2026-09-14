@@ -231,6 +231,20 @@ test("search, property page, and claim review", async () => {
   expect(claim.status).toBe(201);
   const { claimId } = await claim.json();
 
+  const pendingPage = await app.request("http://localhost/api/properties/prop_test", {
+    headers: { cookie: ownerCookie },
+  });
+  const pendingBody = await pendingPage.json();
+  expect(pendingBody.viewer.maintainer).toBe(false);
+  expect(pendingBody.viewer.openClaim?.claim_id).toBe(claimId);
+
+  const prematureWrite = await app.request("http://localhost/api/properties/prop_test/owner-fields", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ fields: { "roof.year": 2018 } }),
+  });
+  expect(prematureWrite.status).toBe(403);
+
   const adminCookie = await signIn("admin@example.com", true);
   const review = await app.request(`http://localhost/api/admin/claims/${claimId}/review`, {
     method: "POST",
@@ -713,6 +727,33 @@ test("debug sign-in accepts the 000000 shortcut", async () => {
   const body = await res.json();
   expect(body.user.primary_email).toBe("admin@myplace.local");
   expect(res.headers.get("set-cookie") ?? "").toMatch(/myplace_session=/);
+});
+
+test("a pending claim does not let an admin manage the property", async () => {
+  await seedProperty();
+  const cookie = await signIn("michaeltomkins@gmail.com", true);
+  const claim = await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ method: "utility_and_id", attestationAccepted: true }),
+  });
+  expect(claim.status).toBe(201);
+
+  const page = await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } });
+  const body = await page.json();
+  expect(body.viewer.admin).toBe(true);
+  expect(body.viewer.maintainer).toBe(false);
+  expect(body.viewer.openClaim).toBeTruthy();
+
+  const write = await app.request("http://localhost/api/properties/prop_test/owner-fields", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ fields: { "roof.year": 2018 } }),
+  });
+  expect(write.status).toBe(403);
+
+  const docs = await app.request("http://localhost/api/properties/prop_test/documents", { headers: { cookie } });
+  expect(docs.status).toBe(403);
 });
 
 test("production tester login accepts 000000 without a mailed code", async () => {

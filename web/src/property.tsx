@@ -175,7 +175,10 @@ export function PropertyPageView() {
         const next = await api.property(id);
         setData((current) => {
           // A follow-up fetch that raced the session cookie must not wipe the
-          // owner profile we just flipped into after a claim.
+          // owner profile we just flipped into after a verified PIN claim.
+          // A pending claim, or a different parcel, is never owner access.
+          if (current?.property.property_id !== next.property.property_id) return next;
+          if (next.viewer.openClaim) return next;
           if (!opts?.allowDowngrade && current?.viewer.maintainer && !next.viewer.maintainer) return current;
           return next;
         });
@@ -190,6 +193,7 @@ export function PropertyPageView() {
     if (last) setError(last.message);
   }, [id]);
 
+  useEffect(() => { setData(null); }, [id]);
   useEffect(() => { void load({ allowDowngrade: !user }); }, [load, user?.user_id]);
   useOwnershipChanges(id, () => { void load({ allowDowngrade: true }); });
 
@@ -207,7 +211,7 @@ export function PropertyPageView() {
   if (!data || !id) return <div className="page">Loading record…</div>;
 
   const { property, viewer } = data;
-  const owner = viewer.maintainer;
+  const owner = Boolean(viewer.maintainer && !viewer.openClaim);
   const locality = property.formatted?.includes(",")
     ? property.formatted.slice(property.formatted.indexOf(",") + 1).trim()
     : null;
@@ -973,7 +977,9 @@ function AboutSection({
       ) : (
         <div className="group empty-card about-empty">
           <p>Every property has a story. Say what makes this one itself: when it was built, what has been done, what a neighbor would tell you.</p>
-          <button type="button" className="btn secondary small" onClick={() => setEditing(true)} data-testid="about-start">Write about this place</button>
+          {owner && (
+            <button type="button" className="btn secondary small" onClick={() => setEditing(true)} data-testid="about-start">Write about this place</button>
+          )}
         </div>
       )}
     </section>

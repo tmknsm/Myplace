@@ -297,10 +297,18 @@ app.get("/api/geo/county", async (c) => {
 app.get("/api/properties/:id", async (c) => {
   const propertyId = c.req.param("id");
   const user = c.get("user");
-  const maintainer = user ? await isMaintainer(user.user_id, propertyId) : false;
+  const sql = getSql();
+  const openClaim = user
+    ? (await sql<{ claim_id: string; status: string }[]>`
+        SELECT claim_id, status FROM ownership_claims
+        WHERE property_id = ${propertyId} AND user_id = ${user.user_id} AND status IN ('draft', 'pending')
+        ORDER BY created_at DESC LIMIT 1
+      `)[0] ?? null
+    : null;
+  // A claim still under review is not ownership. Admin status is not either.
+  const maintainer = Boolean(user && !openClaim && await isMaintainer(user.user_id, propertyId));
   const page = await loadPropertyPage(propertyId, { viewerIsMaintainer: maintainer });
   if (!page) return c.json({ error: "Property not found" }, 404);
-  const sql = getSql();
   const role = maintainer && user
     ? (await sql<{ role: string; verified_at: string }[]>`
         SELECT role, verified_at FROM property_maintainers
@@ -312,19 +320,12 @@ app.get("/api/properties/:id", async (c) => {
     const dispute = disputes.find((item) => item.fieldKey === fact.fieldKey);
     return dispute ? { ...fact, dispute } : fact;
   });
-  const [improvements, documents, invitations, invitation, preferences, openClaim] = await Promise.all([
+  const [improvements, documents, invitations, invitation, preferences] = await Promise.all([
     loadImprovements(page.property_id, maintainer),
     loadDocuments(page.property_id, maintainer),
     maintainer ? loadPendingInvitations(page.property_id) : Promise.resolve([]),
     user && !maintainer ? pendingInvitationFor(page.property_id, user.primary_email) : Promise.resolve(null),
     maintainer && user ? loadPreferences(user.user_id, page.property_id) : Promise.resolve(null),
-    user
-      ? sql<{ claim_id: string; status: string }[]>`
-          SELECT claim_id, status FROM ownership_claims
-          WHERE property_id = ${page.property_id} AND user_id = ${user.user_id} AND status IN ('draft', 'pending')
-          ORDER BY created_at DESC LIMIT 1
-        `.then((rows) => rows[0] ?? null)
-      : Promise.resolve(null),
   ]);
   return c.json({
     property: { ...page, facts, improvements, documents, invitations, disputes },
@@ -514,7 +515,7 @@ app.post("/api/properties/:id/documents", async (c) => {
       WHERE claim_id = ${claimId} AND user_id = ${user.user_id} AND property_id = ${propertyId}
     `;
     if (!claim[0]) return c.json({ error: "Claim not found" }, 404);
-  } else if (!(await isMaintainer(user.user_id, propertyId)) && !user.is_admin) {
+  } else if (!(await isMaintainer(user.user_id, propertyId))) {
     return c.json({ error: "Only a current maintainer can upload to this record." }, 403);
   }
   if (improvementId) {
@@ -554,7 +555,7 @@ app.get("/api/properties/:id/documents", async (c) => {
   const user = requireUser(c);
   const propertyId = c.req.param("id");
   const maintainer = await isMaintainer(user.user_id, propertyId);
-  if (!maintainer && !user.is_admin) return c.json({ error: "Forbidden" }, 403);
+  if (!maintainer) return c.json({ error: "Forbidden" }, 403);
   return c.json({ documents: await loadDocuments(propertyId, true) });
 });
 
@@ -566,7 +567,7 @@ async function loadOwnedDocument(c: Parameters<typeof requireUser>[0], documentI
   `;
   const doc = rows[0];
   if (!doc) throw Object.assign(new Error("Not found"), { status: 404 });
-  if (!(await isMaintainer(user.user_id, doc.property_id)) && !user.is_admin) {
+  if (!(await isMaintainer(user.user_id, doc.property_id))) {
     throw Object.assign(new Error("Forbidden"), { status: 403 });
   }
   return { user, doc };
