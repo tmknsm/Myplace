@@ -470,8 +470,8 @@ test("former owner loses maintainer access after a handoff claim is verified", a
   expect((await buyerNow.json()).properties).toHaveLength(1);
 });
 
-function withStore<T>(store: DocumentStore, fn: () => Promise<T>): Promise<T> {
-  return runWithRuntime({ env: process.env, storage: store }, fn);
+function withStore<T>(store: DocumentStore, fn: () => T | Promise<T>): Promise<T> {
+  return Promise.resolve(runWithRuntime({ env: process.env, storage: store }, fn));
 }
 
 test("public photos are served to visitors; private ones stay gated", async () => {
