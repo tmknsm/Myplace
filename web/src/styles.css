@@ -1770,18 +1770,11 @@ html.dialog-open body {
   --page-inline-end: max(var(--page-margin), env(safe-area-inset-right));
   padding: 0 var(--page-inline-end) max(var(--page-margin), env(safe-area-inset-bottom)) var(--page-inline-start);
 }
-/* Hero keeps the card radius on top and stays square at the bottom. The page
-   sheet rides up over that bottom edge so only the sheet's rounded corners sit
-   on the photo. No z-index here: a stacking context would trap the docked
-   chip bar under the header chrome. */
-.property-page {
-  --hero-overlap: var(--radius);
-  --hero-ui-inset: calc(var(--card-pad) + var(--hero-overlap));
-}
+/* Hero is full-bleed: flush under the header, edge to edge, rounded top only. */
 .property-page .profile-hero-band {
   width: 100vw;
   max-width: 100vw;
-  margin: 0;
+  margin: 0 0 var(--gutter);
   margin-left: calc(50% - 50vw);
   margin-right: calc(50% - 50vw);
   background: none;
@@ -1789,26 +1782,8 @@ html.dialog-open body {
 }
 .property-page .profile-hero {
   border-radius: var(--radius) var(--radius) 0 0;
-  isolation: isolate;
 }
-.property-page .profile-body {
-  position: relative;
-  width: 100vw;
-  max-width: 100vw;
-  margin-top: calc(-1 * var(--hero-overlap));
-  margin-left: calc(50% - 50vw);
-  margin-right: calc(50% - 50vw);
-  padding: 0 var(--page-inline-end) 0 var(--page-inline-start);
-  background: var(--canvas);
-  border-radius: var(--radius) var(--radius) 0 0;
-}
-.property-page .hero-overlay { padding: var(--card-pad) var(--card-pad-x) var(--hero-ui-inset); }
-.property-page .hero-dots {
-  bottom: var(--hero-ui-inset);
-  height: 32px;
-  align-items: center;
-}
-.property-page .profile-hero .maplibregl-ctrl-bottom-right { bottom: var(--hero-ui-inset); }
+.property-page .hero-overlay { padding: var(--card-pad) var(--card-pad-x); }
 /* The address card reads as type on the canvas: no fill, flush with the page. */
 .property-page .profile-head,
 .property-page .profile-head.group {
@@ -1948,7 +1923,7 @@ html.dialog-open body {
   }
 
   .profile-hero-band { margin-bottom: 16px; }
-  .property-page .profile-hero-band { margin-bottom: 0; }
+  .property-page .profile-hero-band { margin-bottom: var(--gutter); }
   .profile-head { gap: 14px; margin-bottom: 14px; align-items: flex-start; }
   .property-page .profile-head { margin-bottom: var(--gutter); }
   .property-page .stat-strip { margin-top: 0; margin-bottom: var(--gutter); }
