@@ -1505,7 +1505,7 @@ function ImprovementCard({
       <header className="improvement-head">
         {owner ? (
           <select
-            className="chip chip-select"
+            className="category-select"
             value={item.category}
             aria-label="Category"
             onChange={async (event) => {
@@ -1526,8 +1526,27 @@ function ImprovementCard({
         )}
       </header>
       {item.notes && <p className="improvement-notes">{item.notes}</p>}
-      {images.length > 0 && (
-        <ImprovementPhotos images={images} owner={owner} onChange={onChange} toast={toast} />
+      {(images.length > 0 || owner) && (
+        <ImprovementPhotos
+          images={images}
+          owner={owner}
+          onChange={onChange}
+          toast={toast}
+          trailing={owner ? (
+            <label className={`photo-thumb photo-add file-btn ${busy ? "is-busy" : ""}`} data-testid="improvement-add">
+              <span className="photo-add-plus" aria-hidden="true">+</span>
+              <span className="photo-add-label">{busy ? "Uploading…" : "Receipt or photo"}</span>
+              <input
+                type="file"
+                multiple
+                accept="image/*,application/pdf,.heic"
+                disabled={busy}
+                aria-label="Add receipt or photo"
+                onChange={(event) => { void attach(event.target.files); event.target.value = ""; }}
+              />
+            </label>
+          ) : null}
+        />
       )}
       {files.length > 0 && (
         <ul className="file-chips">
@@ -1549,10 +1568,6 @@ function ImprovementCard({
       )}
       {owner && (
         <div className="improvement-foot">
-          <label className={`btn secondary small file-btn ${busy ? "is-busy" : ""}`}>
-            {busy ? "Uploading…" : "Add receipt or photo"}
-            <input type="file" multiple accept="image/*,application/pdf,.heic" disabled={busy} onChange={(event) => { void attach(event.target.files); event.target.value = ""; }} />
-          </label>
           <div className="segmented small">
             <button type="button" className={item.visibility === "public" ? "on" : ""} onClick={async () => { await api.patchImprovement(item.improvement_id, { visibility: "public" }); await onChange(); }}>Public</button>
             <button type="button" className={item.visibility === "private" ? "on" : ""} onClick={async () => { await api.patchImprovement(item.improvement_id, { visibility: "private" }); await onChange(); }}>Private</button>
@@ -1739,11 +1754,13 @@ function ImprovementPhotos({
   owner,
   onChange,
   toast,
+  trailing,
 }: {
   images: Doc[];
   owner: boolean;
   onChange: () => Promise<void> | void;
   toast: (message: string) => void;
+  trailing?: React.ReactNode;
 }) {
   const [open, setOpen] = useState<number | null>(null);
   return (
@@ -1760,6 +1777,7 @@ function ImprovementPhotos({
             {hasFile(doc) ? <img src={fileUrl(doc)} alt="" loading="lazy" /> : <span className="photo-missing-label">Missing</span>}
           </button>
         ))}
+        {trailing}
       </div>
       {open !== null && images[open] && (
         <PhotoLightbox
