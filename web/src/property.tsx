@@ -640,7 +640,20 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
   const [active, setActive] = useState<string | null>(items[0]?.id ?? null);
   const navRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLElement | null>(null);
+  const pinRef = useRef<string | null>(null);
+  const pinTimer = useRef(0);
   const ids = items.map((item) => item.id).join("|");
+  const releasePin = () => {
+    pinRef.current = null;
+    window.clearTimeout(pinTimer.current);
+  };
+  const selectChip = (id: string) => {
+    pinRef.current = id;
+    setActive(id);
+    window.clearTimeout(pinTimer.current);
+    pinTimer.current = window.setTimeout(releasePin, 1600);
+    scrollToId(id);
+  };
   useEffect(() => {
     const node = navRef.current;
     if (!node) return;
@@ -697,11 +710,27 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
         else visible.delete(entry.target.id);
       }
       const top = [...visible.entries()].sort((a, b) => a[1] - b[1])[0];
+      // A tap pins the chip until page scroll settles. Ignore the sections we
+      // fly past so they do not flash selected on the way.
+      if (pinRef.current) return;
       if (top) setActive(top[0]);
     }, { rootMargin: `-${topbar + nav}px 0px -55% 0px`, threshold: 0 });
     nodes.forEach((node) => observer.observe(node));
     return () => observer.disconnect();
   }, [ids]);
+  useEffect(() => {
+    const onScrollEnd = (event: Event) => {
+      const target = event.target;
+      if (target === scrollerRef.current) return;
+      if (target !== document && target !== document.documentElement && target !== document.body && target !== document.scrollingElement) return;
+      releasePin();
+    };
+    window.addEventListener("scrollend", onScrollEnd);
+    return () => {
+      window.removeEventListener("scrollend", onScrollEnd);
+      window.clearTimeout(pinTimer.current);
+    };
+  }, []);
   useEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller || !active) return;
@@ -718,7 +747,7 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
             key={item.id}
             href={`#${item.id}`}
             className={active === item.id ? "on" : ""}
-            onClick={(event) => { event.preventDefault(); setActive(item.id); scrollToId(item.id); }}
+            onClick={(event) => { event.preventDefault(); selectChip(item.id); }}
           >
             {item.label}
           </a>
