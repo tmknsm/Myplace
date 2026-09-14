@@ -2310,10 +2310,77 @@ html.dialog-open body {
 
 /* Chapters */
 .home-story { margin-top: var(--home-gap); }
+
+/*
+ * Section bar. The property page's chip bar, brought to the landing page at
+ * every width: inline above the chapters, then stuck beneath the brand row as
+ * the reader scrolls into them. Full-bleed so the docked bar and the header's
+ * glass read as one sheet.
+ */
+.home-nav {
+  position: sticky;
+  top: var(--topbar-height, 84px);
+  z-index: 21;
+  margin: 0 calc(50% - 50vw);
+  min-width: 0;
+}
+/* Until the dock class lands (at most a frame late), the bar frosts itself. */
+.home-nav::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--chrome-fill);
+  backdrop-filter: var(--chrome-blur);
+  -webkit-backdrop-filter: var(--chrome-blur);
+  pointer-events: none;
+}
+/* Once docked, the header's glass sheet grows to cover the bar: one blur, no seam. */
+html.home-nav-docked .home-nav::before { display: none; }
+html.home-nav-docked .chrome-glass::before {
+  height: calc(var(--topbar-height, 0px) + var(--profile-nav-height, 0px));
+}
+.home-nav .profile-nav {
+  flex-direction: row;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  position: static;
+  top: auto;
+  gap: 6px;
+  margin: 0;
+  /* Chips line up with the page column, and scroll off the viewport's edge. */
+  padding:
+    var(--profile-nav-pad-top)
+    calc(max((100% - var(--home-max)) / 2, 0px) + var(--home-inline-end))
+    var(--profile-nav-pad-y)
+    calc(max((100% - var(--home-max)) / 2, 0px) + var(--home-inline-start));
+  min-width: 0;
+  background: none;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  scroll-padding-inline: var(--home-inline-start);
+}
+.home-nav .profile-nav::-webkit-scrollbar { display: none; }
+.home-nav .profile-nav a {
+  padding: 8px 14px;
+  white-space: nowrap;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  min-height: 38px;
+  font-size: 14px;
+}
+.home-nav .profile-nav a.on { color: #fff; background: var(--ink); box-shadow: none; }
+@media (min-width: 881px) {
+  /* Four chips never overflow here; sit them under the centered headline. */
+  .home-nav .profile-nav { justify-content: center; }
+}
+.home-nav + .home-section-head { margin-top: 44px; }
+.home-chapter { scroll-margin-top: calc(var(--topbar-height, 84px) + var(--profile-nav-height, 0px) + 12px); }
+
 .home-chapters {
   /* The stage and each chapter share one height, so the first chapter's copy
      sits centered beside the stage before it ever sticks. */
-  --home-stage-height: min(calc(100dvh - var(--topbar-height, 84px) - 40px), 660px);
+  --home-stage-height: min(calc(100dvh - var(--topbar-height, 84px) - var(--profile-nav-height, 0px) - 40px), 660px);
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
   gap: 72px;
@@ -2372,7 +2439,7 @@ html.dialog-open body {
 
 .home-stage {
   position: sticky;
-  top: calc(var(--topbar-height, 84px) + 20px);
+  top: calc(var(--topbar-height, 84px) + var(--profile-nav-height, 0px) + 20px);
   height: max(var(--home-stage-height), 480px);
   min-width: 0;
 }

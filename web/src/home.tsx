@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ParcelMap, SearchBox } from "./components";
 import { useMeta } from "./meta";
+import { SectionNav } from "./section-nav";
 
 // ---------------------------------------------------------------------------
 // Photography (Unsplash, free to use under the Unsplash License)
@@ -43,6 +44,18 @@ interface Chapter {
 
 const CHAPTERS: Chapter[] = [
   {
+    id: "curious",
+    audience: "For the curious",
+    title: "Every house has a story. Some owners tell it.",
+    body:
+      "Wander the map. See the paint color a neighbor chose, the year a porch was enclosed, the garden in July. Owners decide what to share, and anyone can look.",
+    points: [
+      "Browse what owners share: photos, colors, materials",
+      "Read the public history: sales, assessments, changes",
+      "Open the map and click any lot",
+    ],
+  },
+  {
     id: "owners",
     audience: "For homeowners",
     title: "A journal for the house.",
@@ -78,19 +91,17 @@ const CHAPTERS: Chapter[] = [
       "Nothing marked private ever leaves your account",
     ],
   },
-  {
-    id: "curious",
-    audience: "For the curious",
-    title: "Every house has a story. Some owners tell it.",
-    body:
-      "Wander the map. See the paint color a neighbor chose, the year a porch was enclosed, the garden in July. Owners decide what to share, and anyone can look.",
-    points: [
-      "Browse what owners share: photos, colors, materials",
-      "Read the public history: sales, assessments, changes",
-      "Open the map and click any lot",
-    ],
-  },
 ];
+
+/** Chip labels for the section bar, one per chapter, in reading order. */
+const CHAPTER_CHIP: Record<ChapterId, string> = {
+  curious: "Curious",
+  owners: "Homeowners",
+  buyers: "Buyers",
+  sellers: "Sellers",
+};
+
+const SECTION_NAV = CHAPTERS.map((chapter) => ({ id: `chapter-${chapter.id}`, label: CHAPTER_CHIP[chapter.id] }));
 
 // ---------------------------------------------------------------------------
 // Scenes: the product, staged over a photograph
@@ -355,6 +366,8 @@ export function HomePage() {
       </section>
 
       <section className="home-story" aria-labelledby="home-story-title">
+        {/* No view timeline here, so docking always runs through the class-based path. */}
+        <SectionNav items={SECTION_NAV} className="home-nav" dockClass="home-nav-docked" scrollDriven={false} />
         <header className="home-section-head">
           <div className="kicker">Made for the people who live with a house</div>
           <h2 id="home-story-title">One record. Four ways to use it.</h2>
