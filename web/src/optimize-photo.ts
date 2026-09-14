@@ -9,7 +9,7 @@
  * only pass the copy downstream.
  */
 
-import { PHOTO_MAX_EDGE, PHOTO_MAX_PIXELS, fitImageSize, imageDimensions } from "../../shared/image-size.ts";
+import { PHOTO_MAX_EDGE, PHOTO_MAX_PIXELS, fitImageSize, imageDimensions, tooBigForWorker } from "../../shared/image-size.ts";
 
 export { PHOTO_MAX_EDGE };
 export const PHOTO_WEBP_QUALITY = 0.8;
@@ -107,15 +107,15 @@ async function drawToCanvas(
   return surface;
 }
 
-async function encodeSurface(surface: OffscreenCanvas | HTMLCanvasElement, originalSize: number): Promise<Blob | null> {
+async function encodeSurface(surface: OffscreenCanvas | HTMLCanvasElement, sizeLimit: number): Promise<Blob | null> {
   const webp = await canvasToBlob(surface, "image/webp", PHOTO_WEBP_QUALITY);
-  if (webp && webp.size > 0 && webp.size < originalSize * 0.97) return webp;
+  if (webp && webp.size > 0 && webp.size < sizeLimit) return webp;
   const jpeg = await canvasToBlob(surface, "image/jpeg", 0.85);
-  if (jpeg && jpeg.size > 0 && jpeg.size < originalSize * 0.97) return jpeg;
+  if (jpeg && jpeg.size > 0 && jpeg.size < sizeLimit) return jpeg;
   return null;
 }
 
-async function encodeAt(source: Blob, width: number, height: number): Promise<Blob | null> {
+async function encodeAt(source: Blob, width: number, height: number, sizeLimit: number): Promise<Blob | null> {
   try {
     const bitmap = await bitmapFromBlob(source, width, height);
     const nextWidth = Math.max(1, Math.min(bitmap.width, width));
@@ -128,14 +128,14 @@ async function encodeAt(source: Blob, width: number, height: number): Promise<Bl
       bitmap.close();
       return null;
     }
-    return encodeSurface(surface, source.size);
+    return encodeSurface(surface, sizeLimit);
   } catch {
     try {
       const image = await imageFromBlob(source);
       const nextWidth = Math.max(1, Math.min(image.naturalWidth || width, width));
       const nextHeight = Math.max(1, Math.min(image.naturalHeight || height, height));
       const surface = await drawToCanvas((ctx, w, h) => ctx.drawImage(image, 0, 0, w, h), nextWidth, nextHeight);
-      return surface ? encodeSurface(surface, source.size) : null;
+      return surface ? encodeSurface(surface, sizeLimit) : null;
     } catch {
       return null;
     }
@@ -170,8 +170,12 @@ export async function optimizePhotoFile(file: File): Promise<File> {
     const maxPixels = isiOS() ? IOS_MAX_PIXELS : PHOTO_MAX_PIXELS;
     const next = fitImageSize(native.width, native.height, PHOTO_MAX_EDGE, maxPixels);
     const fallback = fitImageSize(native.width, native.height, 2560, 6_000_000);
-    const blob = await encodeAt(stable, next.width, next.height)
-      ?? (Math.max(next.width, next.height) > 2560 ? await encodeAt(stable, fallback.width, fallback.height) : null);
+    // A re-encode normally has to win on bytes. When the original is one the
+    // Worker cannot finish (over its pixel budget, or a big progressive JPEG),
+    // a slightly larger but Worker-sized JPEG still ends up as the smaller WebP.
+    const sizeLimit = stable.size * (tooBigForWorker(header) ? 1.15 : 0.97);
+    const blob = await encodeAt(stable, next.width, next.height, sizeLimit)
+      ?? (Math.max(next.width, next.height) > 2560 ? await encodeAt(stable, fallback.width, fallback.height, sizeLimit) : null);
     if (!blob) return stable;
     const ext = blob.type === "image/webp" ? "webp" : "jpg";
     return new File([blob], withExtension(stable.name, ext), { type: blob.type, lastModified: stable.lastModified });

@@ -152,7 +152,7 @@ export async function storeUpload(propertyId: string, documentId: string, file: 
     key: originalKey,
     commit(apply) {
       if (!defer) return;
-      defer(
+      defer(() =>
         encode()
           .then(async (optimized) => {
             if (!optimized) return;

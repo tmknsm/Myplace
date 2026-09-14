@@ -106,24 +106,24 @@ test("progressive jpegs get half the Worker pixel budget", () => {
 
 test("on the Worker the original is stored first and the encode lands after the response", async () => {
   const store = memoryStore();
-  const deferred: Promise<unknown>[] = [];
+  const deferred: Array<() => Promise<unknown>> = [];
   const png = solidPng(640, 480);
   const file = new File([png.buffer as ArrayBuffer], "yard.png", { type: "image/png" });
   const applied: Array<{ mime: string; key: string }> = [];
-  const upload = await runWithRuntime(
-    { env: process.env, storage: store, defer: (task) => { deferred.push(task); } },
-    async () => {
-      const result = await storeUpload("prop_test", "doc_test", file);
-      result.commit(async (stored, key) => { applied.push({ mime: stored.mime, key }); });
-      return result;
-    },
-  );
+  const runtime = { env: process.env, storage: store, defer: (task: () => Promise<unknown>) => { deferred.push(task); } };
+  const upload = await runWithRuntime(runtime, async () => {
+    const result = await storeUpload("prop_test", "doc_test", file);
+    result.commit(async (stored, key) => { applied.push({ mime: stored.mime, key }); });
+    return result;
+  });
   expect(upload.stored.mime).toBe("image/png");
   expect(upload.key).toBe("property-documents/prop_test/doc_test/yard.png");
   expect(await store.has(upload.key)).toBe(true);
   expect(applied).toEqual([]);
   expect(deferred).toHaveLength(1);
-  await Promise.all(deferred);
+  // Nothing was encoded yet: the Worker starts these only after the response.
+  expect(await store.has("property-documents/prop_test/doc_test/yard.webp")).toBe(false);
+  await Promise.all(deferred.map((task) => runWithRuntime(runtime, task)));
   expect(applied).toEqual([{ mime: "image/webp", key: "property-documents/prop_test/doc_test/yard.webp" }]);
   expect(await store.has("property-documents/prop_test/doc_test/yard.webp")).toBe(true);
   expect(await store.has(upload.key)).toBe(false);

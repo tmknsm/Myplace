@@ -2,8 +2,11 @@
 export const PHOTO_MAX_EDGE = 5120;
 /** Stay inside iOS canvas / Worker memory. 5120×2880 16:9 still fits. */
 export const PHOTO_MAX_PIXELS = 16_000_000;
-/** 12 MP iPhone JPEGs encode on a 128 MB Worker; 16 MP stills OOM (CF 1102). */
-export const PHOTO_WORKER_PIXELS = 13_000_000;
+/**
+ * 3000×4000 client JPEGs (12.0 MP) encode on a 128 MB Worker; a 4032×3024
+ * camera original (12.19 MP, 7 MB) already OOMs (CF 1102).
+ */
+export const PHOTO_WORKER_PIXELS = 12_100_000;
 /**
  * Progressive JPEGs decode through a whole-image coefficient buffer on top of
  * the pixel buffers, so the same 128 MB runs out around half the pixels.

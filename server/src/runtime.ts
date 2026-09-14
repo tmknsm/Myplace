@@ -15,10 +15,12 @@ export interface Runtime {
   sql?: postgres.Sql;
   storage?: DocumentStore;
   /**
-   * Keep a promise alive past the response (Cloudflare `ctx.waitUntil`). Absent
-   * on Node, where callers run the work inline instead.
+   * Run work after the response has gone out (Cloudflare `ctx.waitUntil`).
+   * The task must not start earlier: a CPU-bound encode that begins while the
+   * handler is still awaiting would block, or OOM, the pending response.
+   * Absent on Node, where callers run the work inline instead.
    */
-  defer?: (task: Promise<unknown>) => void;
+  defer?: (task: () => Promise<unknown>) => void;
 }
 
 const scope = new AsyncLocalStorage<Runtime>();
@@ -32,7 +34,7 @@ export function runWithRuntime<T>(runtime: Runtime, fn: () => T): T {
 }
 
 /** Schedule background work after the response when the runtime supports it. */
-export function deferTask(): ((task: Promise<unknown>) => void) | undefined {
+export function deferTask(): ((task: () => Promise<unknown>) => void) | undefined {
   return scope.getStore()?.defer;
 }
 

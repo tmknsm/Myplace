@@ -46,16 +46,21 @@ export default {
     // Hyperdrive owns the real pool; a client per request is the recommended pattern.
     const sql = postgres(runtimeEnv.DATABASE_URL, { max: 5, fetch_types: false, prepare: true });
     const storage = env.DOCUMENTS_BUCKET ? r2Store(env.DOCUMENTS_BUCKET) : undefined;
-    // Work deferred past the response (photo encodes) still needs this client.
-    const deferred: Promise<unknown>[] = [];
-    const defer = (task: Promise<unknown>) => {
-      deferred.push(task);
-      ctx.waitUntil(task);
-    };
+    // Work deferred past the response (photo encodes) starts only once the
+    // handler has returned, and still needs this client.
+    const deferred: Array<() => Promise<unknown>> = [];
+    const runtime = { env: runtimeEnv, sql, storage, defer: (task: () => Promise<unknown>) => { deferred.push(task); } };
     try {
-      return await runWithRuntime({ env: runtimeEnv, sql, storage, defer }, () => app.fetch(request));
+      return await runWithRuntime(runtime, () => app.fetch(request));
     } finally {
-      ctx.waitUntil(Promise.allSettled(deferred).then(() => sql.end({ timeout: 5 })));
+      ctx.waitUntil((async () => {
+        if (deferred.length) {
+          // Let the response leave the isolate before a WASM encode monopolizes it.
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          await Promise.allSettled(deferred.map((task) => runWithRuntime(runtime, task)));
+        }
+        await sql.end({ timeout: 5 });
+      })());
     }
   },
 };
