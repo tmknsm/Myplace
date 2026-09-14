@@ -495,6 +495,7 @@ app.post("/api/properties/:id/documents", async (c) => {
   const form = await c.req.parseBody();
   const file = form.file;
   if (!(file instanceof File)) return c.json({ error: "Choose a file to upload." }, 400);
+  if (file.size === 0) return c.json({ error: "That file was empty. Try choosing it again." }, 400);
   if (file.size > 15 * 1024 * 1024) return c.json({ error: "Files must be 15 MB or smaller." }, 400);
 
   const claimId = typeof form.claimId === "string" && form.claimId ? form.claimId : null;
@@ -625,6 +626,7 @@ app.post("/api/documents/:id/file", async (c) => {
   const form = await c.req.parseBody();
   const file = form.file;
   if (!(file instanceof File)) return c.json({ error: "Choose a file to upload." }, 400);
+  if (file.size === 0) return c.json({ error: "That file was empty. Try choosing it again." }, 400);
   if (file.size > 15 * 1024 * 1024) return c.json({ error: "Files must be 15 MB or smaller." }, 400);
   const stored = await ingestUploadFile(file);
   const key = documentKey(doc.property_id, doc.document_id, stored.filename);

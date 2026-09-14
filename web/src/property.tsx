@@ -7,6 +7,7 @@ import { actorLabel, eventLabel, ParcelMap, STATUS_LABEL, unknownHint } from "./
 import { PinClaimModal, useOwnershipChanges } from "./debug";
 import { useMeta } from "./meta";
 import { DisputesSection, DocumentsSection, HandoffSection, MaintainersSection, NotificationsSection } from "./property-owner";
+import { snapshotPhotoFile } from "./optimize-photo";
 import {
   CATEGORY_LABEL,
   dateLabel,
@@ -168,6 +169,7 @@ export function PropertyPageView() {
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [heroIndex, setHeroIndex] = useState(0);
   const [photoUploads, setPhotoUploads] = useState(0);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const load = useCallback(async (opts?: { allowDowngrade?: boolean }) => {
     if (!id) return;
@@ -246,9 +248,9 @@ export function PropertyPageView() {
     navigate(user ? `/property/${id}/claim` : `/signin?next=/property/${id}/claim`);
   };
 
-  const uploadPhotos = async (list: FileList | null, options: { cover?: boolean } = {}) => {
-    const files = Array.from(list ?? []);
+  const uploadPhotos = async (files: File[], options: { cover?: boolean } = {}) => {
     if (!files.length) return;
+    setPhotoError(null);
     setPhotoUploads((count) => count + files.length);
     try {
       let first = true;
@@ -263,13 +265,23 @@ export function PropertyPageView() {
       showToast(options.cover ? "Cover photo set." : `${files.length} photo${files.length === 1 ? "" : "s"} added.`);
       await refresh();
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Photo could not be added. Try again.");
+      const message = err instanceof ApiError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : "Photo could not be added. Try again.";
+      setPhotoError(message);
+      showToast(message);
     } finally {
       setPhotoUploads((count) => Math.max(0, count - files.length));
     }
   };
 
   const uploading = photoUploads > 0;
+  const reportPhotoError = (message: string) => {
+    setPhotoError(message);
+    showToast(message);
+  };
 
   const showAbout = owner || hasSummary;
   const showPhotos = owner || available.length > 0;
@@ -329,7 +341,7 @@ export function PropertyPageView() {
             }}>Only you can see this {slide.is_cover ? "cover" : "photo"} · Make public</button>
           )}
           {!cover && owner && (
-            <PhotoFileButton className="btn hero-cta" busy={uploading} testId="cover-input" labelTestId="cover-input-label" onPick={(files) => uploadPhotos(files, { cover: true })}>
+            <PhotoFileButton className="btn hero-cta" busy={uploading} testId="cover-input" labelTestId="cover-input-label" onPick={(files) => uploadPhotos(files, { cover: true })} onError={reportPhotoError}>
               Add a cover photo
             </PhotoFileButton>
           )}
@@ -372,7 +384,7 @@ export function PropertyPageView() {
                 {viewer.verifiedAt ? ` · since ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
               </span>
               <div className="action-row compact">
-                <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)}>
+                <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
                   Add photos
                 </PhotoFileButton>
                 <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
@@ -464,7 +476,9 @@ export function PropertyPageView() {
               cover={cover}
               pendingCount={photoUploads}
               uploading={uploading}
-              onUpload={(list) => uploadPhotos(list)}
+              uploadError={photoError}
+              onUpload={(files) => uploadPhotos(files)}
+              onUploadError={reportPhotoError}
               onOpen={(index) => setLightbox(index)}
               {...sectionProps}
             />
@@ -1741,8 +1755,15 @@ function RestorePhoto({
         aria-label={`Restore ${doc.original_filename}`}
         onChange={(event) => {
           const file = event.target.files?.[0];
+          if (!file) {
+            event.target.value = "";
+            return;
+          }
+          const copy = snapshotPhotoFile(file);
           event.target.value = "";
-          if (file) void onPick(file);
+          void copy.then(onPick).catch((error) => {
+            console.warn("photo restore failed", error);
+          });
         }}
       />
     </label>
@@ -1925,6 +1946,7 @@ function PhotoFileButton({
   testId,
   labelTestId,
   onPick,
+  onError,
   children,
 }: {
   className: string;
@@ -1932,7 +1954,8 @@ function PhotoFileButton({
   multiple?: boolean;
   testId: string;
   labelTestId?: string;
-  onPick: (files: FileList) => void | Promise<void>;
+  onPick: (files: File[]) => void | Promise<void>;
+  onError?: (message: string) => void;
   children: ReactNode;
 }) {
   const locked = useRef(false);
@@ -1955,7 +1978,6 @@ function PhotoFileButton({
         type="file"
         accept="image/*"
         multiple={multiple}
-        disabled={busy}
         tabIndex={busy ? -1 : 0}
         data-testid={testId}
         onClick={(event) => {
@@ -1966,16 +1988,21 @@ function PhotoFileButton({
             event.target.value = "";
             return;
           }
-          const files = event.target.files;
-          if (!files?.length) {
-            event.target.value = "";
-            return;
-          }
+          const picked = Array.from(event.target.files ?? []);
+          // Start the byte copy before this handler returns so iOS cannot
+          // revoke the photo-library File after the picker closes.
+          const copies = picked.map(snapshotPhotoFile);
+          event.target.value = "";
+          if (!picked.length) return;
           locked.current = true;
-          void Promise.resolve(onPick(files)).finally(() => {
-            locked.current = false;
-            event.target.value = "";
-          });
+          void Promise.all(copies)
+            .then(onPick)
+            .catch((error) => {
+              onError?.(error instanceof Error ? error.message : "That photo could not be read. Try again.");
+            })
+            .finally(() => {
+              locked.current = false;
+            });
         }}
       />
     </label>
@@ -2020,7 +2047,9 @@ function PhotosSection({
   cover,
   pendingCount = 0,
   uploading = false,
+  uploadError = null,
   onUpload,
+  onUploadError,
   onOpen,
   onChange,
   toast,
@@ -2031,7 +2060,9 @@ function PhotosSection({
   cover: Doc | null;
   pendingCount?: number;
   uploading?: boolean;
-  onUpload: (list: FileList | null) => Promise<void>;
+  uploadError?: string | null;
+  onUpload: (files: File[]) => Promise<void>;
+  onUploadError?: (message: string) => void;
   onOpen: (index: number) => void;
   onChange: PageRefresh;
   toast: Toast;
@@ -2041,12 +2072,13 @@ function PhotosSection({
       <div className="section-head">
         <h2>Photos</h2>
         {owner && (
-          <PhotoFileButton className="text-btn accent" busy={uploading} multiple testId="photo-input" onPick={(files) => onUpload(files)}>
+          <PhotoFileButton className="text-btn accent" busy={uploading} multiple testId="photo-input" onPick={(files) => onUpload(files)} onError={onUploadError}>
             Add photos
           </PhotoFileButton>
         )}
       </div>
       {owner && <p className="meta-line section-note">Photos are public unless you make them private. The cover is the first thing a visitor sees.{photos.some((doc) => !hasFile(doc)) ? " Cards marked “file missing” need the original photo reattached; after that they stay in Cloudflare." : ""}</p>}
+      {uploadError && <p className="error" role="alert">{uploadError}</p>}
       {photos.length === 0 && pendingCount === 0 ? (
         <div className="group empty-card">{owner ? "No photos yet. Exterior, roof, mechanicals, and before-and-after shots all belong here." : "None shared yet."}</div>
       ) : (

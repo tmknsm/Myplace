@@ -87,6 +87,14 @@ test("16 MP iPhone stills skip Worker WASM so the isolate does not OOM", () => {
   expect(tooBigForWorker(still)).toBe(true);
 });
 
+test("large files with unknown dimensions skip Worker WASM", async () => {
+  const mystery = new Uint8Array(1_500_001);
+  expect(imageDimensions(mystery)).toBeNull();
+  expect(tooBigForWorker(mystery)).toBe(true);
+  const result = await optimizePhoto(mystery, "image/jpeg", "unknown.jpeg");
+  expect(result.bytes).toBe(mystery);
+});
+
 test("a jpeg that would OOM the Worker is stored as-is instead of decoded", async () => {
   const huge = Uint8Array.from([
     0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x27, 0x10, 0x1f, 0x40, 0x03,

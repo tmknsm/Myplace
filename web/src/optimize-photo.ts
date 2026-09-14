@@ -3,6 +3,10 @@
  * is already small. Matches the server: 5120px long edge, WebP ~q80.
  * iPhone HEIC/48 MP files are sized from headers first so Safari never
  * materializes a 200 MB bitmap.
+ *
+ * iOS revokes photo-library File objects after the input `change` handler
+ * returns. Call snapshotPhotoFile during that handler (before any await) and
+ * only pass the copy downstream.
  */
 
 import { PHOTO_MAX_EDGE, PHOTO_MAX_PIXELS, fitImageSize, imageDimensions } from "../../shared/image-size.ts";
@@ -20,6 +24,17 @@ function withExtension(name: string, ext: string): string {
 
 function isiOS(): boolean {
   return typeof navigator !== "undefined" && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+/** Copy picker bytes into a File that iOS cannot revoke when the input resets. */
+export function snapshotPhotoFile(file: File): Promise<File> {
+  return file.arrayBuffer().then((buffer) => {
+    if (buffer.byteLength === 0) throw new Error("That photo was empty. Try again from Photos.");
+    return new File([buffer], file.name || "photo", {
+      type: file.type || "application/octet-stream",
+      lastModified: file.lastModified,
+    });
+  });
 }
 
 function canvas(width: number, height: number): OffscreenCanvas | HTMLCanvasElement {
@@ -44,63 +59,123 @@ async function canvasToBlob(surface: OffscreenCanvas | HTMLCanvasElement, type: 
   });
 }
 
-async function bitmapFromFile(file: File, width: number, height: number): Promise<ImageBitmap> {
+async function bitmapFromBlob(source: Blob, width: number, height: number): Promise<ImageBitmap> {
   const sized = { resizeWidth: width, resizeHeight: height, resizeQuality: "high" as const };
   try {
-    return await createImageBitmap(file, { imageOrientation: "from-image", ...sized });
+    return await createImageBitmap(source, { imageOrientation: "from-image", ...sized });
   } catch {
     try {
-      return await createImageBitmap(file, { imageOrientation: "from-image", resizeWidth: width, resizeHeight: height });
+      return await createImageBitmap(source, { imageOrientation: "from-image", resizeWidth: width, resizeHeight: height });
     } catch {
       try {
-        return await createImageBitmap(file, sized);
+        return await createImageBitmap(source, sized);
       } catch {
-        return createImageBitmap(file);
+        return createImageBitmap(source);
       }
     }
   }
 }
 
-async function encodeAt(file: File, width: number, height: number): Promise<Blob | null> {
-  const bitmap = await bitmapFromFile(file, width, height);
-  const nextWidth = Math.max(1, Math.min(bitmap.width, width));
-  const nextHeight = Math.max(1, Math.min(bitmap.height, height));
-  const surface = canvas(nextWidth, nextHeight);
-  const ctx = surface.getContext("2d");
-  if (!ctx || !("drawImage" in ctx)) {
-    bitmap.close();
-    return null;
+async function imageFromBlob(source: Blob): Promise<HTMLImageElement> {
+  const url = URL.createObjectURL(source);
+  try {
+    const image = new Image();
+    image.decoding = "async";
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("image decode failed"));
+      image.src = url;
+    });
+    return image;
+  } finally {
+    URL.revokeObjectURL(url);
   }
+}
+
+async function drawToCanvas(
+  drawImage: (ctx: CanvasRenderingContext2D, width: number, height: number) => void,
+  width: number,
+  height: number,
+): Promise<OffscreenCanvas | HTMLCanvasElement | null> {
+  const surface = canvas(width, height);
+  const ctx = surface.getContext("2d");
+  if (!ctx || !("drawImage" in ctx)) return null;
   const draw = ctx as CanvasRenderingContext2D;
   draw.imageSmoothingEnabled = true;
   if ("imageSmoothingQuality" in draw) draw.imageSmoothingQuality = "high";
-  draw.drawImage(bitmap, 0, 0, nextWidth, nextHeight);
-  bitmap.close();
+  drawImage(draw, width, height);
+  return surface;
+}
+
+async function encodeSurface(surface: OffscreenCanvas | HTMLCanvasElement, originalSize: number): Promise<Blob | null> {
   const webp = await canvasToBlob(surface, "image/webp", PHOTO_WEBP_QUALITY);
-  if (webp && webp.size > 0 && webp.size < file.size * 0.97) return webp;
+  if (webp && webp.size > 0 && webp.size < originalSize * 0.97) return webp;
   const jpeg = await canvasToBlob(surface, "image/jpeg", 0.85);
-  if (jpeg && jpeg.size > 0 && jpeg.size < file.size * 0.97) return jpeg;
+  if (jpeg && jpeg.size > 0 && jpeg.size < originalSize * 0.97) return jpeg;
   return null;
 }
 
-export async function optimizePhotoFile(file: File): Promise<File> {
-  if (SKIP.has(file.type)) return file;
-  if ((file.type === "image/webp" || file.type === "image/avif") && file.size <= 1_500_000) return file;
-  const looksImage = file.type.startsWith("image/") || /\.(jpe?g|png|heic|heif|webp)$/i.test(file.name);
-  if (!looksImage) return file;
+async function encodeAt(source: Blob, width: number, height: number): Promise<Blob | null> {
   try {
-    const header = new Uint8Array(await file.arrayBuffer());
-    const native = imageDimensions(header);
-    if (!native) return file;
+    const bitmap = await bitmapFromBlob(source, width, height);
+    const nextWidth = Math.max(1, Math.min(bitmap.width, width));
+    const nextHeight = Math.max(1, Math.min(bitmap.height, height));
+    const surface = await drawToCanvas((ctx, w, h) => {
+      ctx.drawImage(bitmap, 0, 0, w, h);
+      bitmap.close();
+    }, nextWidth, nextHeight);
+    if (!surface) {
+      bitmap.close();
+      return null;
+    }
+    return encodeSurface(surface, source.size);
+  } catch {
+    try {
+      const image = await imageFromBlob(source);
+      const nextWidth = Math.max(1, Math.min(image.naturalWidth || width, width));
+      const nextHeight = Math.max(1, Math.min(image.naturalHeight || height, height));
+      const surface = await drawToCanvas((ctx, w, h) => ctx.drawImage(image, 0, 0, w, h), nextWidth, nextHeight);
+      return surface ? encodeSurface(surface, source.size) : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+export async function optimizePhotoFile(file: File): Promise<File> {
+  let stable: File;
+  try {
+    stable = await snapshotPhotoFile(file);
+  } catch (error) {
+    throw error instanceof Error ? error : new Error("That photo could not be read. Try again.");
+  }
+  if (SKIP.has(stable.type)) return stable;
+  if ((stable.type === "image/webp" || stable.type === "image/avif") && stable.size <= 1_500_000) return stable;
+  const looksImage = stable.type.startsWith("image/") || /\.(jpe?g|png|heic|heif|webp)$/i.test(stable.name);
+  if (!looksImage) return stable;
+  try {
+    const header = new Uint8Array(await stable.arrayBuffer());
+    let native = imageDimensions(header);
+    if (!native) {
+      try {
+        const preview = await imageFromBlob(stable);
+        if (preview.naturalWidth && preview.naturalHeight) {
+          native = { width: preview.naturalWidth, height: preview.naturalHeight };
+        }
+      } catch {
+        return stable;
+      }
+    }
+    if (!native) return stable;
     const maxPixels = isiOS() ? IOS_MAX_PIXELS : PHOTO_MAX_PIXELS;
     const next = fitImageSize(native.width, native.height, PHOTO_MAX_EDGE, maxPixels);
     const fallback = fitImageSize(native.width, native.height, 2560, 6_000_000);
-    const blob = await encodeAt(file, next.width, next.height)
-      ?? (Math.max(next.width, next.height) > 2560 ? await encodeAt(file, fallback.width, fallback.height) : null);
-    if (!blob) return file;
+    const blob = await encodeAt(stable, next.width, next.height)
+      ?? (Math.max(next.width, next.height) > 2560 ? await encodeAt(stable, fallback.width, fallback.height) : null);
+    if (!blob) return stable;
     const ext = blob.type === "image/webp" ? "webp" : "jpg";
-    return new File([blob], withExtension(file.name, ext), { type: blob.type, lastModified: file.lastModified });
+    return new File([blob], withExtension(stable.name, ext), { type: blob.type, lastModified: stable.lastModified });
   } catch {
-    return file;
+    return stable;
   }
 }

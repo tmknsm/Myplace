@@ -11,9 +11,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body && !(init.body instanceof FormData) && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
-  const res = await fetch(path, { cache: "no-store", ...init, headers, credentials: "include" });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error || res.statusText);
+  const res = await fetch(path, { cache: "no-store", ...init, headers, credentials: "include" }).catch(() => {
+    throw new ApiError(0, "Could not reach the server. Check your connection and try again.");
+  });
+  const data = await res.json().catch(() => ({} as { error?: string }));
+  if (!res.ok) throw new ApiError(res.status, data.error || res.statusText || `Request failed (${res.status})`);
   return data as T;
 }
 

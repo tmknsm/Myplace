@@ -152,7 +152,11 @@ export function fitImageSize(width: number, height: number, maxEdge = PHOTO_MAX_
   return { width: nextWidth, height: nextHeight };
 }
 
+/** Large payloads with no parseable SOF/IHDR — do not risk a WASM decode. */
+const UNKNOWN_DIMENSIONS_SKIP_BYTES = 1_500_000;
+
 export function tooBigForWorker(bytes: Uint8Array): boolean {
   const size = imageDimensions(bytes);
-  return Boolean(size && size.width * size.height > PHOTO_WORKER_PIXELS);
+  if (size) return size.width * size.height > PHOTO_WORKER_PIXELS;
+  return bytes.byteLength > UNKNOWN_DIMENSIONS_SKIP_BYTES;
 }
