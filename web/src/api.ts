@@ -11,9 +11,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body && !(init.body instanceof FormData) && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
-  const res = await fetch(path, { cache: "no-store", ...init, headers, credentials: "include" });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error || res.statusText);
+  const res = await fetch(path, { cache: "no-store", ...init, headers, credentials: "include" }).catch(() => {
+    throw new ApiError(0, "Could not reach the server. Check your connection and try again.");
+  });
+  const data = await res.json().catch(() => ({} as { error?: string }));
+  if (!res.ok) throw new ApiError(res.status, data.error || res.statusText || `Request failed (${res.status})`);
   return data as T;
 }
 
@@ -62,18 +64,22 @@ export const api = {
   claim: (id: string) => request<{ claim: Claim; documents: Doc[] }>(`/api/claims/${id}`),
   myClaims: () => request<{ claims: Claim[] }>("/api/me/claims"),
   myProperties: () => request<{ properties: MaintainedProperty[] }>("/api/me/properties"),
-  upload: (propertyId: string, file: File, fields: Record<string, string>) => {
+  upload: async (propertyId: string, file: File, fields: Record<string, string>) => {
+    const { optimizePhotoFile } = await import("./optimize-photo");
+    const photo = await optimizePhotoFile(file);
     const form = new FormData();
-    form.append("file", file);
+    form.append("file", photo);
     for (const [key, value] of Object.entries(fields)) form.append(key, value);
     return request<{ documentId: string }>(`/api/properties/${propertyId}/documents`, { method: "POST", body: form });
   },
   documents: (id: string) => request<{ documents: Doc[] }>(`/api/properties/${id}/documents`),
   patchDocument: (id: string, body: { visibility?: string; transferability?: string; documentType?: string; caption?: string | null; cover?: boolean }) =>
     request<{ ok: boolean }>(`/api/documents/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  replaceDocument: (id: string, file: File) => {
+  replaceDocument: async (id: string, file: File) => {
+    const { optimizePhotoFile } = await import("./optimize-photo");
+    const photo = await optimizePhotoFile(file);
     const form = new FormData();
-    form.append("file", file);
+    form.append("file", photo);
     return request<{ ok: boolean }>(`/api/documents/${id}/file`, { method: "POST", body: form });
   },
   deleteDocument: (id: string) => request<{ ok: boolean }>(`/api/documents/${id}`, { method: "DELETE" }),
@@ -338,6 +344,8 @@ export interface Doc {
   byte_size: number;
   created_at: string;
 }
+
+export type PageRefresh = (patch?: (property: PropertyPage) => PropertyPage) => Promise<void> | void;
 
 export interface MaintainedProperty {
   property_id: string;

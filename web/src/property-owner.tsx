@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Doc, type PropertyPage, type Viewer } from "./api";
+import { api, type Doc, type PageRefresh, type PropertyPage, type Viewer } from "./api";
 import { dateLabel, DOCUMENT_TYPE_LABEL, fileSize, fileUrl, isImage, type Toast } from "./property-shared";
 
 /**
@@ -37,7 +37,7 @@ export function DocumentsSection({
   propertyId: string;
   documents: Doc[];
   documentTypes: string[];
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
 }) {
   const [type, setType] = useState("survey");
@@ -54,6 +54,8 @@ export function DocumentsSection({
       for (const file of items) await api.upload(propertyId, file, { documentType: type });
       toast(`${items.length} document${items.length === 1 ? "" : "s"} added to the vault.`);
       await onChange();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "That file could not be added.");
     } finally {
       setBusy(false);
     }
@@ -139,7 +141,7 @@ export function DocumentsSection({
 // Disputes, maintainers, notifications, handoff
 // ---------------------------------------------------------------------------
 
-export function DisputesSection({ disputes, onChange, toast }: { disputes: PropertyPage["disputes"]; onChange: () => Promise<void> | void; toast: Toast }) {
+export function DisputesSection({ disputes, onChange, toast }: { disputes: PropertyPage["disputes"]; onChange: PageRefresh; toast: Toast }) {
   return (
     <section className="section" id="disputes">
       <h2>Open disputes</h2>
@@ -181,7 +183,7 @@ export function MaintainersSection({
   invitations: PropertyPage["invitations"];
   viewer: Viewer;
   currentUserId: string | null;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
 }) {
   const [email, setEmail] = useState("");
@@ -284,7 +286,7 @@ export function NotificationsSection({ propertyId, preferences, options, toast }
   );
 }
 
-export function HandoffSection({ propertyId, toast, onChange }: { propertyId: string; toast: Toast; onChange: () => Promise<void> | void }) {
+export function HandoffSection({ propertyId, toast, onChange }: { propertyId: string; toast: Toast; onChange: PageRefresh }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

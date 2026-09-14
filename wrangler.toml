@@ -3,6 +3,12 @@ main = "server/src/worker.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 
+# jSquash codecs ship as .wasm; the Worker must compile them, not treat them as assets.
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true
+
 # The Vite build is served as static assets; /api/* is routed to the Worker.
 [assets]
 directory = "web/dist"
@@ -19,7 +25,8 @@ DEV_MAILBOX = "false"
 APP_ORIGIN = "https://myplace.6point1five.workers.dev"
 
 # Postgres (with PostGIS) reached through Hyperdrive. `npm run cf:setup` creates the
-# config from DATABASE_URL and writes its id here.
+# config from DATABASE_URL and writes its id here. Query caching stays off: this
+# app needs read-after-write on the property page (cover photo, improvements, …).
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "d7f6274a1eb4473d8c09c68759c4c7fd"
@@ -27,6 +34,13 @@ id = "d7f6274a1eb4473d8c09c68759c4c7fd"
 [[r2_buckets]]
 binding = "DOCUMENTS_BUCKET"
 bucket_name = "myplace-documents"
+
+# Photo encoder of record. Runs outside the 128 MB isolate, so any phone photo
+# (up to 20 MB / 100 MP, HEIC included) becomes a display-sized WebP. The
+# Images Free plan includes 5,000 unique transformations a month; past that the
+# Worker falls back to its in-isolate WASM encoder for images it can fit.
+[images]
+binding = "IMAGES"
 
 # Secrets (set with `wrangler secret put` or `npm run cf:setup`):
 # - SESSION_SECRET            required

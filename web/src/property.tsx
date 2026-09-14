@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PropertyPage, type Viewer } from "./api";
+import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyPage, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, ParcelMap, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
 import { useMeta } from "./meta";
 import { DisputesSection, DocumentsSection, HandoffSection, MaintainersSection, NotificationsSection } from "./property-owner";
+import { snapshotPhotoFile } from "./optimize-photo";
 import {
   CATEGORY_LABEL,
   dateLabel,
@@ -165,6 +167,9 @@ export function PropertyPageView() {
   const [improvementFormOpen, setImprovementFormOpen] = useState(false);
   const [aboutEditing, setAboutEditing] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
+  const [heroIndex, setHeroIndex] = useState(0);
+  const [photoUploads, setPhotoUploads] = useState(0);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const load = useCallback(async (opts?: { allowDowngrade?: boolean }) => {
     if (!id) return;
@@ -174,8 +179,13 @@ export function PropertyPageView() {
         const next = await api.property(id);
         setData((current) => {
           // A follow-up fetch that raced the session cookie must not wipe the
-          // owner profile we just flipped into after a claim.
-          if (!opts?.allowDowngrade && current?.viewer.maintainer && !next.viewer.maintainer) return current;
+          // owner profile we just flipped into after a verified PIN claim.
+          // Property fields still come from `next` so a save is never discarded.
+          if (!current || current.property.property_id !== next.property.property_id) return next;
+          if (next.viewer.openClaim) return next;
+          if (!opts?.allowDowngrade && current.viewer.maintainer && !next.viewer.maintainer) {
+            return { ...next, viewer: { ...next.viewer, maintainer: true, role: current.viewer.role, verifiedAt: current.viewer.verifiedAt } };
+          }
           return next;
         });
         setError(null);
@@ -189,6 +199,14 @@ export function PropertyPageView() {
     if (last) setError(last.message);
   }, [id]);
 
+  const refresh = useCallback<PageRefresh>(async (patch) => {
+    if (patch) {
+      setData((current) => current ? { ...current, property: patch(current.property) } : current);
+    }
+    await load();
+  }, [load]);
+
+  useEffect(() => { setData(null); }, [id]);
   useEffect(() => { void load({ allowDowngrade: !user }); }, [load, user?.user_id]);
   useOwnershipChanges(id, () => { void load({ allowDowngrade: true }); });
 
@@ -206,7 +224,7 @@ export function PropertyPageView() {
   if (!data || !id) return <div className="page">Loading record…</div>;
 
   const { property, viewer } = data;
-  const owner = viewer.maintainer;
+  const owner = Boolean(viewer.maintainer && !viewer.openClaim);
   const locality = property.formatted?.includes(",")
     ? property.formatted.slice(property.formatted.indexOf(",") + 1).trim()
     : null;
@@ -214,6 +232,8 @@ export function PropertyPageView() {
   const photos = property.documents.filter(isImage);
   const available = photos.filter(hasFile);
   const cover = available.find((doc) => doc.is_cover) ?? available[0] ?? null;
+  const slides = cover ? [cover, ...available.filter((doc) => doc !== cover)] : [];
+  const slide = slides[Math.min(heroIndex, Math.max(0, slides.length - 1))] ?? null;
   const summary = property.facts.find((fact) => fact.fieldKey === SUMMARY_KEY) ?? null;
   const hasSummary = Boolean(summary?.display);
   const systemsFacts = sections.get("systems") ?? [];
@@ -228,20 +248,39 @@ export function PropertyPageView() {
     navigate(user ? `/property/${id}/claim` : `/signin?next=/property/${id}/claim`);
   };
 
-  const uploadPhotos = async (list: FileList | null, options: { cover?: boolean } = {}) => {
-    const files = Array.from(list ?? []);
+  const uploadPhotos = async (files: File[], options: { cover?: boolean } = {}) => {
     if (!files.length) return;
-    let first = true;
-    for (const file of files) {
-      await api.upload(id, file, {
-        documentType: "photo",
-        visibility: "public",
-        ...(options.cover && first ? { cover: "true" } : {}),
-      });
-      first = false;
+    setPhotoError(null);
+    setPhotoUploads((count) => count + files.length);
+    try {
+      let first = true;
+      for (const file of files) {
+        await api.upload(id, file, {
+          documentType: "photo",
+          visibility: "public",
+          ...(options.cover && first ? { cover: "true" } : {}),
+        });
+        first = false;
+      }
+      showToast(options.cover ? "Cover photo set." : `${files.length} photo${files.length === 1 ? "" : "s"} added.`);
+      await refresh();
+    } catch (err) {
+      const message = err instanceof ApiError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : "Photo could not be added. Try again.";
+      setPhotoError(message);
+      showToast(message);
+    } finally {
+      setPhotoUploads((count) => Math.max(0, count - files.length));
     }
-    showToast(options.cover ? "Cover photo set." : `${files.length} photo${files.length === 1 ? "" : "s"} added.`);
-    await load();
+  };
+
+  const uploading = photoUploads > 0;
+  const reportPhotoError = (message: string) => {
+    setPhotoError(message);
+    showToast(message);
   };
 
   const showAbout = owner || hasSummary;
@@ -270,14 +309,18 @@ export function PropertyPageView() {
       : []),
   ];
 
-  const sectionProps = { owner, propertyId: id, onChange: load, toast: showToast };
+  const sectionProps = { owner, propertyId: id, onChange: refresh, toast: showToast };
 
   const hero = (
     <figure className={`profile-hero ${cover ? "has-photo" : "is-map"}`} data-testid="profile-hero">
       {cover ? (
-        <button type="button" className="hero-image" onClick={() => setLightbox(photos.indexOf(cover))} aria-label="Open cover photo">
-          <img src={fileUrl(cover)} alt={cover.caption ?? title} />
-        </button>
+        <HeroCarousel
+          slides={slides}
+          title={title}
+          index={heroIndex}
+          onIndex={setHeroIndex}
+          onOpen={(doc) => setLightbox(photos.indexOf(doc))}
+        />
       ) : (
         <ParcelMap
           embedded
@@ -289,19 +332,18 @@ export function PropertyPageView() {
       )}
       <figcaption className="hero-overlay">
         <div className="hero-side">
-          {cover?.caption && <span className="hero-caption">{cover.caption}</span>}
-          {cover && owner && cover.visibility !== "public" && (
+          {slide?.caption && <span className="hero-caption">{slide.caption}</span>}
+          {slide && owner && slide.visibility !== "public" && (
             <button type="button" className="hero-pill warn" onClick={async () => {
-              await api.patchDocument(cover.document_id, { visibility: "public" });
-              showToast("Cover photo is now public.");
+              await api.patchDocument(slide.document_id, { visibility: "public" });
+              showToast(slide.is_cover ? "Cover photo is now public." : "Photo is now public.");
               await load();
-            }}>Only you can see this cover · Make public</button>
+            }}>Only you can see this {slide.is_cover ? "cover" : "photo"} · Make public</button>
           )}
           {!cover && owner && (
-            <label className="btn file-btn hero-cta" data-testid="cover-input-label">
+            <PhotoFileButton className="btn hero-cta" busy={uploading} testId="cover-input" labelTestId="cover-input-label" onPick={(files) => uploadPhotos(files, { cover: true })} onError={reportPhotoError}>
               Add a cover photo
-              <input type="file" accept="image/*" data-testid="cover-input" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
-            </label>
+            </PhotoFileButton>
           )}
           {!cover && !owner && property.geometryQuality && (
             <span className="hero-pill quiet">{property.geometryQuality === "official" ? "Official lot lines" : property.geometryQuality === "approximate" ? "Approximate lot lines" : "Demonstration sketch"}</span>
@@ -309,15 +351,14 @@ export function PropertyPageView() {
         </div>
         {cover && (
           <div className="hero-side">
-            <button type="button" className="hero-pill" onClick={() => scrollToId("photos")}>
-              {photos.length} photo{photos.length === 1 ? "" : "s"}
+            <button
+              type="button"
+              className="hero-pill hero-count"
+              aria-label={`Photo ${Math.min(heroIndex, slides.length - 1) + 1} of ${slides.length}. Go to photos`}
+              onClick={() => scrollToId("photos")}
+            >
+              {Math.min(heroIndex, slides.length - 1) + 1} / {slides.length}
             </button>
-            {owner && (
-              <label className="hero-pill file-btn">
-                Change cover
-                <input type="file" accept="image/*" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
-              </label>
-            )}
           </div>
         )}
       </figcaption>
@@ -343,10 +384,9 @@ export function PropertyPageView() {
                 {viewer.verifiedAt ? ` · since ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
               </span>
               <div className="action-row compact">
-                <label className="btn file-btn">
+                <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
                   Add photos
-                  <input type="file" accept="image/*" multiple data-testid="head-photo-input" onChange={(event) => { void uploadPhotos(event.target.files); event.target.value = ""; }} />
-                </label>
+                </PhotoFileButton>
                 <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
               </div>
             </>
@@ -434,7 +474,11 @@ export function PropertyPageView() {
             <PhotosSection
               photos={photos}
               cover={cover}
-              onUpload={(list) => uploadPhotos(list)}
+              pendingCount={photoUploads}
+              uploading={uploading}
+              uploadError={photoError}
+              onUpload={(files) => uploadPhotos(files)}
+              onUploadError={reportPhotoError}
               onOpen={(index) => setLightbox(index)}
               {...sectionProps}
             />
@@ -531,11 +575,11 @@ export function PropertyPageView() {
                 propertyId={id}
                 documents={property.documents.filter((doc) => !doc.improvement_id)}
                 documentTypes={meta?.documentTypes ?? Object.keys(DOCUMENT_TYPE_LABEL)}
-                onChange={load}
+                onChange={refresh}
                 toast={showToast}
               />
               {property.disputes.length > 0 && (
-                <DisputesSection disputes={property.disputes} onChange={load} toast={showToast} />
+                <DisputesSection disputes={property.disputes} onChange={refresh} toast={showToast} />
               )}
               <MaintainersSection
                 propertyId={id}
@@ -543,7 +587,7 @@ export function PropertyPageView() {
                 invitations={property.invitations}
                 viewer={viewer}
                 currentUserId={user?.user_id ?? null}
-                onChange={load}
+                onChange={refresh}
                 toast={showToast}
               />
               {viewer.preferences && (
@@ -554,14 +598,14 @@ export function PropertyPageView() {
                   toast={showToast}
                 />
               )}
-              <HandoffSection propertyId={id} toast={showToast} onChange={load} />
+              <HandoffSection propertyId={id} toast={showToast} onChange={refresh} />
             </>
           )}
         </div>
       </div>
 
       {lightbox !== null && photos[lightbox] && (
-        <PhotoLightbox photos={photos} index={lightbox} owner={owner} onIndex={setLightbox} onClose={() => setLightbox(null)} onChange={load} toast={showToast} />
+        <PhotoLightbox photos={photos} index={lightbox} owner={owner} onIndex={setLightbox} onClose={() => setLightbox(null)} onChange={refresh} toast={showToast} />
       )}
 
       {pinOpen && (
@@ -617,10 +661,141 @@ function StatStrip({ facts }: { facts: Fact[] }) {
 
 const SCROLL_DRIVEN = typeof CSS !== "undefined" && CSS.supports("animation-timeline: view()");
 
+/**
+ * Swipeable hero. A native scroll-snap track does the gesture work; we only
+ * read which slide has settled so the caption, badge, and dots can follow.
+ */
+function HeroCarousel({
+  slides,
+  title,
+  index,
+  onIndex,
+  onOpen,
+}: {
+  slides: Doc[];
+  title: string;
+  index: number;
+  onIndex: (index: number) => void;
+  onOpen: (doc: Doc) => void;
+}) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const count = slides.length;
+  const current = Math.min(index, Math.max(0, count - 1));
+
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    let frame = 0;
+    const read = () => {
+      const width = track.clientWidth || 1;
+      const next = Math.max(0, Math.min(count - 1, Math.round(track.scrollLeft / width)));
+      onIndex(next);
+    };
+    const onScroll = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(read);
+    };
+    track.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      track.removeEventListener("scroll", onScroll);
+    };
+  }, [count, onIndex]);
+
+  // A shorter list (photo removed) can leave the track past its last slide.
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const width = track.clientWidth;
+    if (width && Math.round(track.scrollLeft / width) !== current) {
+      track.scrollTo({ left: current * width, behavior: "auto" });
+    }
+  }, [count, current]);
+
+  const goTo = (next: number) => {
+    const track = trackRef.current;
+    if (!track) return;
+    const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    track.scrollTo({ left: next * track.clientWidth, behavior: reduce ? "auto" : "smooth" });
+  };
+
+  return (
+    <>
+      <div ref={trackRef} className="hero-track" data-testid="hero-track">
+        {slides.map((doc, i) => (
+          <button
+            key={doc.document_id}
+            type="button"
+            className="hero-image hero-slide"
+            onClick={() => onOpen(doc)}
+            aria-label={`Open photo ${i + 1} of ${count}`}
+            tabIndex={i === current ? 0 : -1}
+          >
+            <img
+              src={fileUrl(doc)}
+              alt={doc.caption ?? title}
+              loading={i === 0 ? "eager" : "lazy"}
+              draggable={false}
+            />
+          </button>
+        ))}
+      </div>
+      {count > 1 && (
+        <div className="hero-dots" role="tablist" aria-label="Photos">
+          {slides.map((doc, i) => (
+            <button
+              key={doc.document_id}
+              type="button"
+              role="tab"
+              aria-selected={i === current}
+              aria-label={`Photo ${i + 1}`}
+              className={i === current ? "on" : ""}
+              onClick={() => goTo(i)}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Scroll the chip bar just enough that the selected chip sits at the visible end. */
+function scrollChipIntoBar(scroller: HTMLElement, chip: HTMLElement) {
+  if (scroller.scrollWidth <= scroller.clientWidth + 1) return;
+  const scrollerBox = scroller.getBoundingClientRect();
+  const chipBox = chip.getBoundingClientRect();
+  const styles = getComputedStyle(scroller);
+  const padLeft = Number.parseFloat(styles.paddingLeft) || 0;
+  const padRight = Number.parseFloat(styles.paddingRight) || 0;
+  const visibleLeft = scrollerBox.left + padLeft;
+  const visibleRight = scrollerBox.right - padRight;
+  let delta = 0;
+  if (chipBox.right > visibleRight) delta = chipBox.right - visibleRight;
+  else if (chipBox.left < visibleLeft) delta = chipBox.left - visibleLeft;
+  else return;
+  const next = Math.max(0, Math.min(scroller.scrollWidth - scroller.clientWidth, scroller.scrollLeft + delta));
+  const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  scroller.scrollTo({ left: next, behavior: reduce ? "auto" : "smooth" });
+}
+
 function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) {
   const [active, setActive] = useState<string | null>(items[0]?.id ?? null);
   const navRef = useRef<HTMLDivElement | null>(null);
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const pinRef = useRef<string | null>(null);
+  const pinTimer = useRef(0);
   const ids = items.map((item) => item.id).join("|");
+  const releasePin = () => {
+    pinRef.current = null;
+    window.clearTimeout(pinTimer.current);
+  };
+  const selectChip = (id: string) => {
+    pinRef.current = id;
+    setActive(id);
+    window.clearTimeout(pinTimer.current);
+    pinTimer.current = window.setTimeout(releasePin, 1600);
+    scrollToId(id);
+  };
   useEffect(() => {
     const node = navRef.current;
     if (!node) return;
@@ -677,20 +852,44 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
         else visible.delete(entry.target.id);
       }
       const top = [...visible.entries()].sort((a, b) => a[1] - b[1])[0];
+      // A tap pins the chip until page scroll settles. Ignore the sections we
+      // fly past so they do not flash selected on the way.
+      if (pinRef.current) return;
       if (top) setActive(top[0]);
     }, { rootMargin: `-${topbar + nav}px 0px -55% 0px`, threshold: 0 });
     nodes.forEach((node) => observer.observe(node));
     return () => observer.disconnect();
   }, [ids]);
+  useEffect(() => {
+    const onScrollEnd = (event: Event) => {
+      const target = event.target;
+      if (target === scrollerRef.current) return;
+      if (target !== document && target !== document.documentElement && target !== document.body && target !== document.scrollingElement) return;
+      releasePin();
+    };
+    window.addEventListener("scrollend", onScrollEnd);
+    return () => {
+      window.removeEventListener("scrollend", onScrollEnd);
+      window.clearTimeout(pinTimer.current);
+    };
+  }, []);
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller || !active) return;
+    const chip = scroller.querySelector<HTMLElement>(`a[href="#${CSS.escape(active)}"]`);
+    if (!chip) return;
+    const frame = requestAnimationFrame(() => scrollChipIntoBar(scroller, chip));
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
   return (
     <div ref={navRef} className="profile-nav-wrap">
-      <nav className="side-nav profile-nav" aria-label="On this page">
+      <nav ref={scrollerRef} className="side-nav profile-nav" aria-label="On this page">
         {items.map((item) => (
           <a
             key={item.id}
             href={`#${item.id}`}
             className={active === item.id ? "on" : ""}
-            onClick={(event) => { event.preventDefault(); scrollToId(item.id); }}
+            onClick={(event) => { event.preventDefault(); selectChip(item.id); }}
           >
             {item.label}
           </a>
@@ -738,7 +937,7 @@ function AboutSection({
   propertyId: string;
   editing: boolean;
   setEditing: (open: boolean) => void;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
 }) {
   const text = typeof fact.value === "string" ? fact.value : "";
@@ -806,7 +1005,9 @@ function AboutSection({
       ) : (
         <div className="group empty-card about-empty">
           <p>Every property has a story. Say what makes this one itself: when it was built, what has been done, what a neighbor would tell you.</p>
-          <button type="button" className="btn secondary small" onClick={() => setEditing(true)} data-testid="about-start">Write about this place</button>
+          {owner && (
+            <button type="button" className="btn secondary small" onClick={() => setEditing(true)} data-testid="about-start">Write about this place</button>
+          )}
         </div>
       )}
     </section>
@@ -835,7 +1036,7 @@ function FactSection({
   facts: Fact[];
   owner: boolean;
   propertyId: string;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
   before?: React.ReactNode;
   children?: React.ReactNode;
@@ -1152,7 +1353,7 @@ function ImprovementsSection({
   categories: string[];
   formOpen: boolean;
   setFormOpen: (open: boolean) => void;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
 }) {
   const total = improvements.reduce((sum, item) => sum + (item.cost_cents ?? 0), 0);
@@ -1160,7 +1361,7 @@ function ImprovementsSection({
     <section className="section" id="improvements">
       <div className="section-head">
         <h2>Improvements</h2>
-        {owner && !formOpen && (
+        {owner && (
           <button type="button" className="text-btn accent" data-testid="add-improvement" onClick={() => setFormOpen(true)}>Add improvement</button>
         )}
       </div>
@@ -1171,18 +1372,23 @@ function ImprovementsSection({
         {owner && total > 0 ? ` Recorded so far: ${money(total)}.` : ""}
       </p>
       {owner && formOpen && (
-        <ImprovementForm
-          propertyId={propertyId}
-          categories={categories}
-          onCancel={() => setFormOpen(false)}
-          onSaved={async (count) => {
-            setFormOpen(false);
-            toast(count ? `Improvement recorded with ${count} attachment${count === 1 ? "" : "s"}.` : "Improvement recorded.");
-            await onChange();
-          }}
-        />
+        <ImprovementDialog title="Add improvement" onClose={() => setFormOpen(false)}>
+          <ImprovementForm
+            propertyId={propertyId}
+            categories={categories}
+            onCancel={() => setFormOpen(false)}
+            onSaved={async (count, improvement) => {
+              setFormOpen(false);
+              toast(count ? `Improvement recorded with ${count} attachment${count === 1 ? "" : "s"}.` : "Improvement recorded.");
+              await onChange(improvement ? (page) => ({
+                ...page,
+                improvements: [improvement, ...page.improvements.filter((row) => row.improvement_id !== improvement.improvement_id)],
+              }) : undefined);
+            }}
+          />
+        </ImprovementDialog>
       )}
-      {improvements.length === 0 && !formOpen && (
+      {improvements.length === 0 && (
         <div className="group empty-card">
           {owner ? "No improvements recorded yet. Start with the last big job: a roof, a boiler, a kitchen." : "None shared yet."}
         </div>
@@ -1201,39 +1407,104 @@ function attachmentVisibility(file: File, improvementVisibility: string): string
   return file.type.startsWith("image/") ? improvementVisibility : "private";
 }
 
+function dateInputValue(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.length >= 10 ? value.slice(0, 10) : value;
+}
+
+function costInputValue(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined) return "";
+  return String(cents / 100);
+}
+
+/** html is the viewport scroller; locking body overflow alone does nothing. */
+function useLockPageScroll() {
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const scrollY = window.scrollY;
+    html.classList.add("dialog-open");
+    body.style.top = `-${scrollY}px`;
+    return () => {
+      html.classList.remove("dialog-open");
+      body.style.top = "";
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+}
+
+/**
+ * Hosts the improvement form as a full-height sheet on phones and a centered
+ * modal on wider screens, so editing never reflows the page underneath.
+ */
+function ImprovementDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useLockPageScroll();
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="modal-backdrop improvement-dialog-backdrop"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      onWheel={(event) => { if (event.target === event.currentTarget) event.preventDefault(); }}
+    >
+      <div className="improvement-dialog" role="dialog" aria-modal="true" aria-labelledby="improvement-dialog-title" data-testid="improvement-dialog">
+        <header className="improvement-dialog-head">
+          <h2 id="improvement-dialog-title">{title}</h2>
+          <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>×</button>
+        </header>
+        <div className="improvement-dialog-body">{children}</div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function ImprovementForm({
   propertyId,
   categories,
+  item,
   onCancel,
   onSaved,
+  onDeleted,
 }: {
   propertyId: string;
   categories: string[];
+  item?: Improvement;
   onCancel: () => void;
-  onSaved: (attachments: number) => Promise<void> | void;
+  onSaved: (attachments: number, improvement?: Improvement) => Promise<void> | void;
+  onDeleted?: () => Promise<void> | void;
 }) {
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("roof");
-  const [performedAt, setPerformedAt] = useState("");
-  const [cost, setCost] = useState("");
-  const [contractor, setContractor] = useState("");
-  const [notes, setNotes] = useState("");
-  const [visibility, setVisibility] = useState("public");
+  const [title, setTitle] = useState(item?.title ?? "");
+  const [category, setCategory] = useState(item?.category ?? "roof");
+  const [performedAt, setPerformedAt] = useState(dateInputValue(item?.performed_at));
+  const [cost, setCost] = useState(costInputValue(item?.cost_cents));
+  const [contractor, setContractor] = useState(item?.contractor ?? "");
+  const [notes, setNotes] = useState(item?.notes ?? "");
+  const [visibility, setVisibility] = useState(item?.visibility ?? "public");
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const editing = Boolean(item);
 
   return (
-    <form className="group form-card" data-testid="improvement-form" onSubmit={async (event) => {
+    <form className="improvement-form" data-testid="improvement-form" onSubmit={async (event) => {
       event.preventDefault();
       setBusy(true);
       setError(null);
       try {
-        const created = await api.createImprovement(propertyId, { title, category, performedAt: performedAt || null, cost: cost || null, contractor: contractor || null, notes: notes || null, visibility });
+        const payload = { title, category, performedAt: performedAt || null, cost: cost || null, contractor: contractor || null, notes: notes || null, visibility };
+        const saved = item
+          ? (await api.patchImprovement(item.improvement_id, payload)).improvement
+          : (await api.createImprovement(propertyId, payload)).improvement;
         for (const file of files) {
-          await api.upload(propertyId, file, { improvementId: created.improvement.improvement_id, visibility: attachmentVisibility(file, visibility) });
+          await api.upload(propertyId, file, { improvementId: saved.improvement_id, visibility: attachmentVisibility(file, visibility) });
         }
-        await onSaved(files.length);
+        await onSaved(files.length, saved);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not save improvement");
         setBusy(false);
@@ -1269,6 +1540,9 @@ function ImprovementForm({
         <label className="stack span-2">
           <span>Receipts and photos</span>
           <input className="field file" type="file" multiple accept="image/*,application/pdf,.heic" onChange={(event) => setFiles(Array.from(event.target.files ?? []))} data-testid="improvement-files" />
+          {editing && item && item.documents.length > 0 && (
+            <small className="meta-line">{item.documents.length} already attached. New files are added to those.</small>
+          )}
           {files.length > 0 && <small className="meta-line">{files.map((file) => file.name).join(", ")}</small>}
         </label>
         <label className="stack span-2 inline-choice">
@@ -1281,9 +1555,37 @@ function ImprovementForm({
       </div>
       {error && <p className="error">{error}</p>}
       <div className="action-row compact">
-        <button type="submit" className="btn" disabled={busy || !title.trim()} data-testid="improvement-save">{busy ? "Saving…" : "Save improvement"}</button>
+        <button type="submit" className="btn" disabled={busy || !title.trim()} data-testid="improvement-save">{busy ? "Saving…" : editing ? "Save changes" : "Save improvement"}</button>
         <button type="button" className="btn secondary" onClick={onCancel} disabled={busy}>Cancel</button>
       </div>
+      {editing && item && onDeleted && (
+        <div className="form-danger">
+          {confirmDelete ? (
+            <span className="confirm-inline">
+              Delete this improvement and its attachments?
+              <button
+                type="button"
+                className="text-link danger"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError(null);
+                  try {
+                    await api.deleteImprovement(item.improvement_id);
+                    await onDeleted();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Could not delete improvement");
+                    setBusy(false);
+                  }
+                }}
+              >Delete</button>
+              <button type="button" className="text-link" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep</button>
+            </span>
+          ) : (
+            <button type="button" className="text-link danger" disabled={busy} data-testid="improvement-delete" onClick={() => setConfirmDelete(true)}>Delete improvement</button>
+          )}
+        </div>
+      )}
     </form>
   );
 }
@@ -1300,14 +1602,18 @@ function ImprovementCard({
   owner: boolean;
   propertyId: string;
   categories: string[];
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
 }) {
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState(false);
+  const [editing, setEditing] = useState(false);
   const images = item.documents.filter(isImage);
   const files = item.documents.filter((doc) => !isImage(doc));
-  const details = [dateLabel(item.performed_at), money(item.cost_cents), item.contractor].filter(Boolean).join(" · ");
+  const meta = [
+    { key: "date", value: dateLabel(item.performed_at) },
+    { key: "cost", value: money(item.cost_cents) },
+    { key: "contractor", value: item.contractor },
+  ].filter((entry): entry is { key: string; value: string } => Boolean(entry.value));
 
   const attach = async (list: FileList | null) => {
     if (!list?.length) return;
@@ -1325,29 +1631,60 @@ function ImprovementCard({
 
   return (
     <article className={`group improvement-card ${item.visibility === "private" ? "is-private" : ""}`} data-testid="improvement-card">
-      <div className="improvement-head">
-        <div>
-          <span className="chip">{CATEGORY_LABEL[item.category] ?? item.category}</span>
-          <h3>{item.title}</h3>
-          {details && <p className="meta-line">{details}</p>}
-        </div>
-        {owner && (
-          <select
-            className="mini-select"
-            value={item.category}
-            aria-label="Category"
-            onChange={async (event) => {
-              await api.patchImprovement(item.improvement_id, { category: event.target.value });
+      {editing && (
+        <ImprovementDialog title="Edit improvement" onClose={() => setEditing(false)}>
+          <ImprovementForm
+            propertyId={propertyId}
+            categories={categories}
+            item={item}
+            onCancel={() => setEditing(false)}
+            onSaved={async (count, improvement) => {
+              setEditing(false);
+              toast(count ? `Improvement updated with ${count} new attachment${count === 1 ? "" : "s"}.` : "Improvement updated.");
+              await onChange(improvement ? (page) => ({
+                ...page,
+                improvements: page.improvements.map((row) => row.improvement_id === improvement.improvement_id ? { ...row, ...improvement } : row),
+              }) : undefined);
+            }}
+            onDeleted={async () => {
+              setEditing(false);
+              toast("Improvement removed.");
               await onChange();
             }}
-          >
-            {categories.map((key) => <option key={key} value={key}>{CATEGORY_LABEL[key] ?? key}</option>)}
-          </select>
+          />
+        </ImprovementDialog>
+      )}
+      <header className="improvement-head">
+        <span className="chip">{CATEGORY_LABEL[item.category] ?? item.category}</span>
+        <h3>{item.title}</h3>
+        {meta.length > 0 && (
+          <ul className="improvement-meta">
+            {meta.map((entry) => <li key={entry.key} className={entry.key}>{entry.value}</li>)}
+          </ul>
         )}
-      </div>
+      </header>
       {item.notes && <p className="improvement-notes">{item.notes}</p>}
-      {images.length > 0 && (
-        <ImprovementPhotos images={images} owner={owner} onChange={onChange} toast={toast} />
+      {(images.length > 0 || owner) && (
+        <ImprovementPhotos
+          images={images}
+          owner={owner}
+          onChange={onChange}
+          toast={toast}
+          trailing={owner ? (
+            <label className={`photo-thumb photo-add file-btn ${busy ? "is-busy" : ""}`} data-testid="improvement-add">
+              <span className="photo-add-plus" aria-hidden="true">+</span>
+              <span className="photo-add-label">{busy ? "Uploading…" : "Receipt or photo"}</span>
+              <input
+                type="file"
+                multiple
+                accept="image/*,application/pdf,.heic"
+                disabled={busy}
+                aria-label="Add receipt or photo"
+                onChange={(event) => { void attach(event.target.files); event.target.value = ""; }}
+              />
+            </label>
+          ) : null}
+        />
       )}
       {files.length > 0 && (
         <ul className="file-chips">
@@ -1369,27 +1706,23 @@ function ImprovementCard({
       )}
       {owner && (
         <div className="improvement-foot">
-          <label className={`btn secondary small file-btn ${busy ? "is-busy" : ""}`}>
-            {busy ? "Uploading…" : "Add receipt or photo"}
-            <input type="file" multiple accept="image/*,application/pdf,.heic" disabled={busy} onChange={(event) => { void attach(event.target.files); event.target.value = ""; }} />
-          </label>
           <div className="segmented small">
-            <button type="button" className={item.visibility === "public" ? "on" : ""} onClick={async () => { await api.patchImprovement(item.improvement_id, { visibility: "public" }); await onChange(); }}>Public</button>
-            <button type="button" className={item.visibility === "private" ? "on" : ""} onClick={async () => { await api.patchImprovement(item.improvement_id, { visibility: "private" }); await onChange(); }}>Private</button>
+            <button type="button" className={item.visibility === "public" ? "on" : ""} onClick={async () => {
+              await api.patchImprovement(item.improvement_id, { visibility: "public" });
+              await onChange((page) => ({
+                ...page,
+                improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: "public" } : row),
+              }));
+            }}>Public</button>
+            <button type="button" className={item.visibility === "private" ? "on" : ""} onClick={async () => {
+              await api.patchImprovement(item.improvement_id, { visibility: "private" });
+              await onChange((page) => ({
+                ...page,
+                improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: "private" } : row),
+              }));
+            }}>Private</button>
           </div>
-          {confirm ? (
-            <span className="confirm-inline">
-              Remove this improvement and its attachments?
-              <button type="button" className="text-link danger" onClick={async () => {
-                await api.deleteImprovement(item.improvement_id);
-                toast("Improvement removed.");
-                await onChange();
-              }}>Remove</button>
-              <button type="button" className="text-link" onClick={() => setConfirm(false)}>Keep</button>
-            </span>
-          ) : (
-            <button type="button" className="text-link danger" onClick={() => setConfirm(true)}>Remove</button>
-          )}
+          <button type="button" className="text-link" data-testid="improvement-edit" onClick={() => setEditing(true)}>Edit</button>
         </div>
       )}
     </article>
@@ -1422,8 +1755,15 @@ function RestorePhoto({
         aria-label={`Restore ${doc.original_filename}`}
         onChange={(event) => {
           const file = event.target.files?.[0];
+          if (!file) {
+            event.target.value = "";
+            return;
+          }
+          const copy = snapshotPhotoFile(file);
           event.target.value = "";
-          if (file) void onPick(file);
+          void copy.then(onPick).catch((error) => {
+            console.warn("photo restore failed", error);
+          });
         }}
       />
     </label>
@@ -1444,7 +1784,7 @@ function PhotoLightbox({
   owner: boolean;
   onIndex: (next: number) => void;
   onClose: () => void;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: (message: string) => void;
 }) {
   const photo = photos[index];
@@ -1457,19 +1797,15 @@ function PhotoLightbox({
     setConfirm(false);
   }, [index, onIndex, photos.length]);
 
+  useLockPageScroll();
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
       if (event.key === "ArrowRight") step(1);
       if (event.key === "ArrowLeft") step(-1);
     };
     window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [onClose, step]);
 
   if (!photo) return null;
@@ -1559,11 +1895,13 @@ function ImprovementPhotos({
   owner,
   onChange,
   toast,
+  trailing,
 }: {
   images: Doc[];
   owner: boolean;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: (message: string) => void;
+  trailing?: React.ReactNode;
 }) {
   const [open, setOpen] = useState<number | null>(null);
   return (
@@ -1580,6 +1918,7 @@ function ImprovementPhotos({
             {hasFile(doc) ? <img src={fileUrl(doc)} alt="" loading="lazy" /> : <span className="photo-missing-label">Missing</span>}
           </button>
         ))}
+        {trailing}
       </div>
       {open !== null && images[open] && (
         <PhotoLightbox
@@ -1596,11 +1935,121 @@ function ImprovementPhotos({
   );
 }
 
+function Spinner() {
+  return <span className="spinner" aria-hidden="true" />;
+}
+
+function PhotoFileButton({
+  className,
+  busy,
+  multiple,
+  testId,
+  labelTestId,
+  onPick,
+  onError,
+  children,
+}: {
+  className: string;
+  busy: boolean;
+  multiple?: boolean;
+  testId: string;
+  labelTestId?: string;
+  onPick: (files: File[]) => void | Promise<void>;
+  onError?: (message: string) => void;
+  children: ReactNode;
+}) {
+  const locked = useRef(false);
+  const block = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  return (
+    <label
+      className={`${className} file-btn ${busy ? "is-busy" : ""}`}
+      data-testid={labelTestId}
+      aria-busy={busy}
+      onClick={(event) => {
+        if (busy || locked.current) block(event);
+      }}
+    >
+      {busy && <Spinner />}
+      {children}
+      <input
+        type="file"
+        accept="image/*"
+        multiple={multiple}
+        tabIndex={busy ? -1 : 0}
+        data-testid={testId}
+        onClick={(event) => {
+          if (busy || locked.current) block(event);
+        }}
+        onChange={(event) => {
+          if (busy || locked.current) {
+            event.target.value = "";
+            return;
+          }
+          const picked = Array.from(event.target.files ?? []);
+          // Start the byte copy before this handler returns so iOS cannot
+          // revoke the photo-library File after the picker closes.
+          const copies = picked.map(snapshotPhotoFile);
+          event.target.value = "";
+          if (!picked.length) return;
+          locked.current = true;
+          void Promise.all(copies)
+            .then(onPick)
+            .catch((error) => {
+              onError?.(error instanceof Error ? error.message : "That photo could not be read. Try again.");
+            })
+            .finally(() => {
+              locked.current = false;
+            });
+        }}
+      />
+    </label>
+  );
+}
+
+function PhotoImage({ src, alt }: { src: string; alt: string }) {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) {
+      setReady(true);
+      return;
+    }
+    setReady(false);
+  }, [src]);
+
+  return (
+    <>
+      {!ready && (
+        <span
+          className="photo-wait"
+          aria-hidden="true"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        >
+          <Spinner />
+        </span>
+      )}
+      <img ref={imgRef} src={src} alt={alt} onLoad={() => setReady(true)} onError={() => setReady(true)} />
+    </>
+  );
+}
+
 function PhotosSection({
   owner,
   photos,
   cover,
+  pendingCount = 0,
+  uploading = false,
+  uploadError = null,
   onUpload,
+  onUploadError,
   onOpen,
   onChange,
   toast,
@@ -1609,37 +2058,31 @@ function PhotosSection({
   propertyId: string;
   photos: Doc[];
   cover: Doc | null;
-  onUpload: (list: FileList | null) => Promise<void>;
+  pendingCount?: number;
+  uploading?: boolean;
+  uploadError?: string | null;
+  onUpload: (files: File[]) => Promise<void>;
+  onUploadError?: (message: string) => void;
   onOpen: (index: number) => void;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
 }) {
-  const [busy, setBusy] = useState(false);
   return (
     <section className="section" id="photos">
       <div className="section-head">
         <h2>Photos</h2>
         {owner && (
-          <label className={`text-btn accent file-btn ${busy ? "is-busy" : ""}`}>
-            {busy ? "Uploading…" : "Add photos"}
-            <input type="file" accept="image/*" multiple disabled={busy} data-testid="photo-input" onChange={async (event) => {
-              const list = event.target.files;
-              setBusy(true);
-              try {
-                await onUpload(list);
-              } finally {
-                setBusy(false);
-                event.target.value = "";
-              }
-            }} />
-          </label>
+          <PhotoFileButton className="text-btn accent" busy={uploading} multiple testId="photo-input" onPick={(files) => onUpload(files)} onError={onUploadError}>
+            Add photos
+          </PhotoFileButton>
         )}
       </div>
       {owner && <p className="meta-line section-note">Photos are public unless you make them private. The cover is the first thing a visitor sees.{photos.some((doc) => !hasFile(doc)) ? " Cards marked “file missing” need the original photo reattached; after that they stay in Cloudflare." : ""}</p>}
-      {photos.length === 0 ? (
+      {uploadError && <p className="error" role="alert">{uploadError}</p>}
+      {photos.length === 0 && pendingCount === 0 ? (
         <div className="group empty-card">{owner ? "No photos yet. Exterior, roof, mechanicals, and before-and-after shots all belong here." : "None shared yet."}</div>
       ) : (
-        <div className={`photo-grid ${photos.length > 2 ? "featured" : ""}`}>
+        <div className={`photo-grid ${photos.length + pendingCount > 2 ? "featured" : ""}`}>
           {photos.map((doc, index) => (
             <figure key={doc.document_id} className={`photo-card ${doc.visibility === "private" ? "is-private" : ""} ${hasFile(doc) ? "" : "is-missing"}`}>
               {owner && !hasFile(doc) ? (
@@ -1653,7 +2096,7 @@ function PhotosSection({
                 />
               ) : (
                 <button type="button" className="photo-open" onClick={() => onOpen(index)} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
-                  <img src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} loading="lazy" />
+                  <PhotoImage src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} />
                   {cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
                   {owner && doc.visibility === "private" && <span className="photo-flag private">Private</span>}
                 </button>
@@ -1685,7 +2128,10 @@ function PhotosSection({
                         <button type="button" className="text-link" data-testid={`cover-${doc.document_id}`} onClick={async () => {
                           await api.patchDocument(doc.document_id, { cover: true });
                           toast("Cover photo updated.");
-                          await onChange();
+                          await onChange((page) => ({
+                            ...page,
+                            documents: page.documents.map((item) => ({ ...item, is_cover: item.document_id === doc.document_id })),
+                          }));
                         }}>Set as cover</button>
                       )}
                       <button type="button" className="text-link danger" onClick={async () => {
@@ -1698,6 +2144,15 @@ function PhotosSection({
               ) : (
                 doc.caption && <figcaption>{doc.caption}</figcaption>
               )}
+            </figure>
+          ))}
+          {Array.from({ length: pendingCount }, (_, index) => (
+            <figure key={`pending-${index}`} className="photo-card is-pending">
+              <div className="photo-open" aria-label="Uploading photo">
+                <span className="photo-wait">
+                  <Spinner />
+                </span>
+              </div>
             </figure>
           ))}
         </div>

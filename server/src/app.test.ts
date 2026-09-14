@@ -10,7 +10,7 @@ import { closeSql, setSql } from "./db.ts";
 import { runWithRuntime } from "./runtime.ts";
 import { assembleFacts, type AssertionRow } from "./services/assertions.ts";
 import { memoryStore, type DocumentStore } from "./services/storage.ts";
-import { DEBUG_CLAIM_PIN } from "./debug.ts";
+import { DEBUG_CLAIM_PIN, TEST_PROD_CODE, TEST_PROD_EMAIL } from "./debug.ts";
 
 const url = process.env.DATABASE_URL ?? "postgres://ubuntu:myplace@localhost:5432/myplace_test";
 if (isHostedDatabase(url) && !process.env.ALLOW_HOSTED_DB_TESTS) {
@@ -230,6 +230,20 @@ test("search, property page, and claim review", async () => {
   });
   expect(claim.status).toBe(201);
   const { claimId } = await claim.json();
+
+  const pendingPage = await app.request("http://localhost/api/properties/prop_test", {
+    headers: { cookie: ownerCookie },
+  });
+  const pendingBody = await pendingPage.json();
+  expect(pendingBody.viewer.maintainer).toBe(false);
+  expect(pendingBody.viewer.openClaim?.claim_id).toBe(claimId);
+
+  const prematureWrite = await app.request("http://localhost/api/properties/prop_test/owner-fields", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ fields: { "roof.year": 2018 } }),
+  });
+  expect(prematureWrite.status).toBe(403);
 
   const adminCookie = await signIn("admin@example.com", true);
   const review = await app.request(`http://localhost/api/admin/claims/${claimId}/review`, {
@@ -456,8 +470,8 @@ test("former owner loses maintainer access after a handoff claim is verified", a
   expect((await buyerNow.json()).properties).toHaveLength(1);
 });
 
-function withStore<T>(store: DocumentStore, fn: () => Promise<T>): Promise<T> {
-  return runWithRuntime({ env: process.env, storage: store }, fn);
+function withStore<T>(store: DocumentStore, fn: () => T | Promise<T>): Promise<T> {
+  return Promise.resolve(runWithRuntime({ env: process.env, storage: store }, fn));
 }
 
 test("public photos are served to visitors; private ones stay gated", async () => {
@@ -703,6 +717,22 @@ test("debug PIN claim grants ownership and a follow-up page load sees the owner"
   expect(pageBody.property.maintainers).toHaveLength(1);
 });
 
+test("debug PIN claim refuses to displace a verified owner", async () => {
+  await seedProperty();
+  await verifiedOwner("owner@example.com");
+  const claim = await app.request("http://localhost/api/dev/debug/claim/prop_test", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pin: DEBUG_CLAIM_PIN }),
+  });
+  expect(claim.status).toBe(409);
+  const page = await app.request("http://localhost/api/properties/prop_test");
+  const body = await page.json();
+  expect(body.property.maintainers).toEqual([
+    expect.objectContaining({ primary_email: "owner@example.com" }),
+  ]);
+});
+
 test("debug sign-in accepts the 000000 shortcut", async () => {
   const res = await app.request("http://localhost/api/auth/verify", {
     method: "POST",
@@ -713,4 +743,57 @@ test("debug sign-in accepts the 000000 shortcut", async () => {
   const body = await res.json();
   expect(body.user.primary_email).toBe("admin@myplace.local");
   expect(res.headers.get("set-cookie") ?? "").toMatch(/myplace_session=/);
+});
+
+test("a pending claim does not let an admin manage the property", async () => {
+  await seedProperty();
+  const cookie = await signIn("michaeltomkins@gmail.com", true);
+  const claim = await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ method: "utility_and_id", attestationAccepted: true }),
+  });
+  expect(claim.status).toBe(201);
+
+  const page = await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } });
+  const body = await page.json();
+  expect(body.viewer.admin).toBe(true);
+  expect(body.viewer.maintainer).toBe(false);
+  expect(body.viewer.openClaim).toBeTruthy();
+
+  const write = await app.request("http://localhost/api/properties/prop_test/owner-fields", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ fields: { "roof.year": 2018 } }),
+  });
+  expect(write.status).toBe(403);
+
+  const docs = await app.request("http://localhost/api/properties/prop_test/documents", { headers: { cookie } });
+  expect(docs.status).toBe(403);
+});
+
+test("production tester login accepts 000000 without a mailed code", async () => {
+  const res = await runWithRuntime(
+    { env: { ...process.env, NODE_ENV: "production", DEV_MAILBOX: "false" } },
+    () => app.request("http://localhost/api/auth/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: TEST_PROD_EMAIL, code: TEST_PROD_CODE }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.user.primary_email).toBe(TEST_PROD_EMAIL);
+  expect(body.user.is_admin).toBe(false);
+  expect(res.headers.get("set-cookie") ?? "").toMatch(/myplace_session=/);
+
+  const denied = await runWithRuntime(
+    { env: { ...process.env, NODE_ENV: "production", DEV_MAILBOX: "false" } },
+    () => app.request("http://localhost/api/auth/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "someone-else@example.com", code: TEST_PROD_CODE }),
+    }),
+  );
+  expect(denied.status).toBe(400);
 });

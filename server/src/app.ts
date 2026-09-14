@@ -17,7 +17,7 @@ import {
 } from "./auth.ts";
 import { config, isDevExperience } from "./config.ts";
 import { getSql } from "./db.ts";
-import { DEBUG_CLAIM_PIN, DEBUG_OWNER_EMAIL, debugEnabled, pinMatches } from "./debug.ts";
+import { DEBUG_CLAIM_PIN, DEBUG_OWNER_EMAIL, debugEnabled, isFixedSignin, pinMatches } from "./debug.ts";
 import { id } from "./ids.ts";
 import { insertAssertion, ownerAssertionVisibility, retractOwnerAssertion, setOwnerAssertionVisibility } from "./services/assertions.ts";
 import { emitEvent } from "./services/events.ts";
@@ -60,7 +60,8 @@ import {
   TILE_MAX_ZOOM,
   TILE_MIN_ZOOM,
 } from "./services/properties.ts";
-import { documentKey, getDocument, putDocument } from "./services/storage.ts";
+import { storeUpload, type OptimizedPhoto } from "./services/photos.ts";
+import { getDocument } from "./services/storage.ts";
 import { FIELD_BY_KEY, FIELD_VOCAB, ownerWritable } from "./vocab.ts";
 
 export const app = new Hono<AppEnv>();
@@ -81,6 +82,13 @@ app.use("*", cors({
   credentials: true,
 }));
 app.use("/api/*", authMiddleware);
+app.use("/api/*", async (c, next) => {
+  await next();
+  if (c.req.path.startsWith("/api/tiles/")) return;
+  if (!c.res.headers.has("Cache-Control") && !c.res.headers.has("cache-control")) {
+    c.header("Cache-Control", "private, no-store");
+  }
+});
 
 app.onError((error, c) => {
   const status = error instanceof HTTPException
@@ -180,7 +188,7 @@ app.post("/api/auth/verify", async (c) => {
   if (!email || !code) return c.json({ error: "Email and code are required." }, 400);
 
   const sql = getSql();
-  const debugBypass = debugEnabled() && code === "000000";
+  const debugBypass = isFixedSignin(email, code);
   if (!debugBypass) {
     const rows = await sql<{ code_id: string; code_hash: string }[]>`
       SELECT code_id, code_hash FROM auth_codes
@@ -297,10 +305,18 @@ app.get("/api/geo/county", async (c) => {
 app.get("/api/properties/:id", async (c) => {
   const propertyId = c.req.param("id");
   const user = c.get("user");
-  const maintainer = user ? await isMaintainer(user.user_id, propertyId) : false;
+  const sql = getSql();
+  const openClaim = user
+    ? (await sql<{ claim_id: string; status: string }[]>`
+        SELECT claim_id, status FROM ownership_claims
+        WHERE property_id = ${propertyId} AND user_id = ${user.user_id} AND status IN ('draft', 'pending')
+        ORDER BY created_at DESC LIMIT 1
+      `)[0] ?? null
+    : null;
+  // A claim still under review is not ownership. Admin status is not either.
+  const maintainer = Boolean(user && !openClaim && await isMaintainer(user.user_id, propertyId));
   const page = await loadPropertyPage(propertyId, { viewerIsMaintainer: maintainer });
   if (!page) return c.json({ error: "Property not found" }, 404);
-  const sql = getSql();
   const role = maintainer && user
     ? (await sql<{ role: string; verified_at: string }[]>`
         SELECT role, verified_at FROM property_maintainers
@@ -312,19 +328,12 @@ app.get("/api/properties/:id", async (c) => {
     const dispute = disputes.find((item) => item.fieldKey === fact.fieldKey);
     return dispute ? { ...fact, dispute } : fact;
   });
-  const [improvements, documents, invitations, invitation, preferences, openClaim] = await Promise.all([
+  const [improvements, documents, invitations, invitation, preferences] = await Promise.all([
     loadImprovements(page.property_id, maintainer),
     loadDocuments(page.property_id, maintainer),
     maintainer ? loadPendingInvitations(page.property_id) : Promise.resolve([]),
     user && !maintainer ? pendingInvitationFor(page.property_id, user.primary_email) : Promise.resolve(null),
     maintainer && user ? loadPreferences(user.user_id, page.property_id) : Promise.resolve(null),
-    user
-      ? sql<{ claim_id: string; status: string }[]>`
-          SELECT claim_id, status FROM ownership_claims
-          WHERE property_id = ${page.property_id} AND user_id = ${user.user_id} AND status IN ('draft', 'pending')
-          ORDER BY created_at DESC LIMIT 1
-        `.then((rows) => rows[0] ?? null)
-      : Promise.resolve(null),
   ]);
   return c.json({
     property: { ...page, facts, improvements, documents, invitations, disputes },
@@ -486,7 +495,8 @@ app.post("/api/properties/:id/documents", async (c) => {
   const form = await c.req.parseBody();
   const file = form.file;
   if (!(file instanceof File)) return c.json({ error: "Choose a file to upload." }, 400);
-  if (file.size > 15 * 1024 * 1024) return c.json({ error: "Files must be 15 MB or smaller." }, 400);
+  if (file.size === 0) return c.json({ error: "That file was empty. Try choosing it again." }, 400);
+  if (file.size > 20 * 1024 * 1024) return c.json({ error: "Files must be 20 MB or smaller." }, 400);
 
   const claimId = typeof form.claimId === "string" && form.claimId ? form.claimId : null;
   const improvementId = typeof form.improvementId === "string" && form.improvementId ? form.improvementId : null;
@@ -514,7 +524,7 @@ app.post("/api/properties/:id/documents", async (c) => {
       WHERE claim_id = ${claimId} AND user_id = ${user.user_id} AND property_id = ${propertyId}
     `;
     if (!claim[0]) return c.json({ error: "Claim not found" }, 404);
-  } else if (!(await isMaintainer(user.user_id, propertyId)) && !user.is_admin) {
+  } else if (!(await isMaintainer(user.user_id, propertyId))) {
     return c.json({ error: "Only a current maintainer can upload to this record." }, 403);
   }
   if (improvementId) {
@@ -526,17 +536,18 @@ app.post("/api/properties/:id/documents", async (c) => {
   }
 
   const documentId = id("doc");
-  const key = documentKey(propertyId, documentId, file.name);
-  await putDocument(key, new Uint8Array(await file.arrayBuffer()));
+  const upload = await storeUpload(propertyId, documentId, file);
+  const { stored, key } = upload;
   await sql`
     INSERT INTO documents (
       document_id, property_id, claim_id, improvement_id, uploaded_by, storage_key, original_filename,
       mime_type, byte_size, document_type, visibility, transferability, caption
     ) VALUES (
-      ${documentId}, ${propertyId}, ${claimId}, ${improvementId}, ${user.user_id}, ${key}, ${file.name},
-      ${file.type || "application/octet-stream"}, ${file.size}, ${documentType}, ${visibility}, ${transferability}, ${caption}
+      ${documentId}, ${propertyId}, ${claimId}, ${improvementId}, ${user.user_id}, ${key}, ${stored.filename},
+      ${stored.mime}, ${stored.bytes.byteLength}, ${documentType}, ${visibility}, ${transferability}, ${caption}
     )
   `;
+  upload.commit((optimized, optimizedKey) => recordOptimizedFile(documentId, optimized, optimizedKey));
   if (asCover) await setCoverPhoto(propertyId, documentId);
   if (!claimId) {
     await emitEvent({
@@ -554,9 +565,18 @@ app.get("/api/properties/:id/documents", async (c) => {
   const user = requireUser(c);
   const propertyId = c.req.param("id");
   const maintainer = await isMaintainer(user.user_id, propertyId);
-  if (!maintainer && !user.is_admin) return c.json({ error: "Forbidden" }, 403);
+  if (!maintainer) return c.json({ error: "Forbidden" }, 403);
   return c.json({ documents: await loadDocuments(propertyId, true) });
 });
+
+/** Point a document row at the encode that finished after its upload responded. */
+async function recordOptimizedFile(documentId: string, stored: OptimizedPhoto, key: string): Promise<void> {
+  await getSql()`
+    UPDATE documents
+    SET storage_key = ${key}, original_filename = ${stored.filename}, mime_type = ${stored.mime}, byte_size = ${stored.bytes.byteLength}
+    WHERE document_id = ${documentId}
+  `;
+}
 
 async function loadOwnedDocument(c: Parameters<typeof requireUser>[0], documentId: string) {
   const user = requireUser(c);
@@ -566,7 +586,7 @@ async function loadOwnedDocument(c: Parameters<typeof requireUser>[0], documentI
   `;
   const doc = rows[0];
   if (!doc) throw Object.assign(new Error("Not found"), { status: 404 });
-  if (!(await isMaintainer(user.user_id, doc.property_id)) && !user.is_admin) {
+  if (!(await isMaintainer(user.user_id, doc.property_id))) {
     throw Object.assign(new Error("Forbidden"), { status: 403 });
   }
   return { user, doc };
@@ -615,24 +635,26 @@ app.post("/api/documents/:id/file", async (c) => {
   const form = await c.req.parseBody();
   const file = form.file;
   if (!(file instanceof File)) return c.json({ error: "Choose a file to upload." }, 400);
-  if (file.size > 15 * 1024 * 1024) return c.json({ error: "Files must be 15 MB or smaller." }, 400);
-  const key = documentKey(doc.property_id, doc.document_id, file.name);
-  await putDocument(key, new Uint8Array(await file.arrayBuffer()));
+  if (file.size === 0) return c.json({ error: "That file was empty. Try choosing it again." }, 400);
+  if (file.size > 20 * 1024 * 1024) return c.json({ error: "Files must be 20 MB or smaller." }, 400);
+  const upload = await storeUpload(doc.property_id, doc.document_id, file);
+  const { stored, key } = upload;
   const sql = getSql();
-  const isImage = file.type.startsWith("image/");
+  const isImage = stored.mime.startsWith("image/");
   await sql`
     UPDATE documents
     SET
       storage_key = ${key},
-      original_filename = ${file.name},
-      mime_type = ${file.type || "application/octet-stream"},
-      byte_size = ${file.size},
+      original_filename = ${stored.filename},
+      mime_type = ${stored.mime},
+      byte_size = ${stored.bytes.byteLength},
       document_type = CASE
         WHEN document_type = 'photo' OR ${isImage} THEN 'photo'
         ELSE document_type
       END
     WHERE document_id = ${doc.document_id}
   `;
+  upload.commit((optimized, optimizedKey) => recordOptimizedFile(doc.document_id, optimized, optimizedKey));
   await emitEvent({
     propertyId: doc.property_id,
     eventType: isImage || doc.document_type === "photo" ? "photo.replaced" : "document.replaced",
@@ -1249,6 +1271,19 @@ app.post("/api/dev/debug/claim/:id", async (c) => {
   }
 
   const sql = getSql();
+  const existingOwner = await sql<{ primary_email: string }[]>`
+    SELECT u.primary_email
+    FROM property_maintainers m
+    JOIN users u ON u.user_id = m.user_id
+    WHERE m.property_id = ${propertyId} AND m.revoked_at IS NULL
+    LIMIT 1
+  `;
+  if (existingOwner[0]) {
+    return c.json({
+      error: `This property already has a verified owner (${existingOwner[0].primary_email}). Debug claim will not displace them.`,
+    }, 409);
+  }
+
   await sql`
     UPDATE ownership_claims SET status = 'superseded'
     WHERE property_id = ${propertyId} AND user_id = ${user.user_id} AND status IN ('draft', 'pending')
