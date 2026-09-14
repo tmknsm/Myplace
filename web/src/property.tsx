@@ -332,7 +332,6 @@ export function PropertyPageView() {
       )}
       <figcaption className="hero-overlay">
         <div className="hero-side">
-          {slide?.caption && <span className="hero-caption">{slide.caption}</span>}
           {slide && owner && slide.visibility !== "public" && (
             <button type="button" className="hero-pill warn" onClick={async () => {
               await api.patchDocument(slide.document_id, { visibility: "public" });
