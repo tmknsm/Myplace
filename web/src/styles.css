@@ -18,9 +18,9 @@
   --radius-sm: 10px;
   --pad: 22px;
   --tap: 44px;
-  --topbar-pad-bottom: 24px;
+  --topbar-pad-bottom: 16px;
   --profile-nav-pad-y: 16px;
-  /* Docked tabs sit 10px (brand row padding) + this below the brand links: 16px, matching the bottom. */
+  /* Docked tabs sit 10px (brand row padding) + this below the brand links: 16px, matching the search row. */
   --profile-nav-pad-top: 6px;
   /* Height of the header's narrow-screen search row (0 where the search lives in the brand row). */
   --search-row-height: calc(var(--topbar-height, 0px) - var(--topbar-main-height, var(--topbar-height, 0px)));
