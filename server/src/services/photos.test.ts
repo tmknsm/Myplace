@@ -62,7 +62,13 @@ test("tiny invalid jpegs are stored as-is so existing uploads keep working", asy
 test("pdf and gif uploads are not re-encoded", async () => {
   expect(shouldOptimizePhoto("application/pdf", 80_000)).toBe(false);
   expect(shouldOptimizePhoto("image/gif", 80_000)).toBe(false);
-  expect(shouldOptimizePhoto("image/heic", 2_000_000)).toBe(false);
+  // HEIC is compressible through the Images binding, so it is not skipped
+  // outright; without that binding the in-isolate path leaves it alone.
+  expect(shouldOptimizePhoto("image/heic", 2_000_000)).toBe(true);
+  const heic = new Uint8Array(64);
+  heic.set([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]);
+  const kept = await optimizePhoto(heic, "image/heic", "IMG_0001.heic");
+  expect(kept.bytes).toBe(heic);
   expect(shouldOptimizePhoto("image/webp", 800_000)).toBe(false);
   expect(shouldOptimizePhoto("image/webp", 2_000_000)).toBe(false);
   const raw = new Uint8Array([1, 2, 3, 4]);
@@ -127,6 +133,57 @@ test("on the Worker the original is stored first and the encode lands after the 
   expect(applied).toEqual([{ mime: "image/webp", key: "property-documents/prop_test/doc_test/yard.webp" }]);
   expect(await store.has("property-documents/prop_test/doc_test/yard.webp")).toBe(true);
   expect(await store.has(upload.key)).toBe(false);
+}, 20_000);
+
+test("with the Images binding the encode is inline even on the Worker, so no deferral is needed", async () => {
+  const store = memoryStore();
+  const deferred: Array<() => Promise<unknown>> = [];
+  const calls: Array<{ bytes: number; width: number; height: number; quality: number }> = [];
+  const heic = new Uint8Array(3_000_000);
+  heic.set([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]);
+  const file = new File([heic.buffer as ArrayBuffer], "IMG_0001.HEIC", { type: "image/heic" });
+  const runtime = {
+    env: process.env,
+    storage: store,
+    defer: (task: () => Promise<unknown>) => { deferred.push(task); },
+    images: async (bytes: Uint8Array, target: { width: number; height: number; quality: number }) => {
+      calls.push({ bytes: bytes.byteLength, ...target });
+      return { bytes: new Uint8Array(200_000), mime: "image/webp" };
+    },
+  };
+  const upload = await runWithRuntime(runtime, () => storeUpload("prop_test", "doc_heic", file));
+  expect(calls).toEqual([{ bytes: 3_000_000, width: 5120, height: 5120, quality: 80 }]);
+  expect(upload.stored.mime).toBe("image/webp");
+  expect(upload.stored.filename).toBe("IMG_0001.webp");
+  expect(upload.key).toBe("property-documents/prop_test/doc_heic/IMG_0001.webp");
+  expect(await store.has(upload.key)).toBe(true);
+  expect(await store.has("property-documents/prop_test/doc_heic/IMG_0001.HEIC")).toBe(false);
+  upload.commit(async () => { throw new Error("nothing to apply"); });
+  expect(deferred).toEqual([]);
+});
+
+test("when Images declines, the Worker stores the original and defers the WASM fallback", async () => {
+  const store = memoryStore();
+  const deferred: Array<() => Promise<unknown>> = [];
+  const png = solidPng(640, 480);
+  const file = new File([png.buffer as ArrayBuffer], "yard.png", { type: "image/png" });
+  const runtime = {
+    env: process.env,
+    storage: store,
+    defer: (task: () => Promise<unknown>) => { deferred.push(task); },
+    images: async () => { throw new Error("error code: 9422"); },
+  };
+  const applied: string[] = [];
+  const upload = await runWithRuntime(runtime, async () => {
+    const result = await storeUpload("prop_test", "doc_quota", file);
+    result.commit(async (stored) => { applied.push(stored.mime); });
+    return result;
+  });
+  expect(upload.stored.mime).toBe("image/png");
+  expect(deferred).toHaveLength(1);
+  await Promise.all(deferred.map((task) => runWithRuntime(runtime, task)));
+  expect(applied).toEqual(["image/webp"]);
+  expect(await store.has("property-documents/prop_test/doc_quota/yard.webp")).toBe(true);
 }, 20_000);
 
 test("without a deferral hook the encode runs inline and only the result is stored", async () => {

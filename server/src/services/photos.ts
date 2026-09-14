@@ -1,12 +1,15 @@
 /**
  * Upload-time photo encode. Camera originals become a display-sized WebP so
  * the hero is sharp on a 5K display and a retina phone without shipping 12 MP.
- * Decode failures (tests, truncated files, HEIC) keep the original bytes.
- * Huge camera files skip WASM so a 48 MP iPhone original cannot OOM the Worker.
+ *
+ * Encoder of record is the Cloudflare Images binding (any size, HEIC too, no
+ * isolate memory involved). In-isolate WASM is the fallback for local dev and
+ * for when Images declines; it is budgeted so a big JPEG cannot OOM the Worker,
+ * and decode failures (tests, truncated files) keep the original bytes.
  */
 
 import { PHOTO_MAX_EDGE, fitImageSize, imageDimensions, isProgressiveJpeg, tooBigForWorker } from "../../../shared/image-size.ts";
-import { deferTask } from "../runtime.ts";
+import { deferTask, imageTransformer } from "../runtime.ts";
 import { ensureJpegDecode, ensurePngDecode, ensureResize, ensureWebpDecode, ensureWebpEncode } from "./photos-wasm.ts";
 import { deleteDocumentObject, documentKey, putDocument } from "./storage.ts";
 
@@ -23,9 +26,10 @@ const SKIP_TYPES = new Set([
   "image/svg+xml",
   "image/gif",
   "image/tiff",
-  "image/heic",
-  "image/heif",
 ]);
+
+/** Formats the in-isolate codecs can read. HEIC needs the Images binding. */
+const WASM_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export function shouldOptimizePhoto(mime: string | undefined, byteLength: number): boolean {
   if (!mime?.startsWith("image/") || SKIP_TYPES.has(mime)) return false;
@@ -73,14 +77,50 @@ export function targetSize(width: number, height: number): { width: number; heig
   return fitImageSize(width, height, PHOTO_MAX_EDGE);
 }
 
-export async function optimizePhoto(input: Uint8Array, mime: string, filename: string): Promise<OptimizedPhoto> {
+function keepIfSmaller(original: OptimizedPhoto, encoded: Uint8Array, mime: string): OptimizedPhoto {
+  if (encoded.byteLength === 0 || encoded.byteLength >= original.bytes.byteLength * 0.97) return original;
+  return { bytes: encoded, mime, filename: withExtension(original.filename, "webp") };
+}
+
+/** Encode through the Images binding when the runtime has one. Null means "not handled". */
+async function optimizeHosted(original: OptimizedPhoto, detected: string): Promise<OptimizedPhoto | null> {
+  const transform = imageTransformer();
+  if (!transform) return null;
+  const size = imageDimensions(original.bytes);
+  // Unknown dimensions: cap the long edge only; scale-down keeps the aspect ratio.
+  const target = size ? fitImageSize(size.width, size.height) : { width: PHOTO_MAX_EDGE, height: PHOTO_MAX_EDGE };
+  try {
+    const result = await transform(original.bytes, { ...target, quality: PHOTO_WEBP_QUALITY });
+    if (!result) return null;
+    console.info("photo optimize (images)", { mime: detected, bytes: original.bytes.byteLength, out: result.bytes.byteLength, ...size });
+    return keepIfSmaller(original, result.bytes, result.mime);
+  } catch (error) {
+    console.warn("photo optimize (images) failed", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+export interface OptimizeOptions {
+  /** Try the Images binding first (default true). */
+  hosted?: boolean;
+  /** Fall back to in-isolate WASM (default true). Off on the Worker while a response is pending. */
+  wasm?: boolean;
+}
+
+export async function optimizePhoto(input: Uint8Array, mime: string, filename: string, options: OptimizeOptions = {}): Promise<OptimizedPhoto> {
   const original = { bytes: input, mime: mime || "application/octet-stream", filename };
   const detected = sniffMime(input, mime);
   if (!shouldOptimizePhoto(detected, input.byteLength)) return original;
+  if (options.hosted !== false) {
+    const hosted = await optimizeHosted(original, detected);
+    if (hosted) return hosted;
+  }
+  if (options.wasm === false) return original;
+  if (!WASM_TYPES.has(detected)) return original;
   if (tooBigForWorker(input)) return original;
   try {
     const size = imageDimensions(input);
-    console.info("photo optimize", {
+    console.info("photo optimize (wasm)", {
       mime: detected,
       bytes: input.byteLength,
       width: size?.width,
@@ -97,8 +137,7 @@ export async function optimizePhoto(input: Uint8Array, mime: string, filename: s
     await ensureWebpEncode();
     const { default: encode } = await import("@jsquash/webp/encode");
     const encoded = new Uint8Array(await encode(image as Parameters<typeof encode>[0], { quality: PHOTO_WEBP_QUALITY }));
-    if (encoded.byteLength === 0 || encoded.byteLength >= input.byteLength * 0.97) return original;
-    return { bytes: encoded, mime: "image/webp", filename: withExtension(filename, "webp") };
+    return keepIfSmaller(original, encoded, "image/webp");
   } catch (error) {
     console.warn("photo optimize skipped", error instanceof Error ? error.message : error);
     return original;
@@ -125,26 +164,28 @@ export interface StoredUpload {
 /**
  * Store an upload so the request can succeed no matter what the encoder does.
  *
- * A 128 MB Worker isolate can die on an unlucky JPEG even after the size
- * checks, and that used to take the whole upload with it (HTTP 503). Now the
- * original is written and recorded first; the WebP replaces it after the
- * response, or not at all.
+ * Order of preference:
+ * 1. Images binding, inline — off-isolate, so it is safe before the response,
+ *    and the page's first render already gets the WebP.
+ * 2. Node without a deferral hook — in-process WASM inline (dev, tests).
+ * 3. Worker without Images (or Images declined) — write and record the
+ *    original first, respond, then try WASM after the response. A 128 MB
+ *    isolate can still die on an unlucky JPEG; that must not take the upload
+ *    with it (it used to be an HTTP 503).
  */
 export async function storeUpload(propertyId: string, documentId: string, file: File): Promise<StoredUpload> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const original: OptimizedPhoto = { bytes, mime: file.type || "application/octet-stream", filename: file.name || "upload" };
-  const encode = async (): Promise<{ stored: OptimizedPhoto; key: string } | null> => {
-    const stored = await optimizePhoto(original.bytes, original.mime, original.filename);
+  const encode = async (options: OptimizeOptions): Promise<{ stored: OptimizedPhoto; key: string } | null> => {
+    const stored = await optimizePhoto(original.bytes, original.mime, original.filename, options);
     if (stored.bytes === original.bytes) return null;
     const key = documentKey(propertyId, documentId, stored.filename);
     await putDocument(key, stored.bytes);
     return { stored, key };
   };
   const defer = deferTask();
-  if (!defer) {
-    const optimized = await encode();
-    if (optimized) return { ...optimized, commit: () => undefined };
-  }
+  const inline = await encode(defer ? { wasm: false } : {});
+  if (inline) return { ...inline, commit: () => undefined };
   const originalKey = documentKey(propertyId, documentId, original.filename);
   await putDocument(originalKey, original.bytes);
   return {
@@ -153,7 +194,7 @@ export async function storeUpload(propertyId: string, documentId: string, file: 
     commit(apply) {
       if (!defer) return;
       defer(() =>
-        encode()
+        encode({ hosted: false })
           .then(async (optimized) => {
             if (!optimized) return;
             await apply(optimized.stored, optimized.key);
