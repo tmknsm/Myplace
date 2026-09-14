@@ -17,7 +17,7 @@ import {
 } from "./auth.ts";
 import { config, isDevExperience } from "./config.ts";
 import { getSql } from "./db.ts";
-import { DEBUG_CLAIM_PIN, DEBUG_OWNER_EMAIL, debugEnabled, pinMatches } from "./debug.ts";
+import { DEBUG_CLAIM_PIN, DEBUG_OWNER_EMAIL, debugEnabled, isFixedSignin, pinMatches } from "./debug.ts";
 import { id } from "./ids.ts";
 import { insertAssertion, ownerAssertionVisibility, retractOwnerAssertion, setOwnerAssertionVisibility } from "./services/assertions.ts";
 import { emitEvent } from "./services/events.ts";
@@ -180,7 +180,7 @@ app.post("/api/auth/verify", async (c) => {
   if (!email || !code) return c.json({ error: "Email and code are required." }, 400);
 
   const sql = getSql();
-  const debugBypass = debugEnabled() && code === "000000";
+  const debugBypass = isFixedSignin(email, code);
   if (!debugBypass) {
     const rows = await sql<{ code_id: string; code_hash: string }[]>`
       SELECT code_id, code_hash FROM auth_codes
