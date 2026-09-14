@@ -307,6 +307,8 @@ img, svg { max-width: 100%; }
   margin-top: 2px;
 }
 
+/* Compact, squared-off button: 8px corners, a 1px edge one shade darker than
+   the fill, and hugging its label instead of stretching. */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -314,23 +316,29 @@ img, svg { max-width: 100%; }
   gap: 8px;
   background: var(--accent);
   color: #fff;
-  border: 0;
-  padding: 10px 16px;
+  border: 1px solid var(--accent-pressed);
+  padding: 9px 16px;
   min-height: 40px;
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
   text-decoration: none;
+  font-size: 15px;
   font-weight: 560;
+  line-height: 1.3;
+  white-space: nowrap;
+  box-shadow: 0 1px 1px rgba(40, 36, 30, 0.08);
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
-.btn:hover { background: var(--accent-pressed); }
+.btn:hover { background: var(--accent-pressed); border-color: var(--accent-pressed); }
+.btn:active { background: var(--accent-pressed); box-shadow: none; }
 .btn.secondary {
   background: var(--surface);
   color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--hairline);
+  border-color: rgba(60, 56, 50, 0.22);
+  box-shadow: 0 1px 1px rgba(40, 36, 30, 0.05);
 }
 .btn.secondary:hover { background: var(--surface-2); }
-.btn.danger { background: var(--danger); }
+.btn.danger { background: var(--danger); border-color: var(--accent-pressed); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .action-row {
@@ -675,7 +683,7 @@ tr:last-child td { border-bottom: 0; }
 .account-chip { font-size: 13px; color: var(--muted); }
 
 /* ---- Buttons & small controls ---------------------------------------- */
-.btn.small { min-height: 32px; padding: 6px 12px; font-size: 14px; border-radius: 8px; }
+.btn.small { min-height: 32px; padding: 5px 12px; font-size: 14px; border-radius: 8px; }
 .action-row.compact { margin-top: 10px; gap: 8px; }
 .text-btn {
   background: none;
@@ -1660,7 +1668,7 @@ table small { display: block; }
   .profile-head h1 { font-size: clamp(30px, 9vw, 40px); margin: 4px 0 8px; }
   .profile-actions { width: 100%; padding-bottom: 0; }
   .profile-actions .action-row.compact { width: 100%; }
-  .profile-actions .btn { flex: 1 1 140px; }
+  .profile-actions .btn { flex: 0 0 auto; }
   .profile-hero { height: clamp(240px, 42dvh, 420px); }
   .profile-hero.is-map { height: clamp(240px, 40dvh, 380px); }
   .hero-overlay { padding: 40px var(--pad) 12px; flex-wrap: wrap; }
