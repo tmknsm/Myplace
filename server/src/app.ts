@@ -60,8 +60,8 @@ import {
   TILE_MAX_ZOOM,
   TILE_MIN_ZOOM,
 } from "./services/properties.ts";
-import { ingestUploadFile } from "./services/photos.ts";
-import { documentKey, getDocument, putDocument } from "./services/storage.ts";
+import { storeUpload, type OptimizedPhoto } from "./services/photos.ts";
+import { getDocument } from "./services/storage.ts";
 import { FIELD_BY_KEY, FIELD_VOCAB, ownerWritable } from "./vocab.ts";
 
 export const app = new Hono<AppEnv>();
@@ -535,10 +535,9 @@ app.post("/api/properties/:id/documents", async (c) => {
     if (!improvement[0]) return c.json({ error: "Improvement not found" }, 404);
   }
 
-  const stored = await ingestUploadFile(file);
   const documentId = id("doc");
-  const key = documentKey(propertyId, documentId, stored.filename);
-  await putDocument(key, stored.bytes);
+  const upload = await storeUpload(propertyId, documentId, file);
+  const { stored, key } = upload;
   await sql`
     INSERT INTO documents (
       document_id, property_id, claim_id, improvement_id, uploaded_by, storage_key, original_filename,
@@ -548,6 +547,7 @@ app.post("/api/properties/:id/documents", async (c) => {
       ${stored.mime}, ${stored.bytes.byteLength}, ${documentType}, ${visibility}, ${transferability}, ${caption}
     )
   `;
+  upload.commit((optimized, optimizedKey) => recordOptimizedFile(documentId, optimized, optimizedKey));
   if (asCover) await setCoverPhoto(propertyId, documentId);
   if (!claimId) {
     await emitEvent({
@@ -568,6 +568,15 @@ app.get("/api/properties/:id/documents", async (c) => {
   if (!maintainer) return c.json({ error: "Forbidden" }, 403);
   return c.json({ documents: await loadDocuments(propertyId, true) });
 });
+
+/** Point a document row at the encode that finished after its upload responded. */
+async function recordOptimizedFile(documentId: string, stored: OptimizedPhoto, key: string): Promise<void> {
+  await getSql()`
+    UPDATE documents
+    SET storage_key = ${key}, original_filename = ${stored.filename}, mime_type = ${stored.mime}, byte_size = ${stored.bytes.byteLength}
+    WHERE document_id = ${documentId}
+  `;
+}
 
 async function loadOwnedDocument(c: Parameters<typeof requireUser>[0], documentId: string) {
   const user = requireUser(c);
@@ -628,9 +637,8 @@ app.post("/api/documents/:id/file", async (c) => {
   if (!(file instanceof File)) return c.json({ error: "Choose a file to upload." }, 400);
   if (file.size === 0) return c.json({ error: "That file was empty. Try choosing it again." }, 400);
   if (file.size > 15 * 1024 * 1024) return c.json({ error: "Files must be 15 MB or smaller." }, 400);
-  const stored = await ingestUploadFile(file);
-  const key = documentKey(doc.property_id, doc.document_id, stored.filename);
-  await putDocument(key, stored.bytes);
+  const upload = await storeUpload(doc.property_id, doc.document_id, file);
+  const { stored, key } = upload;
   const sql = getSql();
   const isImage = stored.mime.startsWith("image/");
   await sql`
@@ -646,6 +654,7 @@ app.post("/api/documents/:id/file", async (c) => {
       END
     WHERE document_id = ${doc.document_id}
   `;
+  upload.commit((optimized, optimizedKey) => recordOptimizedFile(doc.document_id, optimized, optimizedKey));
   await emitEvent({
     propertyId: doc.property_id,
     eventType: isImage || doc.document_type === "photo" ? "photo.replaced" : "document.replaced",

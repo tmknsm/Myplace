@@ -1,8 +1,10 @@
 import { deflateSync } from "node:zlib";
 import { expect, test } from "vitest";
-import { imageDimensions, tooBigForWorker } from "../../../shared/image-size.ts";
-import { optimizePhoto, shouldOptimizePhoto } from "./photos.ts";
+import { imageDimensions, isProgressiveJpeg, tooBigForWorker } from "../../../shared/image-size.ts";
+import { runWithRuntime } from "../runtime.ts";
+import { optimizePhoto, shouldOptimizePhoto, storeUpload } from "./photos.ts";
 import { ensureWebpDecode } from "./photos-wasm.ts";
+import { memoryStore } from "./storage.ts";
 
 function crc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
@@ -86,6 +88,57 @@ test("16 MP iPhone stills skip Worker WASM so the isolate does not OOM", () => {
   expect(imageDimensions(still)).toEqual({ width: 3464, height: 4619 });
   expect(tooBigForWorker(still)).toBe(true);
 });
+
+test("progressive jpegs get half the Worker pixel budget", () => {
+  // SOF2 (0xffc2) frame, 3000×4000: fine as baseline, too big as progressive.
+  const progressive = Uint8Array.from([
+    0xff, 0xd8, 0xff, 0xc2, 0x00, 0x11, 0x08, 0x0f, 0xa0, 0x0b, 0xb8, 0x03,
+    0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00, 0xff, 0xd9,
+  ]);
+  const baseline = Uint8Array.from(progressive);
+  baseline[3] = 0xc0;
+  expect(imageDimensions(progressive)).toEqual({ width: 3000, height: 4000 });
+  expect(isProgressiveJpeg(progressive)).toBe(true);
+  expect(isProgressiveJpeg(baseline)).toBe(false);
+  expect(tooBigForWorker(progressive)).toBe(true);
+  expect(tooBigForWorker(baseline)).toBe(false);
+});
+
+test("on the Worker the original is stored first and the encode lands after the response", async () => {
+  const store = memoryStore();
+  const deferred: Promise<unknown>[] = [];
+  const png = solidPng(640, 480);
+  const file = new File([png.buffer as ArrayBuffer], "yard.png", { type: "image/png" });
+  const applied: Array<{ mime: string; key: string }> = [];
+  const upload = await runWithRuntime(
+    { env: process.env, storage: store, defer: (task) => { deferred.push(task); } },
+    async () => {
+      const result = await storeUpload("prop_test", "doc_test", file);
+      result.commit(async (stored, key) => { applied.push({ mime: stored.mime, key }); });
+      return result;
+    },
+  );
+  expect(upload.stored.mime).toBe("image/png");
+  expect(upload.key).toBe("property-documents/prop_test/doc_test/yard.png");
+  expect(await store.has(upload.key)).toBe(true);
+  expect(applied).toEqual([]);
+  expect(deferred).toHaveLength(1);
+  await Promise.all(deferred);
+  expect(applied).toEqual([{ mime: "image/webp", key: "property-documents/prop_test/doc_test/yard.webp" }]);
+  expect(await store.has("property-documents/prop_test/doc_test/yard.webp")).toBe(true);
+  expect(await store.has(upload.key)).toBe(false);
+}, 20_000);
+
+test("without a deferral hook the encode runs inline and only the result is stored", async () => {
+  const store = memoryStore();
+  const png = solidPng(640, 480);
+  const file = new File([png.buffer as ArrayBuffer], "yard.png", { type: "image/png" });
+  const upload = await runWithRuntime({ env: process.env, storage: store }, () => storeUpload("prop_test", "doc_inline", file));
+  expect(upload.stored.mime).toBe("image/webp");
+  expect(upload.key).toBe("property-documents/prop_test/doc_inline/yard.webp");
+  expect(await store.has(upload.key)).toBe(true);
+  expect(await store.has("property-documents/prop_test/doc_inline/yard.png")).toBe(false);
+}, 20_000);
 
 test("large files with unknown dimensions skip Worker WASM", async () => {
   const mystery = new Uint8Array(1_500_001);

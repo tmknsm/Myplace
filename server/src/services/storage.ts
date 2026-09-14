@@ -5,6 +5,7 @@ export interface DocumentStore {
   put(key: string, bytes: Uint8Array): Promise<void>;
   get(key: string): Promise<Uint8Array>;
   has(key: string): Promise<boolean>;
+  delete(key: string): Promise<void>;
 }
 
 /** Structural subset of Cloudflare's R2Bucket, so the server compiles without Workers types. */
@@ -12,6 +13,7 @@ export interface R2BucketLike {
   put(key: string, value: ArrayBuffer | Uint8Array): Promise<unknown>;
   get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
   head?(key: string): Promise<{ size: number } | null>;
+  delete?(key: string): Promise<unknown>;
 }
 
 export function documentKey(propertyId: string, documentId: string, filename: string): string {
@@ -37,6 +39,9 @@ export function r2Store(bucket: R2BucketLike): DocumentStore {
       if (bucket.head) return Boolean(await bucket.head(key));
       return Boolean(await bucket.get(key));
     },
+    async delete(key) {
+      await bucket.delete?.(key);
+    },
   };
 }
 
@@ -53,6 +58,9 @@ export function memoryStore(map = new Map<string, Uint8Array>()): DocumentStore 
     },
     async has(key) {
       return map.has(key);
+    },
+    async delete(key) {
+      map.delete(key);
     },
   };
 }
@@ -85,6 +93,11 @@ export function fsStore(root: string): DocumentStore {
       } catch {
         return false;
       }
+    },
+    async delete(key) {
+      const { rm } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      await rm(join(root, key), { force: true });
     },
   };
 }
@@ -131,6 +144,11 @@ export function r2HttpStore(): DocumentStore {
       await res.body?.cancel().catch(() => undefined);
       return true;
     },
+    async delete(key) {
+      const res = await fetch(r2ObjectUrl(key), { method: "DELETE", headers: r2Headers() });
+      await res.body?.cancel().catch(() => undefined);
+      if (!res.ok && res.status !== 404) throw new Error(`R2 delete failed (${res.status})`);
+    },
   };
 }
 
@@ -157,6 +175,10 @@ export async function putDocument(key: string, bytes: Uint8Array): Promise<void>
 
 export async function getDocument(key: string): Promise<Uint8Array> {
   return activeStore().get(key);
+}
+
+export async function deleteDocumentObject(key: string): Promise<void> {
+  await activeStore().delete(key);
 }
 
 /** Keys whose bytes are missing from the active store (R2, or local disk if R2 is off). */

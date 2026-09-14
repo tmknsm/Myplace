@@ -46,10 +46,16 @@ export default {
     // Hyperdrive owns the real pool; a client per request is the recommended pattern.
     const sql = postgres(runtimeEnv.DATABASE_URL, { max: 5, fetch_types: false, prepare: true });
     const storage = env.DOCUMENTS_BUCKET ? r2Store(env.DOCUMENTS_BUCKET) : undefined;
+    // Work deferred past the response (photo encodes) still needs this client.
+    const deferred: Promise<unknown>[] = [];
+    const defer = (task: Promise<unknown>) => {
+      deferred.push(task);
+      ctx.waitUntil(task);
+    };
     try {
-      return await runWithRuntime({ env: runtimeEnv, sql, storage }, () => app.fetch(request));
+      return await runWithRuntime({ env: runtimeEnv, sql, storage, defer }, () => app.fetch(request));
     } finally {
-      ctx.waitUntil(sql.end({ timeout: 5 }));
+      ctx.waitUntil(Promise.allSettled(deferred).then(() => sql.end({ timeout: 5 })));
     }
   },
 };

@@ -5,8 +5,10 @@
  * Huge camera files skip WASM so a 48 MP iPhone original cannot OOM the Worker.
  */
 
-import { PHOTO_MAX_EDGE, fitImageSize, tooBigForWorker } from "../../../shared/image-size.ts";
+import { PHOTO_MAX_EDGE, fitImageSize, imageDimensions, isProgressiveJpeg, tooBigForWorker } from "../../../shared/image-size.ts";
+import { deferTask } from "../runtime.ts";
 import { ensureJpegDecode, ensurePngDecode, ensureResize, ensureWebpDecode, ensureWebpEncode } from "./photos-wasm.ts";
+import { deleteDocumentObject, documentKey, putDocument } from "./storage.ts";
 
 export { PHOTO_MAX_EDGE };
 export const PHOTO_WEBP_QUALITY = 80;
@@ -77,6 +79,14 @@ export async function optimizePhoto(input: Uint8Array, mime: string, filename: s
   if (!shouldOptimizePhoto(detected, input.byteLength)) return original;
   if (tooBigForWorker(input)) return original;
   try {
+    const size = imageDimensions(input);
+    console.info("photo optimize", {
+      mime: detected,
+      bytes: input.byteLength,
+      width: size?.width,
+      height: size?.height,
+      progressive: isProgressiveJpeg(input),
+    });
     let image = await decodeRaster(input, detected);
     const next = targetSize(image.width, image.height);
     if (next.width !== image.width || next.height !== image.height) {
@@ -99,4 +109,60 @@ export async function ingestUploadFile(file: File): Promise<OptimizedPhoto> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const mime = file.type || "application/octet-stream";
   return optimizePhoto(bytes, mime, file.name || "upload");
+}
+
+export interface StoredUpload {
+  stored: OptimizedPhoto;
+  key: string;
+  /**
+   * Call once the document row references `key`. On the Worker this kicks off
+   * the encode after the response; on Node it is a no-op because the encode
+   * already ran inline.
+   */
+  commit: (apply: (stored: OptimizedPhoto, key: string) => Promise<void>) => void;
+}
+
+/**
+ * Store an upload so the request can succeed no matter what the encoder does.
+ *
+ * A 128 MB Worker isolate can die on an unlucky JPEG even after the size
+ * checks, and that used to take the whole upload with it (HTTP 503). Now the
+ * original is written and recorded first; the WebP replaces it after the
+ * response, or not at all.
+ */
+export async function storeUpload(propertyId: string, documentId: string, file: File): Promise<StoredUpload> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const original: OptimizedPhoto = { bytes, mime: file.type || "application/octet-stream", filename: file.name || "upload" };
+  const encode = async (): Promise<{ stored: OptimizedPhoto; key: string } | null> => {
+    const stored = await optimizePhoto(original.bytes, original.mime, original.filename);
+    if (stored.bytes === original.bytes) return null;
+    const key = documentKey(propertyId, documentId, stored.filename);
+    await putDocument(key, stored.bytes);
+    return { stored, key };
+  };
+  const defer = deferTask();
+  if (!defer) {
+    const optimized = await encode();
+    if (optimized) return { ...optimized, commit: () => undefined };
+  }
+  const originalKey = documentKey(propertyId, documentId, original.filename);
+  await putDocument(originalKey, original.bytes);
+  return {
+    stored: original,
+    key: originalKey,
+    commit(apply) {
+      if (!defer) return;
+      defer(
+        encode()
+          .then(async (optimized) => {
+            if (!optimized) return;
+            await apply(optimized.stored, optimized.key);
+            if (optimized.key !== originalKey) await deleteDocumentObject(originalKey);
+          })
+          .catch((error) => {
+            console.warn("photo optimize after upload failed", error instanceof Error ? error.message : error);
+          }),
+      );
+    },
+  };
 }

@@ -4,6 +4,11 @@ export const PHOTO_MAX_EDGE = 5120;
 export const PHOTO_MAX_PIXELS = 16_000_000;
 /** 12 MP iPhone JPEGs encode on a 128 MB Worker; 16 MP stills OOM (CF 1102). */
 export const PHOTO_WORKER_PIXELS = 13_000_000;
+/**
+ * Progressive JPEGs decode through a whole-image coefficient buffer on top of
+ * the pixel buffers, so the same 128 MB runs out around half the pixels.
+ */
+export const PHOTO_WORKER_PROGRESSIVE_PIXELS = 6_000_000;
 
 export type ImageSize = { width: number; height: number };
 
@@ -47,7 +52,10 @@ function jpegOrientation(bytes: Uint8Array): number {
   return 1;
 }
 
-function jpegSize(bytes: Uint8Array): ImageSize | null {
+const JPEG_SOF = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+const JPEG_SOF_PROGRESSIVE = new Set([0xc2, 0xc6, 0xca, 0xce]);
+
+function jpegFrame(bytes: Uint8Array): { marker: number; size: ImageSize } | null {
   let offset = 2;
   while (offset + 8 < bytes.length) {
     if (bytes[offset] !== 0xff) {
@@ -55,10 +63,10 @@ function jpegSize(bytes: Uint8Array): ImageSize | null {
       continue;
     }
     const marker = bytes[offset + 1]!;
-    if (marker >= 0xc0 && marker <= 0xc3) {
+    if (JPEG_SOF.has(marker)) {
       const size = { width: u16(bytes, offset + 7), height: u16(bytes, offset + 5) };
       if (!size.width || !size.height) return null;
-      return swapIfRotated(size, jpegOrientation(bytes));
+      return { marker, size };
     }
     if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
       offset += 2;
@@ -67,6 +75,21 @@ function jpegSize(bytes: Uint8Array): ImageSize | null {
     offset += 2 + u16(bytes, offset + 2);
   }
   return null;
+}
+
+function isJpeg(bytes: Uint8Array): boolean {
+  return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+}
+
+function jpegSize(bytes: Uint8Array): ImageSize | null {
+  const frame = jpegFrame(bytes);
+  return frame ? swapIfRotated(frame.size, jpegOrientation(bytes)) : null;
+}
+
+export function isProgressiveJpeg(bytes: Uint8Array): boolean {
+  if (!isJpeg(bytes)) return false;
+  const frame = jpegFrame(bytes);
+  return Boolean(frame && JPEG_SOF_PROGRESSIVE.has(frame.marker));
 }
 
 function pngSize(bytes: Uint8Array): ImageSize | null {
@@ -125,7 +148,7 @@ function heifSize(bytes: Uint8Array): ImageSize | null {
 }
 
 export function imageDimensions(bytes: Uint8Array): ImageSize | null {
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return jpegSize(bytes);
+  if (isJpeg(bytes)) return jpegSize(bytes);
   if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return pngSize(bytes);
   if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) return heifSize(bytes);
   if (bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
@@ -157,6 +180,7 @@ const UNKNOWN_DIMENSIONS_SKIP_BYTES = 1_500_000;
 
 export function tooBigForWorker(bytes: Uint8Array): boolean {
   const size = imageDimensions(bytes);
-  if (size) return size.width * size.height > PHOTO_WORKER_PIXELS;
-  return bytes.byteLength > UNKNOWN_DIMENSIONS_SKIP_BYTES;
+  if (!size) return bytes.byteLength > UNKNOWN_DIMENSIONS_SKIP_BYTES;
+  const budget = isProgressiveJpeg(bytes) ? PHOTO_WORKER_PROGRESSIVE_PIXELS : PHOTO_WORKER_PIXELS;
+  return size.width * size.height > budget;
 }
