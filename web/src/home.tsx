@@ -101,7 +101,12 @@ const CHAPTER_CHIP: Record<ChapterId, string> = {
   sellers: "Sellers",
 };
 
-const SECTION_NAV = CHAPTERS.map((chapter) => ({ id: `chapter-${chapter.id}`, label: CHAPTER_CHIP[chapter.id] }));
+const SECTION_NAV = CHAPTERS.map((chapter) => ({
+  id: `chapter-${chapter.id}`,
+  label: CHAPTER_CHIP[chapter.id],
+  // Curious is the first chapter; its chip returns to the moment the bar docks.
+  ...(chapter.id === "curious" ? { href: "home-story" } : {}),
+}));
 
 // ---------------------------------------------------------------------------
 // Scenes: the product, staged over a photograph
@@ -224,19 +229,6 @@ const SCENES: Record<ChapterId, () => React.JSX.Element> = {
 // Hooks
 // ---------------------------------------------------------------------------
 
-const WIDE = "(min-width: 881px)";
-
-function useWide(): boolean {
-  const [wide, setWide] = useState(() => (typeof window === "undefined" ? true : window.matchMedia(WIDE).matches));
-  useEffect(() => {
-    const query = window.matchMedia(WIDE);
-    const sync = () => setWide(query.matches);
-    query.addEventListener("change", sync);
-    return () => query.removeEventListener("change", sync);
-  }, []);
-  return wide;
-}
-
 const SCROLL_DRIVEN = typeof CSS !== "undefined" && CSS.supports("animation-timeline: view()");
 
 /**
@@ -271,29 +263,6 @@ function useSearchHandoff(anchor: React.RefObject<HTMLDivElement | null>) {
   }, [anchor]);
 }
 
-/** Which chapter is crossing the middle of the viewport. */
-function useActiveChapter(ids: ChapterId[], enabled: boolean): ChapterId {
-  const [active, setActive] = useState<ChapterId>(ids[0]!);
-  useEffect(() => {
-    if (!enabled) return;
-    const nodes = ids.map((id) => document.getElementById(`chapter-${id}`)).filter((node): node is HTMLElement => Boolean(node));
-    if (!nodes.length) return;
-    const visible = new Map<string, number>();
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        const id = entry.target.getAttribute("data-chapter") as ChapterId;
-        if (entry.isIntersecting) visible.set(id, entry.boundingClientRect.top);
-        else visible.delete(id);
-      }
-      const top = [...visible.entries()].sort((a, b) => a[1] - b[1])[0];
-      if (top) setActive(top[0] as ChapterId);
-    }, { rootMargin: "-38% 0px -42% 0px", threshold: 0 });
-    nodes.forEach((node) => observer.observe(node));
-    return () => observer.disconnect();
-  }, [ids.join("|"), enabled]);
-  return active;
-}
-
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -301,11 +270,9 @@ function useActiveChapter(ids: ChapterId[], enabled: boolean): ChapterId {
 export function HomePage() {
   const navigate = useNavigate();
   const meta = useMeta();
-  const wide = useWide();
   const [focus, setFocus] = useState<string>("all");
   const searchAnchor = useRef<HTMLDivElement | null>(null);
   useSearchHandoff(searchAnchor);
-  const active = useActiveChapter(CHAPTERS.map((chapter) => chapter.id), wide);
 
   const count = meta?.propertyCount ?? null;
   const counties = meta?.counties ?? [];
@@ -365,51 +332,30 @@ export function HomePage() {
         </p>
       </section>
 
-      <section className="home-story" aria-labelledby="home-story-title">
+      <section className="home-story" id="home-story" aria-labelledby="home-story-title">
         {/* No view timeline here, so docking always runs through the class-based path. */}
         <SectionNav items={SECTION_NAV} className="home-nav" dockClass="home-nav-docked" scrollDriven={false} />
-        <header className="home-section-head">
-          <div className="kicker">Made for the people who live with a house</div>
-          <h2 id="home-story-title">One record. Four ways to use it.</h2>
-        </header>
         <div className="home-chapters">
-          <div className="home-chapter-list">
-            {CHAPTERS.map((chapter) => {
-              const Scene = SCENES[chapter.id];
-              return (
-                <article
-                  key={chapter.id}
-                  id={`chapter-${chapter.id}`}
-                  data-chapter={chapter.id}
-                  className={`home-chapter ${active === chapter.id ? "is-active" : ""}`}
-                >
-                  {!wide && (
-                    <div className="home-scene home-scene-inline is-on">
-                      <Scene />
-                    </div>
-                  )}
+          {CHAPTERS.map((chapter) => {
+            const Scene = SCENES[chapter.id];
+            return (
+              <article key={chapter.id} id={`chapter-${chapter.id}`} className="home-chapter">
+                <header className="home-section-head">
                   <div className="kicker">{chapter.audience}</div>
-                  <h3>{chapter.title}</h3>
+                  <h2 id={chapter.id === "curious" ? "home-story-title" : undefined}>{chapter.title}</h2>
+                </header>
+                <div className="home-scene home-scene-inline is-on">
+                  <Scene />
+                </div>
+                <div className="home-chapter-copy">
                   <p>{chapter.body}</p>
                   <ul className="home-points">
                     {chapter.points.map((point) => <li key={point}>{point}</li>)}
                   </ul>
-                </article>
-              );
-            })}
-          </div>
-          {wide && (
-            <div className="home-stage" aria-hidden="true">
-              {CHAPTERS.map((chapter) => {
-                const Scene = SCENES[chapter.id];
-                return (
-                  <div key={chapter.id} className={`home-scene ${active === chapter.id ? "is-on" : ""}`}>
-                    <Scene />
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
 

@@ -6,6 +6,8 @@ export const SCROLL_DRIVEN = typeof CSS !== "undefined" && CSS.supports("animati
 export interface SectionNavItem {
   id: string;
   label: string;
+  /** Hash target when the chip should scroll somewhere other than `id`. */
+  href?: string;
 }
 
 interface SectionNavProps {
@@ -58,12 +60,12 @@ export function SectionNav({ items, className, dockClass = "nav-docked", scrollD
     pinRef.current = null;
     window.clearTimeout(pinTimer.current);
   };
-  const selectChip = (id: string) => {
-    pinRef.current = id;
-    setActive(id);
+  const selectChip = (item: SectionNavItem) => {
+    pinRef.current = item.id;
+    setActive(item.id);
     window.clearTimeout(pinTimer.current);
     pinTimer.current = window.setTimeout(releasePin, 1600);
-    scrollToId(id);
+    scrollToId(item.href ?? item.id);
   };
   useEffect(() => {
     const node = navRef.current;
@@ -145,7 +147,7 @@ export function SectionNav({ items, className, dockClass = "nav-docked", scrollD
   useEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller || !active) return;
-    const chip = scroller.querySelector<HTMLElement>(`a[href="#${CSS.escape(active)}"]`);
+    const chip = scroller.querySelector<HTMLElement>(`[data-section="${CSS.escape(active)}"]`);
     if (!chip) return;
     const frame = requestAnimationFrame(() => scrollChipIntoBar(scroller, chip));
     return () => cancelAnimationFrame(frame);
@@ -156,9 +158,10 @@ export function SectionNav({ items, className, dockClass = "nav-docked", scrollD
         {items.map((item) => (
           <a
             key={item.id}
-            href={`#${item.id}`}
+            href={`#${item.href ?? item.id}`}
+            data-section={item.id}
             className={active === item.id ? "on" : ""}
-            onClick={(event) => { event.preventDefault(); selectChip(item.id); }}
+            onClick={(event) => { event.preventDefault(); selectChip(item); }}
           >
             {item.label}
           </a>
