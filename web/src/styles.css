@@ -33,8 +33,13 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
 }
-html, body, #root { min-height: 100%; }
+html, body, #root {
+  min-height: 100%;
+  max-width: 100%;
+}
 body {
   margin: 0;
   /* Lets the header chrome animate against the profile grid's view timeline. */
@@ -44,8 +49,12 @@ body {
   font-family: var(--font);
   font-size: 16px;
   line-height: 1.47;
-  overflow-x: clip;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
   -webkit-font-smoothing: antialiased;
+}
+#root {
+  overflow-x: hidden;
 }
 
 a { color: inherit; }
@@ -87,6 +96,8 @@ img, svg { max-width: 100%; }
   z-index: 20;
   border-bottom: 0;
   padding-top: env(safe-area-inset-top);
+  max-width: 100%;
+  overflow-x: hidden;
   /* The header keeps its full layout height after the search row tucks away;
      without this, that leftover box sits on top of the docked chips and eats taps. */
   pointer-events: none;
@@ -99,6 +110,8 @@ img, svg { max-width: 100%; }
   display: flex;
   align-items: center;
   gap: 16px;
+  min-width: 0;
+  max-width: 100%;
   padding: 10px max(var(--pad), env(safe-area-inset-right)) var(--topbar-pad-bottom) max(var(--pad), env(safe-area-inset-left));
 }
 .brand {
@@ -128,8 +141,11 @@ img, svg { max-width: 100%; }
   display: flex;
   gap: 18px;
   align-items: center;
+  justify-content: flex-end;
   font-size: 15px;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 .top-links a,
 .top-links .text-btn {
@@ -160,12 +176,15 @@ img, svg { max-width: 100%; }
 }
 
 .page {
-  padding: 28px max(var(--pad), env(safe-area-inset-right)) 80px max(var(--pad), env(safe-area-inset-left));
+  --page-inline-start: max(var(--pad), env(safe-area-inset-left));
+  --page-inline-end: max(var(--pad), env(safe-area-inset-right));
+  padding: 28px var(--page-inline-end) 80px var(--page-inline-start);
   padding-bottom: max(80px, calc(24px + env(safe-area-inset-bottom)));
-  max-width: 1080px;
+  max-width: min(1080px, 100%);
   margin: 0 auto;
+  min-width: 0;
 }
-.page.wide { max-width: 1120px; }
+.page.wide { max-width: min(1120px, 100%); }
 
 .display,
 .profile-head h1,
@@ -189,8 +208,9 @@ img, svg { max-width: 100%; }
   padding: 40px var(--pad) 48px;
   padding-left: max(var(--pad), env(safe-area-inset-left));
   padding-right: max(var(--pad), env(safe-area-inset-right));
-  max-width: 1180px;
+  max-width: min(1180px, 100%);
   margin: 0 auto;
+  min-width: 0;
 }
 .hero-copy h1 {
   font-size: clamp(32px, 4vw, 40px);
@@ -750,8 +770,13 @@ tr:last-child td { border-bottom: 0; }
 .profile { padding-top: 0; }
 /* Break out of .page so the hero runs edge to edge directly under the topbar. */
 .profile-hero-band {
+  /* Bleed to the viewport without 100vw widening the document (iOS rubber-band). */
   width: 100vw;
-  margin: 0 calc(50% - 50vw) 22px;
+  max-width: 100vw;
+  position: relative;
+  left: 50%;
+  translate: -50% 0;
+  margin: 0 0 22px;
   background: var(--surface-2);
   border-radius: 24px 24px 0 0;
   overflow: hidden;
@@ -1504,7 +1529,9 @@ table small { display: block; }
   --frame-radius: 8px;
   --card-pad: 24px;
   --gutter: 4px;
-  padding: var(--gutter) max(var(--gutter), env(safe-area-inset-right)) max(var(--gutter), env(safe-area-inset-bottom)) max(var(--gutter), env(safe-area-inset-left));
+  --page-inline-start: max(var(--gutter), env(safe-area-inset-left));
+  --page-inline-end: max(var(--gutter), env(safe-area-inset-right));
+  padding: var(--gutter) var(--page-inline-end) max(var(--gutter), env(safe-area-inset-bottom)) var(--page-inline-start);
 }
 /* The profile hero still runs edge to edge directly under the topbar. */
 .page.property-page.profile { padding-top: 0; }
@@ -1578,20 +1605,30 @@ table small { display: block; }
 @media (max-width: 880px) {
   :root { --pad: 16px; }
 
+  html, body, #root {
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+    max-width: 100%;
+  }
+
   .wide-only { display: none !important; }
   .narrow-only { display: initial; }
   .mail-back.narrow-only,
   .header-search.narrow-only { display: block; }
   .action-row.narrow-only { display: flex; }
 
-  .topbar-main { gap: 10px; padding: 10px var(--pad); }
+  .topbar-main { gap: 10px; padding: 10px var(--pad); min-width: 0; }
   .brand { min-width: 0; }
+  .top-links { gap: 12px; }
   .header-search.narrow-only {
     padding: 0 max(var(--pad), env(safe-area-inset-right)) var(--topbar-pad-bottom) max(var(--pad), env(safe-area-inset-left));
   }
-  .top-links { gap: 14px; }
 
-  .page { padding: 20px var(--pad) 96px; }
+  .page {
+    --page-inline-start: max(var(--pad), env(safe-area-inset-left));
+    --page-inline-end: max(var(--pad), env(safe-area-inset-right));
+    padding: 20px var(--page-inline-end) 96px var(--page-inline-start);
+  }
   .hero {
     grid-template-columns: 1fr;
     min-height: 0;
@@ -1619,7 +1656,15 @@ table small { display: block; }
   }
 
   .profile { padding-top: 0; }
-  .profile-hero-band { margin-bottom: 16px; }
+  .profile-hero-band {
+    width: auto;
+    max-width: none;
+    left: auto;
+    translate: none;
+    margin-left: calc(-1 * var(--page-inline-start, var(--pad)));
+    margin-right: calc(-1 * var(--page-inline-end, var(--pad)));
+    margin-bottom: 16px;
+  }
   .profile-head { gap: 14px; margin-bottom: 14px; align-items: flex-start; }
   .profile-head h1 { font-size: clamp(30px, 9vw, 40px); margin: 4px 0 8px; }
   .profile-actions { width: 100%; padding-bottom: 0; }
@@ -1668,6 +1713,7 @@ table small { display: block; }
   .profile-grid .profile-nav {
     flex-direction: row;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
     position: static;
     top: auto;
     gap: 6px;
@@ -1753,6 +1799,7 @@ table small { display: block; }
   .side-nav {
     flex-direction: row;
     overflow-x: auto;
+    overscroll-behavior-x: contain;
     position: static;
     gap: 6px;
     margin: 0 calc(-1 * var(--pad));
