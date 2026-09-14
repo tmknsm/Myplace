@@ -329,12 +329,6 @@ export function PropertyPageView() {
             >
               {Math.min(heroIndex, slides.length - 1) + 1} / {slides.length}
             </button>
-            {owner && (
-              <label className="hero-pill file-btn">
-                Change cover
-                <input type="file" accept="image/*" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
-              </label>
-            )}
           </div>
         )}
       </figcaption>
