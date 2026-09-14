@@ -1024,20 +1024,75 @@ tr:last-child td { border-bottom: 0; }
 .profile .section-note { margin-bottom: 12px; }
 .profile .subhead { margin-top: 20px; }
 
-.owner-tools-head {
-  margin-top: 56px;
-  padding-top: 28px;
+/* ---- Owner tools pages (documents, maintainers, handoff; notifications) -- */
+/* A flex column so the call to action sits at the viewport bottom on a short
+   page and sticks there while a long one scrolls. */
+.manage-page {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--topbar-height, 84px));
+  padding-bottom: 0;
+}
+.manage-body { flex: 1 0 auto; padding-bottom: 28px; }
+.manage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.manage-title { min-width: 0; flex: 1; }
+.manage-title .meta-line { margin: 0; }
+.manage-lede { margin: 12px 0 0; max-width: 60ch; }
+.manage-page .toast { margin-top: 12px; }
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  margin-bottom: 4px;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.back-link:hover { color: var(--ink); }
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap);
+  height: var(--tap);
+  flex-shrink: 0;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.icon-btn:hover { background: var(--surface-2); }
+.icon-btn svg { width: 22px; height: 22px; }
+.manage-cta {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  margin: 0 calc(-1 * var(--page-inline-end)) 0 calc(-1 * var(--page-inline-start));
+  padding: 12px var(--page-inline-end) calc(12px + env(safe-area-inset-bottom)) var(--page-inline-start);
   border-top: 1px solid var(--hairline);
-  scroll-margin-top: calc(var(--topbar-height, 84px) + var(--profile-nav-height, 0px) + 12px);
+  background: var(--chrome-fill);
+  backdrop-filter: var(--chrome-blur);
+  -webkit-backdrop-filter: var(--chrome-blur);
 }
-.owner-tools-head h2 {
-  font-size: 24px;
-  font-weight: 650;
-  letter-spacing: -0.025em;
-  margin: 4px 0 6px;
+.manage-cta .btn {
+  flex: 1 1 auto;
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 48px;
+  font-size: 16px;
 }
-.owner-tools-head .meta-line { margin: 0; max-width: 60ch; }
-.owner-tools-head + .section { margin-top: 24px; }
 
 /* Checklist */
 .checklist-card { padding: 16px 18px 14px; }
@@ -2001,7 +2056,6 @@ html.dialog-open body {
   }
   .profile-grid .profile-nav a.on { color: #fff; background: var(--ink); box-shadow: none; }
   .profile .section { margin-top: 28px; scroll-margin-top: calc(var(--topbar-height, 112px) + var(--profile-nav-height, 68px)); }
-  .owner-tools-head { margin-top: 40px; scroll-margin-top: calc(var(--topbar-height, 112px) + var(--profile-nav-height, 68px)); }
 
   /*
    * Search hand-off. The tabs stick under the brand row, not under the whole
@@ -2033,7 +2087,6 @@ html.dialog-open body {
       animation-range: cover 0px cover var(--search-row-height);
     }
     .profile .section { scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
-    .owner-tools-head { scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
   }
   @keyframes chrome-sheet-grow {
     from { height: var(--topbar-height, 0px); }

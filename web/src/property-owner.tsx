@@ -3,9 +3,9 @@ import { api, type Doc, type PageRefresh, type PropertyPage, type Viewer } from 
 import { dateLabel, DOCUMENT_TYPE_LABEL, fileSize, fileUrl, isImage, type Toast } from "./property-shared";
 
 /**
- * Sections only a maintainer sees: the document vault, open disputes,
- * co-maintainers, notification preferences, and handoff. They sit at the
- * bottom of the profile under the "Owner tools" heading.
+ * Sections only a maintainer sees. Open disputes stay on the profile next to
+ * the facts they contest; the document vault, co-maintainers, and handoff live
+ * on the owner tools page, and notification preferences one level deeper.
  */
 
 const PREFERENCE_LABEL: Record<string, { label: string; help: string }> = {
