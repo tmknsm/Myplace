@@ -1770,8 +1770,14 @@ html.dialog-open body {
   --page-inline-end: max(var(--page-margin), env(safe-area-inset-right));
   padding: 0 var(--page-inline-end) max(var(--page-margin), env(safe-area-inset-bottom)) var(--page-inline-start);
 }
-/* Hero is a square full-bleed slab. The page sheet below rides up over it
-   by the card radius, so the photo shows only through the two top corners. */
+/* Hero keeps the card radius on top and stays square at the bottom. The page
+   sheet rides up over that bottom edge so only the sheet's rounded corners sit
+   on the photo. No z-index here: a stacking context would trap the docked
+   chip bar under the header chrome. */
+.property-page {
+  --hero-overlap: var(--radius);
+  --hero-ui-inset: calc(var(--card-pad) + var(--hero-overlap));
+}
 .property-page .profile-hero-band {
   width: 100vw;
   max-width: 100vw;
@@ -1779,27 +1785,30 @@ html.dialog-open body {
   margin-left: calc(50% - 50vw);
   margin-right: calc(50% - 50vw);
   background: none;
-  border-radius: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 .property-page .profile-hero {
-  border-radius: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
   isolation: isolate;
 }
 .property-page .profile-body {
   position: relative;
-  z-index: 1;
   width: 100vw;
   max-width: 100vw;
-  margin-top: calc(-1 * var(--radius));
+  margin-top: calc(-1 * var(--hero-overlap));
   margin-left: calc(50% - 50vw);
   margin-right: calc(50% - 50vw);
   padding: 0 var(--page-inline-end) 0 var(--page-inline-start);
   background: var(--canvas);
   border-radius: var(--radius) var(--radius) 0 0;
 }
-.property-page .hero-overlay { padding: var(--card-pad) var(--card-pad-x) calc(var(--card-pad) + var(--radius)); }
-.property-page .hero-dots { bottom: calc(10px + var(--radius)); }
-.property-page .profile-hero .maplibregl-ctrl-bottom-right { bottom: var(--radius); }
+.property-page .hero-overlay { padding: var(--card-pad) var(--card-pad-x) var(--hero-ui-inset); }
+.property-page .hero-dots {
+  bottom: var(--hero-ui-inset);
+  height: 32px;
+  align-items: center;
+}
+.property-page .profile-hero .maplibregl-ctrl-bottom-right { bottom: var(--hero-ui-inset); }
 /* The address card reads as type on the canvas: no fill, flush with the page. */
 .property-page .profile-head,
 .property-page .profile-head.group {
