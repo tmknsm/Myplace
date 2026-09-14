@@ -761,13 +761,9 @@ tr:last-child td { border-bottom: 0; }
 }
 
 /* ---- Property profile ---------------------------------------------------- */
-.profile { padding-top: 0; }
-/* Break out of .page so the hero runs edge to edge directly under the topbar. */
 .profile-hero-band {
-  /* Bleed only as far as the page padding — never 100vw, which is wider than
-     the layout viewport on iOS and lets the whole screen rubber-band sideways. */
   width: auto;
-  margin: 0 calc(-1 * var(--page-inline-end, var(--pad))) 22px calc(-1 * var(--page-inline-start, var(--pad)));
+  margin: 0 0 22px;
   background: var(--surface-2);
   border-radius: 24px;
   overflow: hidden;
@@ -830,7 +826,7 @@ tr:last-child td { border-bottom: 0; }
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  padding: 48px max(var(--pad), calc((100vw - 1120px) / 2 + var(--pad))) 16px;
+  padding: 48px var(--pad) 16px;
   margin: 0;
   color: #fff;
   background: linear-gradient(to top, rgba(29, 29, 31, 0.55), rgba(29, 29, 31, 0));
@@ -1524,11 +1520,10 @@ table small { display: block; }
   --page-inline-end: max(var(--gutter), env(safe-area-inset-right));
   padding: var(--gutter) var(--page-inline-end) max(var(--gutter), env(safe-area-inset-bottom)) var(--page-inline-start);
 }
-/* The profile hero still runs edge to edge directly under the topbar. */
-.page.property-page.profile { padding-top: 0; }
-.property-page .profile-hero-band { margin-bottom: var(--gutter); }
+.property-page .profile-hero-band { margin: 0 0 var(--gutter); }
 .property-page .profile-hero-band,
 .property-page .profile-hero { border-radius: var(--radius); }
+.property-page .hero-overlay { padding: var(--card-pad); }
 .property-page .profile-head { padding: var(--card-pad); margin-bottom: var(--gutter); }
 .property-page .stat-strip {
   margin-top: 0;
@@ -1653,13 +1648,8 @@ table small { display: block; }
     max-height: 440px;
   }
 
-  .profile { padding-top: 0; }
-  .profile-hero-band {
-    margin-left: calc(-1 * var(--page-inline-start, var(--pad)));
-    margin-right: calc(-1 * var(--page-inline-end, var(--pad)));
-    margin-bottom: 16px;
-  }
-  .property-page .profile-hero-band { margin-bottom: var(--gutter); }
+  .profile-hero-band { margin-bottom: 16px; }
+  .property-page .profile-hero-band { margin: 0 0 var(--gutter); }
   .profile-head { gap: 14px; margin-bottom: 14px; align-items: flex-start; }
   .property-page .profile-head { margin-bottom: var(--gutter); }
   .property-page .stat-strip { margin-top: 0; margin-bottom: var(--gutter); }
