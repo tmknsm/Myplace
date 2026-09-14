@@ -22,6 +22,15 @@ export const config = {
   get documentRoot(): string {
     return runtimeEnv().DOCUMENT_ROOT ?? "data/documents";
   },
+  get cloudflareAccountId(): string | undefined {
+    return runtimeEnv().CLOUDFLARE_ACCOUNT_ID || undefined;
+  },
+  get cloudflareApiToken(): string | undefined {
+    return runtimeEnv().CLOUDFLARE_API_TOKEN || undefined;
+  },
+  get r2Bucket(): string {
+    return runtimeEnv().R2_BUCKET ?? "myplace-documents";
+  },
   get postmarkServerToken(): string | undefined {
     return runtimeEnv().POSTMARK_SERVER_TOKEN || undefined;
   },

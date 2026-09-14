@@ -1635,7 +1635,7 @@ function PhotosSection({
           </label>
         )}
       </div>
-      {owner && <p className="meta-line section-note">Photos are public unless you make them private. The cover is the first thing a visitor sees.{photos.some((doc) => !hasFile(doc)) ? " Cards marked “file missing” need the original photo reattached; after that they stay with this property." : ""}</p>}
+      {owner && <p className="meta-line section-note">Photos are public unless you make them private. The cover is the first thing a visitor sees.{photos.some((doc) => !hasFile(doc)) ? " Cards marked “file missing” need the original photo reattached; after that they stay in Cloudflare." : ""}</p>}
       {photos.length === 0 ? (
         <div className="group empty-card">{owner ? "No photos yet. Exterior, roof, mechanicals, and before-and-after shots all belong here." : "None shared yet."}</div>
       ) : (

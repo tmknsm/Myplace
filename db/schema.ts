@@ -8,7 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 /** Every table the migrations create, children first so a plain DROP order works. */
 export const ALL_TABLES = [
   "schema_migrations",
-  "document_blobs",
+  "document_blobs", // dropped by 005; kept here so --reset still wipes leftover DBs
   "notification_preferences",
   "property_improvements",
   "field_vocabulary",

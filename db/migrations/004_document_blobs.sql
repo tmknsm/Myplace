@@ -1,5 +1,4 @@
--- Keep uploaded files next to their document rows so a tunnel, Worker, or
--- fresh VM can serve photos that were uploaded against the same database.
+-- Temporary BYTEA cache. Superseded by Cloudflare R2; dropped in 005.
 CREATE TABLE IF NOT EXISTS document_blobs (
   storage_key TEXT PRIMARY KEY,
   bytes BYTEA NOT NULL,

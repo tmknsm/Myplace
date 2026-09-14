@@ -1,21 +1,26 @@
 import { config } from "../config.ts";
-import { getSql } from "../db.ts";
 import { currentRuntime } from "../runtime.ts";
 
 export interface DocumentStore {
   put(key: string, bytes: Uint8Array): Promise<void>;
   get(key: string): Promise<Uint8Array>;
+  has(key: string): Promise<boolean>;
 }
 
 /** Structural subset of Cloudflare's R2Bucket, so the server compiles without Workers types. */
 export interface R2BucketLike {
   put(key: string, value: ArrayBuffer | Uint8Array): Promise<unknown>;
   get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
+  head?(key: string): Promise<{ size: number } | null>;
 }
 
 export function documentKey(propertyId: string, documentId: string, filename: string): string {
   const safe = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
   return `property-documents/${propertyId}/${documentId}/${safe || "original"}`;
+}
+
+function missingFile(): Error {
+  return Object.assign(new Error("Document file is missing"), { status: 404 });
 }
 
 export function r2Store(bucket: R2BucketLike): DocumentStore {
@@ -25,13 +30,34 @@ export function r2Store(bucket: R2BucketLike): DocumentStore {
     },
     async get(key) {
       const object = await bucket.get(key);
-      if (!object) throw Object.assign(new Error("Document file is missing"), { status: 404 });
+      if (!object) throw missingFile();
       return new Uint8Array(await object.arrayBuffer());
+    },
+    async has(key) {
+      if (bucket.head) return Boolean(await bucket.head(key));
+      return Boolean(await bucket.get(key));
     },
   };
 }
 
-/** Local filesystem store that mirrors the R2 key layout. Loaded lazily so the Worker bundle never touches node:fs. */
+/** In-memory store used by tests to stand in for the R2 bucket. */
+export function memoryStore(map = new Map<string, Uint8Array>()): DocumentStore {
+  return {
+    async put(key, bytes) {
+      map.set(key, Uint8Array.from(bytes));
+    },
+    async get(key) {
+      const bytes = map.get(key);
+      if (!bytes) throw missingFile();
+      return bytes;
+    },
+    async has(key) {
+      return map.has(key);
+    },
+  };
+}
+
+/** Local filesystem store that mirrors the R2 key layout. Used only when R2 is not configured. */
 export function fsStore(root: string): DocumentStore {
   return {
     async put(key, bytes) {
@@ -44,97 +70,103 @@ export function fsStore(root: string): DocumentStore {
     async get(key) {
       const { readFile } = await import("node:fs/promises");
       const { join } = await import("node:path");
-      return readFile(join(root, key));
+      try {
+        return await readFile(join(root, key));
+      } catch {
+        throw missingFile();
+      }
+    },
+    async has(key) {
+      try {
+        const { access } = await import("node:fs/promises");
+        const { join } = await import("node:path");
+        await access(join(root, key));
+        return true;
+      } catch {
+        return false;
+      }
     },
   };
 }
 
-function missingFile(): Error {
-  return Object.assign(new Error("Document file is missing"), { status: 404 });
+function r2ObjectUrl(key: string): string {
+  const encoded = key.split("/").map(encodeURIComponent).join("/");
+  return `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/r2/buckets/${config.r2Bucket}/objects/${encoded}`;
 }
 
-/** Bytes live in Postgres so every machine that shares DATABASE_URL can serve them. */
-export function postgresStore(): DocumentStore {
+function r2Headers(): Record<string, string> {
+  return { Authorization: `Bearer ${config.cloudflareApiToken}` };
+}
+
+/**
+ * Node / tunnel access to the same R2 bucket the Worker binds as DOCUMENTS_BUCKET.
+ * Uses the account API token already required for `cf:setup`.
+ */
+export function r2HttpStore(): DocumentStore {
   return {
     async put(key, bytes) {
-      const sql = getSql();
-      const payload = Buffer.from(bytes);
-      await sql`
-        INSERT INTO document_blobs (storage_key, bytes, byte_size)
-        VALUES (${key}, ${payload}, ${payload.byteLength})
-        ON CONFLICT (storage_key) DO UPDATE SET bytes = EXCLUDED.bytes, byte_size = EXCLUDED.byte_size
-      `;
+      const res = await fetch(r2ObjectUrl(key), {
+        method: "PUT",
+        headers: { ...r2Headers(), "content-type": "application/octet-stream" },
+        body: bytes as unknown as BodyInit,
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`R2 put failed (${res.status})${detail ? `: ${detail}` : ""}`);
+      }
     },
     async get(key) {
-      const sql = getSql();
-      const rows = await sql<{ bytes: Uint8Array }[]>`
-        SELECT bytes FROM document_blobs WHERE storage_key = ${key}
-      `;
-      if (!rows[0]) throw missingFile();
-      return rows[0].bytes instanceof Uint8Array ? rows[0].bytes : new Uint8Array(rows[0].bytes);
+      const res = await fetch(r2ObjectUrl(key), { headers: r2Headers() });
+      if (res.status === 404) throw missingFile();
+      if (!res.ok) throw new Error(`R2 get failed (${res.status})`);
+      return new Uint8Array(await res.arrayBuffer());
+    },
+    async has(key) {
+      const res = await fetch(r2ObjectUrl(key), { headers: r2Headers() });
+      if (res.status === 404) {
+        await res.body?.cancel().catch(() => undefined);
+        return false;
+      }
+      if (!res.ok) throw new Error(`R2 has failed (${res.status})`);
+      await res.body?.cancel().catch(() => undefined);
+      return true;
     },
   };
 }
 
-async function tryGet(store: DocumentStore, key: string): Promise<Uint8Array | null> {
-  try {
-    return await store.get(key);
-  } catch {
-    return null;
-  }
+export function r2HttpConfigured(): boolean {
+  if (runtimeEnvIsTest()) return false;
+  return Boolean(config.cloudflareAccountId && config.cloudflareApiToken);
+}
+
+function runtimeEnvIsTest(): boolean {
+  return Boolean(process.env.VITEST) || process.env.R2_DISABLED === "1";
+}
+
+/** Worker binding, then the same R2 bucket over HTTP, then local disk for offline work. */
+export function activeStore(): DocumentStore {
+  const runtime = currentRuntime()?.storage;
+  if (runtime) return runtime;
+  if (r2HttpConfigured()) return r2HttpStore();
+  return fsStore(config.documentRoot);
 }
 
 export async function putDocument(key: string, bytes: Uint8Array): Promise<void> {
-  const runtime = currentRuntime()?.storage;
-  await Promise.all([
-    postgresStore().put(key, bytes),
-    runtime ? runtime.put(key, bytes) : fsStore(config.documentRoot).put(key, bytes),
-  ]);
+  await activeStore().put(key, bytes);
 }
 
 export async function getDocument(key: string): Promise<Uint8Array> {
-  const runtime = currentRuntime()?.storage;
-  if (runtime) {
-    const fromRuntime = await tryGet(runtime, key);
-    if (fromRuntime) return fromRuntime;
-  }
-  const fromDb = await tryGet(postgresStore(), key);
-  if (fromDb) return fromDb;
-  const fromDisk = await tryGet(fsStore(config.documentRoot), key);
-  if (fromDisk) {
-    await postgresStore().put(key, fromDisk).catch(() => undefined);
-    return fromDisk;
-  }
-  throw missingFile();
+  return activeStore().get(key);
 }
 
-async function existsOnDisk(key: string): Promise<boolean> {
-  try {
-    const { access } = await import("node:fs/promises");
-    const { join } = await import("node:path");
-    await access(join(config.documentRoot, key));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Keys whose bytes are missing from Postgres, R2, and local disk. */
+/** Keys whose bytes are missing from the active store (R2, or local disk if R2 is off). */
 export async function missingDocumentKeys(keys: string[]): Promise<Set<string>> {
   const unique = [...new Set(keys.filter(Boolean))];
   if (!unique.length) return new Set();
-  const sql = getSql();
-  const rows = await sql<{ storage_key: string }[]>`
-    SELECT storage_key FROM document_blobs WHERE storage_key IN ${sql(unique)}
-  `;
-  const found = new Set(rows.map((row) => row.storage_key));
-  const missing: string[] = [];
-  for (const key of unique) {
-    if (found.has(key)) continue;
-    const runtime = currentRuntime()?.storage;
-    if (runtime && await tryGet(runtime, key)) continue;
-    if (await existsOnDisk(key)) continue;
-    missing.push(key);
-  }
-  return new Set(missing);
+  const store = activeStore();
+  const missing = new Set<string>();
+  await Promise.all(unique.map(async (key) => {
+    if (!(await store.has(key))) missing.add(key);
+  }));
+  return missing;
 }

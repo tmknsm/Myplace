@@ -52,9 +52,9 @@ Importers live in `db/adapters/`; adding a county means adding one adapter and o
 
 - React + Vite
 - MapLibre (Mapbox-compatible)
-- Hono API (Node locally, Cloudflare Worker entry in `server/src/worker.ts`)
-- PostgreSQL + PostGIS
-- Local document store that mirrors an R2 key layout
+- Hono API (Node locally, Cloudflare Worker in production)
+- Neon Postgres + PostGIS for parcel and owner data
+- Cloudflare R2 for photo and document files (`myplace-documents`)
 - Local mailbox standing in for Postmark
 
 ## Local setup
