@@ -33,13 +33,9 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  overflow-x: hidden;
   overscroll-behavior-x: none;
 }
-html, body, #root {
-  min-height: 100%;
-  max-width: 100%;
-}
+html, body, #root { min-height: 100%; }
 body {
   margin: 0;
   /* Lets the header chrome animate against the profile grid's view timeline. */
@@ -49,12 +45,10 @@ body {
   font-family: var(--font);
   font-size: 16px;
   line-height: 1.47;
-  overflow-x: hidden;
+  /* clip (not hidden) so the page can still host position: sticky. */
+  overflow-x: clip;
   overscroll-behavior-x: none;
   -webkit-font-smoothing: antialiased;
-}
-#root {
-  overflow-x: hidden;
 }
 
 a { color: inherit; }
@@ -96,8 +90,6 @@ img, svg { max-width: 100%; }
   z-index: 20;
   border-bottom: 0;
   padding-top: env(safe-area-inset-top);
-  max-width: 100%;
-  overflow-x: hidden;
   /* The header keeps its full layout height after the search row tucks away;
      without this, that leftover box sits on top of the docked chips and eats taps. */
   pointer-events: none;
@@ -1604,12 +1596,6 @@ table small { display: block; }
 
 @media (max-width: 880px) {
   :root { --pad: 16px; }
-
-  html, body, #root {
-    overflow-x: hidden;
-    overscroll-behavior-x: none;
-    max-width: 100%;
-  }
 
   .wide-only { display: none !important; }
   .narrow-only { display: initial; }
