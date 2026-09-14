@@ -1480,7 +1480,11 @@ function ImprovementCard({
   const [confirm, setConfirm] = useState(false);
   const images = item.documents.filter(isImage);
   const files = item.documents.filter((doc) => !isImage(doc));
-  const details = [dateLabel(item.performed_at), money(item.cost_cents), item.contractor].filter(Boolean).join(" · ");
+  const meta = [
+    { key: "date", value: dateLabel(item.performed_at) },
+    { key: "cost", value: money(item.cost_cents) },
+    { key: "contractor", value: item.contractor },
+  ].filter((entry): entry is { key: string; value: string } => Boolean(entry.value));
 
   const attach = async (list: FileList | null) => {
     if (!list?.length) return;
@@ -1498,15 +1502,10 @@ function ImprovementCard({
 
   return (
     <article className={`group improvement-card ${item.visibility === "private" ? "is-private" : ""}`} data-testid="improvement-card">
-      <div className="improvement-head">
-        <div>
-          <span className="chip">{CATEGORY_LABEL[item.category] ?? item.category}</span>
-          <h3>{item.title}</h3>
-          {details && <p className="meta-line">{details}</p>}
-        </div>
-        {owner && (
+      <header className="improvement-head">
+        {owner ? (
           <select
-            className="mini-select"
+            className="chip chip-select"
             value={item.category}
             aria-label="Category"
             onChange={async (event) => {
@@ -1516,8 +1515,16 @@ function ImprovementCard({
           >
             {categories.map((key) => <option key={key} value={key}>{CATEGORY_LABEL[key] ?? key}</option>)}
           </select>
+        ) : (
+          <span className="chip">{CATEGORY_LABEL[item.category] ?? item.category}</span>
         )}
-      </div>
+        <h3>{item.title}</h3>
+        {meta.length > 0 && (
+          <ul className="improvement-meta">
+            {meta.map((entry) => <li key={entry.key} className={entry.key}>{entry.value}</li>)}
+          </ul>
+        )}
+      </header>
       {item.notes && <p className="improvement-notes">{item.notes}</p>}
       {images.length > 0 && (
         <ImprovementPhotos images={images} owner={owner} onChange={onChange} toast={toast} />

@@ -1250,18 +1250,77 @@ tr:last-child td { border-bottom: 0; }
 
 .improvement-list { display: grid; gap: 12px; }
 .improvement-card { padding: 16px; }
-.improvement-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-.improvement-head h3 { margin: 0 0 2px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
-.improvement-notes { margin: 10px 0 0; color: var(--ink-soft); font-size: 15px; white-space: pre-wrap; }
+/* One column, top to bottom: category, title, facts, notes, attachments, tools. */
+.improvement-head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.improvement-head .chip { margin-bottom: 4px; white-space: nowrap; }
+.improvement-head h3 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+.improvement-meta {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 2px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+.improvement-meta li { display: inline-flex; align-items: baseline; }
+.improvement-meta li + li::before { content: "·"; margin: 0 7px; opacity: 0.7; }
+.improvement-meta .cost { color: var(--ink-soft); font-weight: 520; }
+.improvement-notes {
+  margin: 12px 0 0;
+  color: var(--ink-soft);
+  font-size: 15px;
+  line-height: 1.5;
+  max-width: 62ch;
+  white-space: pre-wrap;
+}
+.improvement-card .photo-strip { margin-top: 14px; }
+.improvement-card .file-chips { margin-top: 12px; }
 .improvement-foot {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
   border-top: 1px solid var(--hairline);
 }
+.improvement-foot > .text-link.danger,
+.improvement-foot > .confirm-inline { margin-left: auto; }
+/* Category as an unobtrusive dropdown that reads like the chip. */
+.chip-select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 560;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.4;
+  color: var(--muted);
+  padding: 3px 22px 3px 8px;
+  max-width: 100%;
+  background-color: var(--surface-2);
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+.chip-select:hover { color: var(--ink); }
+.chip-select:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
 .confirm-inline { font-size: 13px; color: var(--ink-soft); display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .photo-strip { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .photo-thumb {
