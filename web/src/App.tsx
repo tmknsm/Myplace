@@ -4,6 +4,7 @@ import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type Mail
 import { useAuth } from "./auth";
 import { eventLabel, ParcelMap, SearchBox } from "./components";
 import { DebugSheet } from "./debug";
+import { HomePage } from "./home";
 import { useMeta } from "./meta";
 import { PropertyPageView } from "./property";
 
@@ -12,7 +13,8 @@ function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const meta = useMeta();
   const [debugOpen, setDebugOpen] = useState(false);
-  const headerSearch = location.pathname !== "/" && !/^\/(signin|dev|admin)/.test(location.pathname);
+  const isHome = location.pathname === "/";
+  const headerSearch = !isHome && !/^\/(signin|dev|admin)/.test(location.pathname);
   const topbarRef = useRef<HTMLElement | null>(null);
   useEffect(() => setDebugOpen(false), [location.pathname]);
   useEffect(() => {
@@ -50,6 +52,12 @@ function Layout({ children }: { children: React.ReactNode }) {
               <SearchBox compact />
             </div>
           )}
+          {isHome && (
+            // Hidden until the landing page's hero search scrolls under the header.
+            <div className="header-search wide-only home-handoff">
+              <SearchBox compact />
+            </div>
+          )}
           <nav className="top-links">
             <Link to="/map">Map</Link>
             {user?.is_admin && <Link to="/admin" className="wide-only">Admin</Link>}
@@ -75,60 +83,6 @@ function Layout({ children }: { children: React.ReactNode }) {
       {children}
       {meta?.debug && debugOpen && <DebugSheet onClose={() => setDebugOpen(false)} />}
     </>
-  );
-}
-
-function HomePage() {
-  const navigate = useNavigate();
-  const meta = useMeta();
-  const [focus, setFocus] = useState<string>("all");
-  const count = meta?.propertyCount ?? null;
-  const counties = meta?.counties ?? [];
-  const selected = counties.find((county) => county.id === focus);
-  return (
-    <div className="hero">
-      <div className="hero-copy">
-        <div className="kicker">New York</div>
-        <h1>Columbia &amp; Greene</h1>
-        <p className="lede">
-          What is official, what changed, and what only you know.
-        </p>
-        <div className="county-switch">
-          <button type="button" className={focus === "all" ? "on" : ""} onClick={() => setFocus("all")}>Both</button>
-          {counties.map((county) => (
-            <button
-              key={county.id}
-              type="button"
-              className={focus === county.id ? "on" : ""}
-              onClick={() => setFocus(county.id)}
-            >
-              {county.id}
-            </button>
-          ))}
-        </div>
-        <p className="meta-line case-line">
-          {selected
-            ? `${selected.short} ${selected.parcelCount.toLocaleString()} parcels.`
-            : "Columbia withholds official lot lines. Greene publishes them."}
-        </p>
-        <div className="hero-search">
-          <SearchBox />
-        </div>
-        <p className="meta-line">
-          {count === null ? "—" : count.toLocaleString()} parcels
-        </p>
-      </div>
-      <div className="hero-map">
-        <ParcelMap
-          embedded
-          legend
-          focusKey={focus}
-          focusCenter={selected?.center}
-          focusZoom={selected?.zoom}
-          onSelect={(id) => navigate(`/property/${id}`)}
-        />
-      </div>
-    </div>
   );
 }
 
