@@ -847,6 +847,7 @@ tr:last-child td { border-bottom: 0; }
 .profile-hero {
   /* Inset for every control on the photo (dots, pills, map chrome). */
   --hero-pad: 16px;
+  --hero-pad-bottom: 24px;
   position: relative;
   margin: 0;
   overflow: hidden;
@@ -895,7 +896,7 @@ tr:last-child td { border-bottom: 0; }
   position: absolute;
   left: var(--hero-pad);
   right: var(--hero-pad);
-  bottom: var(--hero-pad);
+  bottom: var(--hero-pad-bottom);
   display: flex;
   justify-content: flex-start;
   align-items: center;
@@ -962,7 +963,7 @@ tr:last-child td { border-bottom: 0; }
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  padding: 48px var(--hero-pad) var(--hero-pad);
+  padding: 48px var(--hero-pad) var(--hero-pad-bottom);
   margin: 0;
   color: #fff;
   background: linear-gradient(to top, rgba(29, 29, 31, 0.55), rgba(29, 29, 31, 0));
