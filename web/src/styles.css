@@ -1513,13 +1513,13 @@ table small { display: block; }
 
 /* ---- Property page: card system --------------------------------------- */
 /* Cards: 32px corners, 24px inner padding. Framed elements (photos, pills,
-   fields, buttons): 8px corners. Page margins and card-to-card gaps: 4px. */
+   fields, buttons): 8px corners. Page margins and card-to-card gaps: 6px. */
 .page.property-page {
   --radius: 32px;
   --radius-sm: 8px;
   --frame-radius: 8px;
   --card-pad: 24px;
-  --gutter: 4px;
+  --gutter: 6px;
   --page-inline-start: max(var(--gutter), env(safe-area-inset-left));
   --page-inline-end: max(var(--gutter), env(safe-area-inset-right));
   padding: var(--gutter) var(--page-inline-end) max(var(--gutter), env(safe-area-inset-bottom)) var(--page-inline-start);
@@ -1530,9 +1530,11 @@ table small { display: block; }
 .property-page .profile-hero-band,
 .property-page .profile-hero { border-radius: var(--radius) var(--radius) 0 0; }
 .property-page .profile-head { padding: var(--card-pad); margin-bottom: var(--gutter); }
+.property-page .stat-strip { margin-top: 0; margin-bottom: var(--gutter); }
 .property-page .map-panel { border-radius: var(--radius); }
 .property-page .map-legend { border-radius: var(--frame-radius); }
-.property-page .notice { padding: var(--card-pad); }
+.property-page .notice { padding: var(--card-pad); margin: 0 0 var(--gutter); }
+.property-page .map-card { margin-bottom: var(--gutter); }
 .property-page .banner { padding: var(--card-pad); margin-bottom: var(--gutter); }
 .property-page .toast { margin-bottom: var(--gutter); }
 
@@ -1549,6 +1551,7 @@ table small { display: block; }
 .property-page .group + .group { margin-top: var(--gutter); }
 .property-page .form-card { margin-bottom: var(--gutter); }
 .property-page .improvement-list { gap: var(--gutter); }
+.property-page .improvement-list > .group { margin-top: 0; margin-bottom: 0; }
 
 /* Rows keep full-bleed dividers and hover inside the padded card. */
 .property-page .group > .fact,
@@ -1646,7 +1649,10 @@ table small { display: block; }
     margin-right: calc(-1 * var(--page-inline-end, var(--pad)));
     margin-bottom: 16px;
   }
+  .property-page .profile-hero-band { margin-bottom: var(--gutter); }
   .profile-head { gap: 14px; margin-bottom: 14px; align-items: flex-start; }
+  .property-page .profile-head { margin-bottom: var(--gutter); }
+  .property-page .stat-strip { margin-top: 0; margin-bottom: var(--gutter); }
   .profile-head h1 { font-size: clamp(30px, 9vw, 40px); margin: 4px 0 8px; }
   .profile-actions { width: 100%; padding-bottom: 0; }
   .profile-actions .action-row.compact { width: 100%; }
