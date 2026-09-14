@@ -165,6 +165,7 @@ export function PropertyPageView() {
   const [improvementFormOpen, setImprovementFormOpen] = useState(false);
   const [aboutEditing, setAboutEditing] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
+  const [heroIndex, setHeroIndex] = useState(0);
 
   const load = useCallback(async (opts?: { allowDowngrade?: boolean }) => {
     if (!id) return;
@@ -214,6 +215,8 @@ export function PropertyPageView() {
   const photos = property.documents.filter(isImage);
   const available = photos.filter(hasFile);
   const cover = available.find((doc) => doc.is_cover) ?? available[0] ?? null;
+  const slides = cover ? [cover, ...available.filter((doc) => doc !== cover)] : [];
+  const slide = slides[Math.min(heroIndex, Math.max(0, slides.length - 1))] ?? null;
   const summary = property.facts.find((fact) => fact.fieldKey === SUMMARY_KEY) ?? null;
   const hasSummary = Boolean(summary?.display);
   const systemsFacts = sections.get("systems") ?? [];
@@ -275,9 +278,13 @@ export function PropertyPageView() {
   const hero = (
     <figure className={`profile-hero ${cover ? "has-photo" : "is-map"}`} data-testid="profile-hero">
       {cover ? (
-        <button type="button" className="hero-image" onClick={() => setLightbox(photos.indexOf(cover))} aria-label="Open cover photo">
-          <img src={fileUrl(cover)} alt={cover.caption ?? title} />
-        </button>
+        <HeroCarousel
+          slides={slides}
+          title={title}
+          index={heroIndex}
+          onIndex={setHeroIndex}
+          onOpen={(doc) => setLightbox(photos.indexOf(doc))}
+        />
       ) : (
         <ParcelMap
           embedded
@@ -289,13 +296,13 @@ export function PropertyPageView() {
       )}
       <figcaption className="hero-overlay">
         <div className="hero-side">
-          {cover?.caption && <span className="hero-caption">{cover.caption}</span>}
-          {cover && owner && cover.visibility !== "public" && (
+          {slide?.caption && <span className="hero-caption">{slide.caption}</span>}
+          {slide && owner && slide.visibility !== "public" && (
             <button type="button" className="hero-pill warn" onClick={async () => {
-              await api.patchDocument(cover.document_id, { visibility: "public" });
-              showToast("Cover photo is now public.");
+              await api.patchDocument(slide.document_id, { visibility: "public" });
+              showToast(slide.is_cover ? "Cover photo is now public." : "Photo is now public.");
               await load();
-            }}>Only you can see this cover · Make public</button>
+            }}>Only you can see this {slide.is_cover ? "cover" : "photo"} · Make public</button>
           )}
           {!cover && owner && (
             <label className="btn file-btn hero-cta" data-testid="cover-input-label">
@@ -309,8 +316,13 @@ export function PropertyPageView() {
         </div>
         {cover && (
           <div className="hero-side">
-            <button type="button" className="hero-pill" onClick={() => scrollToId("photos")}>
-              {photos.length} photo{photos.length === 1 ? "" : "s"}
+            <button
+              type="button"
+              className="hero-pill hero-count"
+              aria-label={`Photo ${Math.min(heroIndex, slides.length - 1) + 1} of ${slides.length}. Go to photos`}
+              onClick={() => scrollToId("photos")}
+            >
+              {Math.min(heroIndex, slides.length - 1) + 1} / {slides.length}
             </button>
             {owner && (
               <label className="hero-pill file-btn">
@@ -616,6 +628,104 @@ function StatStrip({ facts }: { facts: Fact[] }) {
 }
 
 const SCROLL_DRIVEN = typeof CSS !== "undefined" && CSS.supports("animation-timeline: view()");
+
+/**
+ * Swipeable hero. A native scroll-snap track does the gesture work; we only
+ * read which slide has settled so the caption, badge, and dots can follow.
+ */
+function HeroCarousel({
+  slides,
+  title,
+  index,
+  onIndex,
+  onOpen,
+}: {
+  slides: Doc[];
+  title: string;
+  index: number;
+  onIndex: (index: number) => void;
+  onOpen: (doc: Doc) => void;
+}) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const count = slides.length;
+  const current = Math.min(index, Math.max(0, count - 1));
+
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    let frame = 0;
+    const read = () => {
+      const width = track.clientWidth || 1;
+      const next = Math.max(0, Math.min(count - 1, Math.round(track.scrollLeft / width)));
+      onIndex(next);
+    };
+    const onScroll = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(read);
+    };
+    track.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      track.removeEventListener("scroll", onScroll);
+    };
+  }, [count, onIndex]);
+
+  // A shorter list (photo removed) can leave the track past its last slide.
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const width = track.clientWidth;
+    if (width && Math.round(track.scrollLeft / width) !== current) {
+      track.scrollTo({ left: current * width, behavior: "auto" });
+    }
+  }, [count, current]);
+
+  const goTo = (next: number) => {
+    const track = trackRef.current;
+    if (!track) return;
+    const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    track.scrollTo({ left: next * track.clientWidth, behavior: reduce ? "auto" : "smooth" });
+  };
+
+  return (
+    <>
+      <div ref={trackRef} className="hero-track" data-testid="hero-track">
+        {slides.map((doc, i) => (
+          <button
+            key={doc.document_id}
+            type="button"
+            className="hero-image hero-slide"
+            onClick={() => onOpen(doc)}
+            aria-label={`Open photo ${i + 1} of ${count}`}
+            tabIndex={i === current ? 0 : -1}
+          >
+            <img
+              src={fileUrl(doc)}
+              alt={doc.caption ?? title}
+              loading={i === 0 ? "eager" : "lazy"}
+              draggable={false}
+            />
+          </button>
+        ))}
+      </div>
+      {count > 1 && (
+        <div className="hero-dots" role="tablist" aria-label="Photos">
+          {slides.map((doc, i) => (
+            <button
+              key={doc.document_id}
+              type="button"
+              role="tab"
+              aria-selected={i === current}
+              aria-label={`Photo ${i + 1}`}
+              className={i === current ? "on" : ""}
+              onClick={() => goTo(i)}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
 /** Scroll the chip bar just enough that the selected chip sits at the visible end. */
 function scrollChipIntoBar(scroller: HTMLElement, chip: HTMLElement) {
