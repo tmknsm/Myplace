@@ -1595,11 +1595,20 @@ table small { display: block; }
   --page-margin: 16px;
   --page-inline-start: max(var(--page-margin), env(safe-area-inset-left));
   --page-inline-end: max(var(--page-margin), env(safe-area-inset-right));
-  padding: var(--page-margin) var(--page-inline-end) max(var(--page-margin), env(safe-area-inset-bottom)) var(--page-inline-start);
+  padding: 0 var(--page-inline-end) max(var(--page-margin), env(safe-area-inset-bottom)) var(--page-inline-start);
 }
-.property-page .profile-hero-band { margin: 0 0 var(--gutter); }
-.property-page .profile-hero-band,
-.property-page .profile-hero { border-radius: var(--radius); }
+/* Hero is full-bleed: flush under the header, edge to edge, square bottom. */
+.property-page .profile-hero-band {
+  width: 100vw;
+  max-width: 100vw;
+  margin: 0 0 var(--gutter);
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  border-radius: 0;
+}
+.property-page .profile-hero {
+  border-radius: 0;
+}
 .property-page .hero-overlay { padding: var(--card-pad) var(--card-pad-x); }
 /* The address card reads as type on the canvas: no fill, flush with the page. */
 .property-page .profile-head,
@@ -1739,7 +1748,7 @@ table small { display: block; }
   }
 
   .profile-hero-band { margin-bottom: 16px; }
-  .property-page .profile-hero-band { margin: 0 0 var(--gutter); }
+  .property-page .profile-hero-band { margin-bottom: var(--gutter); }
   .profile-head { gap: 14px; margin-bottom: 14px; align-items: flex-start; }
   .property-page .profile-head { margin-bottom: var(--gutter); }
   .property-page .stat-strip { margin-top: 0; margin-bottom: var(--gutter); }
