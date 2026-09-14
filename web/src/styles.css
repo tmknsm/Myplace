@@ -1807,7 +1807,7 @@ html.dialog-open body {
   --page-margin: 16px;
   --page-inline-start: max(var(--page-margin), env(safe-area-inset-left));
   --page-inline-end: max(var(--page-margin), env(safe-area-inset-right));
-  padding: var(--page-margin) var(--page-inline-end) max(var(--page-margin), env(safe-area-inset-bottom)) var(--page-inline-start);
+  padding: calc(var(--page-margin) - 8px) var(--page-inline-end) max(var(--page-margin), env(safe-area-inset-bottom)) var(--page-inline-start);
 }
 /* Hero is full-bleed horizontally; page top padding clears the header chrome. */
 .property-page .profile-hero-band {
