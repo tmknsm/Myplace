@@ -1737,6 +1737,7 @@ table small { display: block; }
     background: none;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+    scroll-padding-inline: var(--page-inline-start, var(--pad));
   }
   .profile-grid .profile-nav::-webkit-scrollbar { display: none; }
   .profile-grid .profile-nav a {

@@ -617,9 +617,23 @@ function StatStrip({ facts }: { facts: Fact[] }) {
 
 const SCROLL_DRIVEN = typeof CSS !== "undefined" && CSS.supports("animation-timeline: view()");
 
+/** Move the chip bar, not the page, so a selected chip stays on screen. */
+function scrollChipIntoBar(scroller: HTMLElement, chip: HTMLElement) {
+  if (scroller.scrollWidth <= scroller.clientWidth + 1) return;
+  const scrollerBox = scroller.getBoundingClientRect();
+  const chipBox = chip.getBoundingClientRect();
+  const inset = 16;
+  if (chipBox.left >= scrollerBox.left + inset && chipBox.right <= scrollerBox.right - inset) return;
+  const delta = chipBox.left + chipBox.width / 2 - (scrollerBox.left + scrollerBox.width / 2);
+  const next = Math.max(0, Math.min(scroller.scrollWidth - scroller.clientWidth, scroller.scrollLeft + delta));
+  const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  scroller.scrollTo({ left: next, behavior: reduce ? "auto" : "smooth" });
+}
+
 function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) {
   const [active, setActive] = useState<string | null>(items[0]?.id ?? null);
   const navRef = useRef<HTMLDivElement | null>(null);
+  const scrollerRef = useRef<HTMLElement | null>(null);
   const ids = items.map((item) => item.id).join("|");
   useEffect(() => {
     const node = navRef.current;
@@ -682,15 +696,23 @@ function ProfileNav({ items }: { items: Array<{ id: string; label: string }> }) 
     nodes.forEach((node) => observer.observe(node));
     return () => observer.disconnect();
   }, [ids]);
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller || !active) return;
+    const chip = scroller.querySelector<HTMLElement>(`a[href="#${CSS.escape(active)}"]`);
+    if (!chip) return;
+    const frame = requestAnimationFrame(() => scrollChipIntoBar(scroller, chip));
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
   return (
     <div ref={navRef} className="profile-nav-wrap">
-      <nav className="side-nav profile-nav" aria-label="On this page">
+      <nav ref={scrollerRef} className="side-nav profile-nav" aria-label="On this page">
         {items.map((item) => (
           <a
             key={item.id}
             href={`#${item.id}`}
             className={active === item.id ? "on" : ""}
-            onClick={(event) => { event.preventDefault(); scrollToId(item.id); }}
+            onClick={(event) => { event.preventDefault(); setActive(item.id); scrollToId(item.id); }}
           >
             {item.label}
           </a>
