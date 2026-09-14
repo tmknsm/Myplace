@@ -60,6 +60,7 @@ import {
   TILE_MAX_ZOOM,
   TILE_MIN_ZOOM,
 } from "./services/properties.ts";
+import { ingestUploadFile } from "./services/photos.ts";
 import { documentKey, getDocument, putDocument } from "./services/storage.ts";
 import { FIELD_BY_KEY, FIELD_VOCAB, ownerWritable } from "./vocab.ts";
 
@@ -533,16 +534,17 @@ app.post("/api/properties/:id/documents", async (c) => {
     if (!improvement[0]) return c.json({ error: "Improvement not found" }, 404);
   }
 
+  const stored = await ingestUploadFile(file);
   const documentId = id("doc");
-  const key = documentKey(propertyId, documentId, file.name);
-  await putDocument(key, new Uint8Array(await file.arrayBuffer()));
+  const key = documentKey(propertyId, documentId, stored.filename);
+  await putDocument(key, stored.bytes);
   await sql`
     INSERT INTO documents (
       document_id, property_id, claim_id, improvement_id, uploaded_by, storage_key, original_filename,
       mime_type, byte_size, document_type, visibility, transferability, caption
     ) VALUES (
-      ${documentId}, ${propertyId}, ${claimId}, ${improvementId}, ${user.user_id}, ${key}, ${file.name},
-      ${file.type || "application/octet-stream"}, ${file.size}, ${documentType}, ${visibility}, ${transferability}, ${caption}
+      ${documentId}, ${propertyId}, ${claimId}, ${improvementId}, ${user.user_id}, ${key}, ${stored.filename},
+      ${stored.mime}, ${stored.bytes.byteLength}, ${documentType}, ${visibility}, ${transferability}, ${caption}
     )
   `;
   if (asCover) await setCoverPhoto(propertyId, documentId);
@@ -624,17 +626,18 @@ app.post("/api/documents/:id/file", async (c) => {
   const file = form.file;
   if (!(file instanceof File)) return c.json({ error: "Choose a file to upload." }, 400);
   if (file.size > 15 * 1024 * 1024) return c.json({ error: "Files must be 15 MB or smaller." }, 400);
-  const key = documentKey(doc.property_id, doc.document_id, file.name);
-  await putDocument(key, new Uint8Array(await file.arrayBuffer()));
+  const stored = await ingestUploadFile(file);
+  const key = documentKey(doc.property_id, doc.document_id, stored.filename);
+  await putDocument(key, stored.bytes);
   const sql = getSql();
-  const isImage = file.type.startsWith("image/");
+  const isImage = stored.mime.startsWith("image/");
   await sql`
     UPDATE documents
     SET
       storage_key = ${key},
-      original_filename = ${file.name},
-      mime_type = ${file.type || "application/octet-stream"},
-      byte_size = ${file.size},
+      original_filename = ${stored.filename},
+      mime_type = ${stored.mime},
+      byte_size = ${stored.bytes.byteLength},
       document_type = CASE
         WHEN document_type = 'photo' OR ${isImage} THEN 'photo'
         ELSE document_type

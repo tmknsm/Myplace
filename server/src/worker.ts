@@ -2,6 +2,9 @@ import postgres from "postgres";
 import { app } from "./app.ts";
 import { runWithRuntime, type EnvSource } from "./runtime.ts";
 import { r2Store, type R2BucketLike } from "./services/storage.ts";
+import { registerCloudflarePhotoCodecs } from "./services/photos-wasm-cf.ts";
+
+registerCloudflarePhotoCodecs();
 
 /** Bindings declared in wrangler.toml plus secrets set with `wrangler secret put`. */
 export interface WorkerEnv {

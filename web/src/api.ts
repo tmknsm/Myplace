@@ -62,18 +62,22 @@ export const api = {
   claim: (id: string) => request<{ claim: Claim; documents: Doc[] }>(`/api/claims/${id}`),
   myClaims: () => request<{ claims: Claim[] }>("/api/me/claims"),
   myProperties: () => request<{ properties: MaintainedProperty[] }>("/api/me/properties"),
-  upload: (propertyId: string, file: File, fields: Record<string, string>) => {
+  upload: async (propertyId: string, file: File, fields: Record<string, string>) => {
+    const { optimizePhotoFile } = await import("./optimize-photo");
+    const photo = await optimizePhotoFile(file);
     const form = new FormData();
-    form.append("file", file);
+    form.append("file", photo);
     for (const [key, value] of Object.entries(fields)) form.append(key, value);
     return request<{ documentId: string }>(`/api/properties/${propertyId}/documents`, { method: "POST", body: form });
   },
   documents: (id: string) => request<{ documents: Doc[] }>(`/api/properties/${id}/documents`),
   patchDocument: (id: string, body: { visibility?: string; transferability?: string; documentType?: string; caption?: string | null; cover?: boolean }) =>
     request<{ ok: boolean }>(`/api/documents/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  replaceDocument: (id: string, file: File) => {
+  replaceDocument: async (id: string, file: File) => {
+    const { optimizePhotoFile } = await import("./optimize-photo");
+    const photo = await optimizePhotoFile(file);
     const form = new FormData();
-    form.append("file", file);
+    form.append("file", photo);
     return request<{ ok: boolean }>(`/api/documents/${id}/file`, { method: "POST", body: form });
   },
   deleteDocument: (id: string) => request<{ ok: boolean }>(`/api/documents/${id}`, { method: "DELETE" }),

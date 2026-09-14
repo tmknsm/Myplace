@@ -3,6 +3,12 @@ main = "server/src/worker.ts"
 compatibility_date = "2025-09-01"
 compatibility_flags = ["nodejs_compat"]
 
+# jSquash codecs ship as .wasm; the Worker must compile them, not treat them as assets.
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true
+
 # The Vite build is served as static assets; /api/* is routed to the Worker.
 [assets]
 directory = "web/dist"
