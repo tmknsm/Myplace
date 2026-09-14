@@ -1604,10 +1604,15 @@ table small { display: block; }
   margin: 0 0 var(--gutter);
   margin-left: calc(50% - 50vw);
   margin-right: calc(50% - 50vw);
+  background: none;
   border-radius: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 .property-page .profile-hero {
   border-radius: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 .property-page .hero-overlay { padding: var(--card-pad) var(--card-pad-x); }
 /* The address card reads as type on the canvas: no fill, flush with the page. */
