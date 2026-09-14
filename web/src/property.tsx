@@ -369,6 +369,7 @@ export function PropertyPageView() {
     <div className="page wide profile property-page" data-testid="property-profile">
       <div className="profile-hero-band">{hero}</div>
 
+      <div className="profile-body">
       <header className="profile-head group">
         <div className="profile-title">
           <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
@@ -602,6 +603,7 @@ export function PropertyPageView() {
             </>
           )}
         </div>
+      </div>
       </div>
 
       {lightbox !== null && photos[lightbox] && (
