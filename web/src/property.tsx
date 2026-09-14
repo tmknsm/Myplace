@@ -631,7 +631,7 @@ function StatStrip({ facts }: { facts: Fact[] }) {
   }).slice(0, 6);
   if (stats.length === 0) return null;
   return (
-    <div className="stat-strip" data-testid="stat-strip">
+    <div className={`stat-strip${stats.length % 2 ? " odd" : ""}`} data-testid="stat-strip">
       {stats.map((stat) => (
         <div key={stat.key} className="stat">
           <span>{stat.label}</span>
