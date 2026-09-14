@@ -769,7 +769,7 @@ tr:last-child td { border-bottom: 0; }
   width: auto;
   margin: 0 calc(-1 * var(--page-inline-end, var(--pad))) 22px calc(-1 * var(--page-inline-start, var(--pad)));
   background: var(--surface-2);
-  border-radius: 24px 24px 0 0;
+  border-radius: 24px;
   overflow: hidden;
 }
 .profile-head {
@@ -810,7 +810,7 @@ tr:last-child td { border-bottom: 0; }
   background: var(--surface-2);
   width: 100%;
   height: clamp(320px, 56vh, 640px);
-  border-radius: 24px 24px 0 0;
+  border-radius: 24px;
 }
 .profile-hero.is-map { height: clamp(320px, 50vh, 560px); }
 .hero-image {
@@ -1528,7 +1528,7 @@ table small { display: block; }
 .page.property-page.profile { padding-top: 0; }
 .property-page .profile-hero-band { margin-bottom: var(--gutter); }
 .property-page .profile-hero-band,
-.property-page .profile-hero { border-radius: var(--radius) var(--radius) 0 0; }
+.property-page .profile-hero { border-radius: var(--radius); }
 .property-page .profile-head { padding: var(--card-pad); margin-bottom: var(--gutter); }
 .property-page .stat-strip {
   margin-top: 0;
