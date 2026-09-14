@@ -91,8 +91,17 @@ export function SectionNav({ items, className, dockClass = "nav-docked", scrollD
     let stickyTop = 0;
     const measure = () => { stickyTop = Number.parseFloat(getComputedStyle(node).top) || 0; };
     const check = () => {
-      // A stuck sticky element sits exactly at its `top`; inline it is further down.
-      root.classList.toggle(dockClass, node.getBoundingClientRect().top <= stickyTop + 0.5);
+      const rect = node.getBoundingClientRect();
+      // Stuck: top sits on `top`. Exiting: the parent's trailing edge has pushed
+      // it up, so top is above `top` and only a slice still occupies the slot.
+      const reachedDock = rect.top <= stickyTop + 0.5;
+      const overlap = Math.max(0, Math.min(rect.height, rect.bottom - stickyTop));
+      const docked = reachedDock && overlap > 0.5;
+      root.classList.toggle(dockClass, docked);
+      // Drive the chrome sheet so it shrinks with the bar instead of leaving
+      // an empty dock the height of the chips.
+      if (docked) root.style.setProperty("--nav-dock-overlap", `${overlap}px`);
+      else root.style.removeProperty("--nav-dock-overlap");
     };
     const remeasure = () => { measure(); check(); };
     remeasure();
@@ -105,6 +114,7 @@ export function SectionNav({ items, className, dockClass = "nav-docked", scrollD
       window.removeEventListener("scroll", check);
       window.removeEventListener("resize", remeasure);
       root.classList.remove(dockClass);
+      root.style.removeProperty("--nav-dock-overlap");
     };
   }, [cssDocking, dockClass]);
   useEffect(() => {

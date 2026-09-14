@@ -2341,7 +2341,8 @@ html.dialog-open body {
 /* Once docked, the header's glass sheet grows to cover the bar: one blur, no seam. */
 html.home-nav-docked .home-nav::before { display: none; }
 html.home-nav-docked .chrome-glass::before {
-  height: calc(var(--topbar-height, 0px) + var(--profile-nav-height, 0px));
+  /* Overlap shrinks as the bar is consumed by the section's trailing edge. */
+  height: calc(var(--topbar-height, 0px) + var(--nav-dock-overlap, var(--profile-nav-height, 0px)));
 }
 .home-nav .profile-nav {
   flex-direction: row;
