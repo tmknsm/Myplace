@@ -845,7 +845,8 @@ tr:last-child td { border-bottom: 0; }
 .profile-nudge { max-width: 34ch; margin: 0; font-size: 13px; }
 
 .profile-hero {
-  --hero-ui-bottom: 16px;
+  /* Inset for every control on the photo (dots, pills, map chrome). */
+  --hero-pad: 16px;
   position: relative;
   margin: 0;
   overflow: hidden;
@@ -890,13 +891,13 @@ tr:last-child td { border-bottom: 0; }
 }
 .hero-dots {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: var(--hero-ui-bottom, 16px);
+  left: var(--hero-pad);
+  right: var(--hero-pad);
+  bottom: var(--hero-pad);
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 32px;
+  height: 6px;
   gap: 6px;
   z-index: 2;
   pointer-events: none;
@@ -904,6 +905,7 @@ tr:last-child td { border-bottom: 0; }
 .hero-dots button {
   appearance: none;
   -webkit-appearance: none;
+  position: relative;
   width: 6px;
   height: 6px;
   padding: 0;
@@ -919,6 +921,11 @@ tr:last-child td { border-bottom: 0; }
   transform: none;
   transition: none;
   pointer-events: auto;
+}
+.hero-dots button::before {
+  content: "";
+  position: absolute;
+  inset: -13px;
 }
 .hero-dots button.on,
 .hero-dots button:hover,
@@ -942,13 +949,13 @@ tr:last-child td { border-bottom: 0; }
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  padding: 48px var(--pad) var(--hero-ui-bottom, 16px);
+  padding: 48px var(--hero-pad) var(--hero-pad);
   margin: 0;
   color: #fff;
   background: linear-gradient(to top, rgba(29, 29, 31, 0.55), rgba(29, 29, 31, 0));
   pointer-events: none;
 }
-.profile-hero.is-map .hero-overlay { background: none; padding-top: 14px; }
+.profile-hero.is-map .hero-overlay { background: none; padding-top: var(--hero-pad); }
 .hero-side { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .hero-side > * { pointer-events: auto; }
 .hero-pill {
@@ -972,7 +979,8 @@ tr:last-child td { border-bottom: 0; }
 .hero-pill.quiet { color: var(--ink-soft); font-weight: 500; }
 .hero-pill.warn { color: var(--warn); }
 .hero-cta { box-shadow: 0 8px 24px rgba(226, 59, 50, 0.28); }
-.profile-hero .maplibregl-ctrl-bottom-right { bottom: 0; }
+.profile-hero .maplibregl-ctrl-top-right { top: var(--hero-pad); right: var(--hero-pad); }
+.profile-hero .maplibregl-ctrl-bottom-right { bottom: var(--hero-pad); right: var(--hero-pad); }
 
 .stat-strip {
   display: grid;
@@ -1798,8 +1806,6 @@ html.dialog-open body {
 .property-page .profile-hero {
   border-radius: var(--radius) var(--radius) 0 0;
 }
-.property-page .profile-hero { --hero-ui-bottom: var(--card-pad); }
-.property-page .hero-overlay { padding: var(--card-pad) var(--card-pad-x); }
 /* The address card reads as type on the canvas: no fill, flush with the page. */
 .property-page .profile-head,
 .property-page .profile-head.group {
@@ -1953,8 +1959,7 @@ html.dialog-open body {
   .profile-actions .btn { flex: 0 0 auto; }
   .profile-hero { height: clamp(240px, 42dvh, 420px); }
   .profile-hero.is-map { height: clamp(240px, 40dvh, 380px); }
-  .hero-overlay { padding: 40px var(--pad) 12px; flex-wrap: wrap; }
-  .profile-hero { --hero-ui-bottom: 12px; }
+  .hero-overlay { flex-wrap: wrap; }
   .hero-side:last-child { margin-left: auto; }
   .stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stat { padding: 12px 14px; border-bottom: 1px solid var(--hairline); }
