@@ -1007,7 +1007,7 @@ tr:last-child td { border-bottom: 0; }
 }
 .stat {
   min-width: 0;
-  padding: 14px 18px 13px;
+  padding: 16px;
   background: var(--surface);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -1794,15 +1794,15 @@ html.dialog-open body {
 .improvement-form .action-row .btn { flex: 1 1 auto; }
 
 /* ---- Property page: card system --------------------------------------- */
-/* Cards: 32px corners, 24px inner padding. Framed elements (photos, pills,
-   fields, badges, buttons): 8px corners. Page margins: 16px. Card-to-card
-   gaps: 6px. */
+/* Cards: 24px corners, 16px inner padding. Framed elements on card edges
+   (badges, buttons, fields, chips): 8px corners. Page margins: 16px.
+   Card-to-card gaps: 6px. */
 .page.property-page {
-  --radius: 32px;
+  --radius: 24px;
   --radius-sm: 8px;
   --frame-radius: 8px;
-  --card-pad: 24px;
-  --card-pad-x: 24px;
+  --card-pad: 16px;
+  --card-pad-x: 16px;
   --gutter: 6px;
   --page-margin: 16px;
   --page-inline-start: max(var(--page-margin), env(safe-area-inset-left));
@@ -1896,20 +1896,25 @@ html.dialog-open body {
 .property-page th:last-child,
 .property-page td:last-child { padding-right: 0; }
 
-/* Framed elements */
+/* Framed elements on card edges */
 .property-page .photo-grid { gap: var(--gutter); }
 .property-page .photo-strip { gap: var(--gutter); }
-.property-page .photo-card,
 .property-page .photo-thumb,
+.property-page .photo-add,
+.property-page .photo-flag,
 .property-page .owner-chip,
+.property-page .vis-chip,
 .property-page .chip,
 .property-page .badge,
+.property-page .btn,
 .property-page .segmented,
 .property-page .segmented button,
 .property-page .field,
 .property-page .mini-select,
 .property-page .category-select,
-.property-page .add-value { border-radius: var(--frame-radius); }
+.property-page .add-value,
+.property-page .search-box,
+.property-page .caption-input { border-radius: var(--frame-radius); }
 
 @media (max-width: 880px) {
   :root { --pad: 16px; }
