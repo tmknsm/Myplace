@@ -1622,6 +1622,7 @@ table small { display: block; }
   animation: slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 @keyframes slide-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes sheet-up { from { transform: translateY(32px); opacity: 0; } to { transform: none; opacity: 1; } }
 .sheet-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .sheet-head h2 { margin: 2px 0 6px; font-size: 26px; letter-spacing: -0.02em; font-weight: 650; }
 .sheet-head .modal-close { position: static; }
@@ -1660,6 +1661,42 @@ table small { display: block; }
 .sheet-links a { color: var(--ink); font-weight: 520; text-decoration: none; min-height: 32px; display: inline-flex; align-items: center; }
 .sheet-links a:hover { text-decoration: underline; }
 .sheet code { background: var(--surface); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+
+/* Improvement editor: centered modal on wide screens, full-height sheet on
+   phones. The page underneath never reflows. */
+.improvement-dialog-backdrop { z-index: 70; }
+.improvement-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 560px);
+  max-height: min(90dvh, 820px);
+  background: var(--canvas);
+  border-radius: 24px;
+  box-shadow: 0 24px 64px rgba(20, 18, 14, 0.25);
+  overflow: hidden;
+  animation: pop-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.improvement-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 24px 12px;
+  flex-shrink: 0;
+}
+.improvement-dialog-head h2 { margin: 0; font-size: 24px; letter-spacing: -0.02em; font-weight: 650; }
+.improvement-dialog-head .modal-close { position: static; flex-shrink: 0; }
+.improvement-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 24px 24px;
+}
+.improvement-form .form-grid { grid-template-columns: 1fr 1fr; }
+.improvement-form .action-row { margin-top: 18px; }
+.improvement-form .action-row .btn { flex: 1 1 auto; }
 
 /* ---- Property page: card system --------------------------------------- */
 /* Cards: 32px corners, 24px inner padding. Framed elements (photos, pills,
@@ -2003,6 +2040,17 @@ table small { display: block; }
   .toast { top: 64px; }
   .sheet { width: 100%; }
   .modal { padding: 22px 18px 18px; }
+  .improvement-dialog-backdrop { padding: 0; align-items: stretch; }
+  .improvement-dialog {
+    width: 100%;
+    max-height: none;
+    height: 100dvh;
+    border-radius: 0;
+    animation: sheet-up 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .improvement-dialog-head { padding: calc(16px + env(safe-area-inset-top)) 16px 10px; }
+  .improvement-dialog-body { padding: 0 16px calc(24px + env(safe-area-inset-bottom)); }
+  .improvement-form .form-grid { grid-template-columns: 1fr; }
   .pin-cell { height: 56px; font-size: 26px; }
   .upload-card .file-btn { width: 100%; }
   .lightbox { gap: 8px; padding: 12px; }

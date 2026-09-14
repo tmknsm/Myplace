@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PropertyPage, type Viewer } from "./api";
 import { useAuth } from "./auth";
@@ -1333,7 +1333,7 @@ function ImprovementsSection({
     <section className="section" id="improvements">
       <div className="section-head">
         <h2>Improvements</h2>
-        {owner && !formOpen && (
+        {owner && (
           <button type="button" className="text-btn accent" data-testid="add-improvement" onClick={() => setFormOpen(true)}>Add improvement</button>
         )}
       </div>
@@ -1344,18 +1344,20 @@ function ImprovementsSection({
         {owner && total > 0 ? ` Recorded so far: ${money(total)}.` : ""}
       </p>
       {owner && formOpen && (
-        <ImprovementForm
-          propertyId={propertyId}
-          categories={categories}
-          onCancel={() => setFormOpen(false)}
-          onSaved={async (count) => {
-            setFormOpen(false);
-            toast(count ? `Improvement recorded with ${count} attachment${count === 1 ? "" : "s"}.` : "Improvement recorded.");
-            await onChange();
-          }}
-        />
+        <ImprovementDialog title="Add improvement" onClose={() => setFormOpen(false)}>
+          <ImprovementForm
+            propertyId={propertyId}
+            categories={categories}
+            onCancel={() => setFormOpen(false)}
+            onSaved={async (count) => {
+              setFormOpen(false);
+              toast(count ? `Improvement recorded with ${count} attachment${count === 1 ? "" : "s"}.` : "Improvement recorded.");
+              await onChange();
+            }}
+          />
+        </ImprovementDialog>
       )}
-      {improvements.length === 0 && !formOpen && (
+      {improvements.length === 0 && (
         <div className="group empty-card">
           {owner ? "No improvements recorded yet. Start with the last big job: a roof, a boiler, a kitchen." : "None shared yet."}
         </div>
@@ -1382,6 +1384,38 @@ function dateInputValue(value: string | null | undefined): string {
 function costInputValue(cents: number | null | undefined): string {
   if (cents === null || cents === undefined) return "";
   return String(cents / 100);
+}
+
+/**
+ * Hosts the improvement form as a full-height sheet on phones and a centered
+ * modal on wider screens, so editing never reflows the page underneath.
+ */
+function ImprovementDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="modal-backdrop improvement-dialog-backdrop"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    >
+      <div className="improvement-dialog" role="dialog" aria-modal="true" aria-labelledby="improvement-dialog-title" data-testid="improvement-dialog">
+        <header className="improvement-dialog-head">
+          <h2 id="improvement-dialog-title">{title}</h2>
+          <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>×</button>
+        </header>
+        <div className="improvement-dialog-body">{children}</div>
+      </div>
+    </div>
+  );
 }
 
 function ImprovementForm({
@@ -1413,7 +1447,7 @@ function ImprovementForm({
   const editing = Boolean(item);
 
   return (
-    <form className="group form-card" data-testid="improvement-form" onSubmit={async (event) => {
+    <form className="improvement-form" data-testid="improvement-form" onSubmit={async (event) => {
       event.preventDefault();
       setBusy(true);
       setError(null);
@@ -1550,28 +1584,28 @@ function ImprovementCard({
     }
   };
 
-  if (editing) {
-    return (
-      <ImprovementForm
-        propertyId={propertyId}
-        categories={categories}
-        item={item}
-        onCancel={() => setEditing(false)}
-        onSaved={async (count) => {
-          setEditing(false);
-          toast(count ? `Improvement updated with ${count} new attachment${count === 1 ? "" : "s"}.` : "Improvement updated.");
-          await onChange();
-        }}
-        onDeleted={async () => {
-          toast("Improvement removed.");
-          await onChange();
-        }}
-      />
-    );
-  }
-
   return (
     <article className={`group improvement-card ${item.visibility === "private" ? "is-private" : ""}`} data-testid="improvement-card">
+      {editing && (
+        <ImprovementDialog title="Edit improvement" onClose={() => setEditing(false)}>
+          <ImprovementForm
+            propertyId={propertyId}
+            categories={categories}
+            item={item}
+            onCancel={() => setEditing(false)}
+            onSaved={async (count) => {
+              setEditing(false);
+              toast(count ? `Improvement updated with ${count} new attachment${count === 1 ? "" : "s"}.` : "Improvement updated.");
+              await onChange();
+            }}
+            onDeleted={async () => {
+              setEditing(false);
+              toast("Improvement removed.");
+              await onChange();
+            }}
+          />
+        </ImprovementDialog>
+      )}
       <header className="improvement-head">
         <span className="chip">{CATEGORY_LABEL[item.category] ?? item.category}</span>
         <h3>{item.title}</h3>
