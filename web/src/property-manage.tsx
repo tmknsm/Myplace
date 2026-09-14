@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
-import { api, type PageRefresh, type PropertyPage, type Viewer } from "./api";
+import { Link, Navigate, useLocation, useParams } from "react-router-dom";
+import { api, type InboxItem, type PageRefresh, type PropertyPage, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { useMeta } from "./meta";
 import { DocumentsSection, HandoffSection, MaintainersSection, NotificationsSection } from "./property-owner";
-import { DOCUMENT_TYPE_LABEL, useToast, type Toast } from "./property-shared";
+import { DOCUMENT_TYPE_LABEL, dateLabel, useToast, type Toast } from "./property-shared";
 
 /**
  * Owner tools live on their own pages, reached from the account screen's
- * property list rather than from the public profile: the vault, maintainers,
- * and handoff at /property/:id/manage, and notification preferences one level
- * deeper behind the bell.
+ * property list: the vault, maintainers, email preferences, and handoff at
+ * /property/:id/manage. The bell opens the inbox of requests and notices
+ * for that property.
  */
 
 type PageData = { property: PropertyPage; viewer: Viewer };
@@ -81,17 +81,18 @@ function OwnerPage({
   kicker: string;
   suffix: string;
   back?: { to: string; label: string };
-  aside?: ReactNode;
+  aside?: (data: PageData) => ReactNode;
   footer?: ReactNode;
   children: (data: PageData, refresh: PageRefresh, toast: Toast) => ReactNode;
 }) {
+  const location = useLocation();
   const { data, error, refresh, user, ready } = useOwnerRecord(id);
   const [toast, showToast] = useToast();
   const title = useOwnerTitle(data, suffix);
 
   if (!id) return <Navigate to="/account" replace />;
   if (!ready) return <div className="page">Loading…</div>;
-  if (!user) return <Navigate to={`/signin?next=/property/${id}/manage`} replace />;
+  if (!user) return <Navigate to={`/signin?next=${encodeURIComponent(location.pathname)}`} replace />;
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!data) return <div className="page">Loading record…</div>;
 
@@ -113,7 +114,7 @@ function OwnerPage({
             <h1 className="display">{title}</h1>
             {locality && <p className="meta-line">{locality}</p>}
           </div>
-          {aside}
+          {aside?.(data)}
         </header>
         {toast && <div className="toast" role="status">{toast}</div>}
         {children(data, refresh, showToast)}
@@ -132,17 +133,21 @@ export function PropertyManagePage() {
       id={id}
       kicker="Owner tools"
       suffix="Owner tools"
-      aside={(
-        <Link
-          className="icon-btn"
-          to={`/property/${id}/manage/notifications`}
-          aria-label="Notification settings"
-          title="Notifications"
-          data-testid="notifications-link"
-        >
-          <BellIcon />
-        </Link>
-      )}
+      aside={(data) => {
+        const count = data.viewer.inboxCount ?? 0;
+        return (
+          <Link
+            className="icon-btn"
+            to={`/property/${id}/manage/inbox`}
+            aria-label={count ? `Inbox, ${count} waiting` : "Inbox"}
+            title="Inbox"
+            data-testid="inbox-link"
+          >
+            <BellIcon />
+            {count > 0 && <span className="icon-badge" data-testid="inbox-count">{count > 9 ? "9+" : count}</span>}
+          </Link>
+        );
+      }}
       footer={(
         <div className="manage-cta">
           <Link className="btn" to={`/property/${id}`} data-testid="view-property">View property</Link>
@@ -151,7 +156,7 @@ export function PropertyManagePage() {
     >
       {({ property, viewer }, refresh, toast) => (
         <>
-          <p className="meta-line manage-lede">Your vault, the people who maintain this record with you, and what happens when it changes hands.</p>
+          <p className="meta-line manage-lede">Your vault, the people who maintain this record with you, how you are notified, and what happens when it changes hands.</p>
           <DocumentsSection
             propertyId={id!}
             documents={property.documents.filter((doc) => !doc.improvement_id)}
@@ -168,6 +173,14 @@ export function PropertyManagePage() {
             onChange={refresh}
             toast={toast}
           />
+          {viewer.preferences && (
+            <NotificationsSection
+              propertyId={id!}
+              preferences={viewer.preferences}
+              options={meta?.preferenceOptions ?? {}}
+              toast={toast}
+            />
+          )}
           <HandoffSection propertyId={id!} toast={toast} onChange={refresh} />
         </>
       )}
@@ -175,28 +188,141 @@ export function PropertyManagePage() {
   );
 }
 
-export function PropertyNotificationsPage() {
+const KIND_LABEL: Record<InboxItem["kind"], string> = {
+  contribution_request: "Request",
+  dispute: "Dispute",
+  notice: "Notice",
+};
+
+export function PropertyInboxPage() {
   const { id } = useParams();
-  const meta = useMeta();
   return (
     <OwnerPage
       id={id}
-      kicker="Notifications"
-      suffix="Notifications"
+      kicker="Inbox"
+      suffix="Inbox"
       back={{ to: `/property/${id}/manage`, label: "Owner tools" }}
     >
-      {({ viewer }, _refresh, toast) => viewer.preferences ? (
-        <NotificationsSection
-          propertyId={id!}
-          preferences={viewer.preferences}
-          options={meta?.preferenceOptions ?? {}}
-          toast={toast}
-        />
-      ) : (
-        <section className="section">
-          <div className="group empty-card">Notification preferences are not available for this record.</div>
-        </section>
+      {(_data, refresh, toast) => (
+        <InboxList propertyId={id!} onChange={refresh} toast={toast} />
       )}
     </OwnerPage>
   );
+}
+
+function InboxList({ propertyId, onChange, toast }: { propertyId: string; onChange: PageRefresh; toast: Toast }) {
+  const [items, setItems] = useState<InboxItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api.inbox(propertyId);
+      setItems(data.items);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load inbox");
+    }
+  }, [propertyId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const act = async (item: InboxItem, action: InboxItem["actions"][number]) => {
+    if (!item.contributionId) return;
+    setBusy(`${item.id}:${action}`);
+    try {
+      if (action === "accept") {
+        await api.reviewContribution(item.contributionId, "accepted");
+        toast(item.fieldLabel ? `${item.fieldLabel} updated from the request.` : "Request accepted.");
+      } else if (action === "decline") {
+        await api.reviewContribution(item.contributionId, "rejected");
+        toast("Request declined.");
+      } else if (action === "withdraw") {
+        await api.withdrawContribution(item.contributionId);
+        toast("Dispute withdrawn.");
+      }
+      await load();
+      await onChange();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not update that item.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <section className="section" id="inbox" data-testid="owner-inbox">
+      <h2>Messages</h2>
+      <p className="meta-line section-note">
+        Requests to change this record, disputes you have filed, and notices from official sources. Accepting a change writes it to the owner layer.
+      </p>
+      {error && <p className="error">{error}</p>}
+      {items === null && !error && <div className="group empty-card">Loading messages…</div>}
+      {items && items.length === 0 && (
+        <div className="group empty-card" data-testid="inbox-empty">
+          Nothing waiting. When someone proposes a change, or a dispute or official update needs your eye, it will show up here.
+        </div>
+      )}
+      {items && items.length > 0 && (
+        <div className="group">
+          {items.map((item) => (
+            <div key={item.id} className="row inbox-row" data-testid={`inbox-${item.kind}`}>
+              <div>
+                <div className="inbox-title">
+                  <strong>{item.title}</strong>
+                  <span className={`badge ${item.kind === "contribution_request" ? "pending" : item.kind === "dispute" ? "disputed" : ""}`}>
+                    {KIND_LABEL[item.kind]}
+                  </span>
+                </div>
+                <div className="meta-line">{item.body}</div>
+                <div className="meta-line">{dateLabel(item.createdAt)}</div>
+              </div>
+              <div className="inbox-actions">
+                {item.actions.includes("accept") && (
+                  <button
+                    type="button"
+                    className="btn small"
+                    disabled={busy !== null}
+                    data-testid="inbox-accept"
+                    onClick={() => void act(item, "accept")}
+                  >
+                    {busy === `${item.id}:accept` ? "Saving…" : "Accept"}
+                  </button>
+                )}
+                {item.actions.includes("decline") && (
+                  <button
+                    type="button"
+                    className="btn secondary small"
+                    disabled={busy !== null}
+                    data-testid="inbox-decline"
+                    onClick={() => void act(item, "decline")}
+                  >
+                    {busy === `${item.id}:decline` ? "Saving…" : "Decline"}
+                  </button>
+                )}
+                {item.actions.includes("withdraw") && (
+                  <button
+                    type="button"
+                    className="text-link"
+                    disabled={busy !== null}
+                    onClick={() => void act(item, "withdraw")}
+                  >
+                    Withdraw
+                  </button>
+                )}
+                {item.actions.includes("view") && (
+                  <Link className="text-link" to={`/property/${propertyId}`}>View</Link>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function NotificationsRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/property/${id}/manage/inbox`} replace />;
 }

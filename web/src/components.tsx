@@ -296,6 +296,7 @@ export function eventLabel(type: string): string {
     "assertion.disputed": "Owner disputed an official fact",
     "contribution.withdrawn": "Dispute withdrawn",
     "contribution.accepted": "Contribution accepted",
+    "contribution.rejected": "Contribution declined",
     "improvement.added": "Improvement recorded",
     "improvement.updated": "Improvement updated",
     "improvement.removed": "Improvement removed",

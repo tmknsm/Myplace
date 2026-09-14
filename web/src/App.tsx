@@ -6,7 +6,7 @@ import { eventLabel, ParcelMap, SearchBox } from "./components";
 import { DebugSheet } from "./debug";
 import { useMeta } from "./meta";
 import { PropertyPageView } from "./property";
-import { PropertyManagePage, PropertyNotificationsPage } from "./property-manage";
+import { NotificationsRedirect, PropertyInboxPage, PropertyManagePage } from "./property-manage";
 
 function Layout({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
@@ -568,7 +568,8 @@ export function App() {
         <Route path="/property/:id/claim" element={<ClaimPage />} />
         <Route path="/property/:id/claim/:claimId" element={<ClaimStatusPage />} />
         <Route path="/property/:id/manage" element={<PropertyManagePage />} />
-        <Route path="/property/:id/manage/notifications" element={<PropertyNotificationsPage />} />
+        <Route path="/property/:id/manage/inbox" element={<PropertyInboxPage />} />
+        <Route path="/property/:id/manage/notifications" element={<NotificationsRedirect />} />
         <Route path="/signin" element={<SignInPage />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/admin" element={<AdminPage />} />
