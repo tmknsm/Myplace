@@ -56,9 +56,9 @@ HYPERDRIVE_ID="$(curl -sS \
   ')"
 if [[ -n "$HYPERDRIVE_ID" ]]; then
   echo "    exists ($HYPERDRIVE_ID); refreshing connection string"
-  $WRANGLER hyperdrive update "$HYPERDRIVE_ID" --connection-string="$DATABASE_URL" >/dev/null
+  $WRANGLER hyperdrive update "$HYPERDRIVE_ID" --connection-string="$DATABASE_URL" --caching-disabled true >/dev/null
 else
-  CREATE_OUT="$($WRANGLER hyperdrive create "$HYPERDRIVE_NAME" --connection-string="$DATABASE_URL")"
+  CREATE_OUT="$($WRANGLER hyperdrive create "$HYPERDRIVE_NAME" --connection-string="$DATABASE_URL" --caching-disabled)"
   HYPERDRIVE_ID="$(printf '%s\n' "$CREATE_OUT" | sed -n 's/.*config: \([0-9a-fA-F-]\{32,\}\).*/\1/p' | tail -n 1)"
   if [[ -z "$HYPERDRIVE_ID" ]]; then
     echo "error: could not parse Hyperdrive id from wrangler create output" >&2

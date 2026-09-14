@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PropertyPage, type Viewer } from "./api";
+import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyPage, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, ParcelMap, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
@@ -177,10 +177,12 @@ export function PropertyPageView() {
         setData((current) => {
           // A follow-up fetch that raced the session cookie must not wipe the
           // owner profile we just flipped into after a verified PIN claim.
-          // A pending claim, or a different parcel, is never owner access.
-          if (current?.property.property_id !== next.property.property_id) return next;
+          // Property fields still come from `next` so a save is never discarded.
+          if (!current || current.property.property_id !== next.property.property_id) return next;
           if (next.viewer.openClaim) return next;
-          if (!opts?.allowDowngrade && current?.viewer.maintainer && !next.viewer.maintainer) return current;
+          if (!opts?.allowDowngrade && current.viewer.maintainer && !next.viewer.maintainer) {
+            return { ...next, viewer: { ...next.viewer, maintainer: true, role: current.viewer.role, verifiedAt: current.viewer.verifiedAt } };
+          }
           return next;
         });
         setError(null);
@@ -193,6 +195,13 @@ export function PropertyPageView() {
     }
     if (last) setError(last.message);
   }, [id]);
+
+  const refresh = useCallback<PageRefresh>(async (patch) => {
+    if (patch) {
+      setData((current) => current ? { ...current, property: patch(current.property) } : current);
+    }
+    await load();
+  }, [load]);
 
   useEffect(() => { setData(null); }, [id]);
   useEffect(() => { void load({ allowDowngrade: !user }); }, [load, user?.user_id]);
@@ -249,7 +258,7 @@ export function PropertyPageView() {
       first = false;
     }
     showToast(options.cover ? "Cover photo set." : `${files.length} photo${files.length === 1 ? "" : "s"} added.`);
-    await load();
+    await refresh();
   };
 
   const showAbout = owner || hasSummary;
@@ -278,7 +287,7 @@ export function PropertyPageView() {
       : []),
   ];
 
-  const sectionProps = { owner, propertyId: id, onChange: load, toast: showToast };
+  const sectionProps = { owner, propertyId: id, onChange: refresh, toast: showToast };
 
   const hero = (
     <figure className={`profile-hero ${cover ? "has-photo" : "is-map"}`} data-testid="profile-hero">
@@ -542,11 +551,11 @@ export function PropertyPageView() {
                 propertyId={id}
                 documents={property.documents.filter((doc) => !doc.improvement_id)}
                 documentTypes={meta?.documentTypes ?? Object.keys(DOCUMENT_TYPE_LABEL)}
-                onChange={load}
+                onChange={refresh}
                 toast={showToast}
               />
               {property.disputes.length > 0 && (
-                <DisputesSection disputes={property.disputes} onChange={load} toast={showToast} />
+                <DisputesSection disputes={property.disputes} onChange={refresh} toast={showToast} />
               )}
               <MaintainersSection
                 propertyId={id}
@@ -554,7 +563,7 @@ export function PropertyPageView() {
                 invitations={property.invitations}
                 viewer={viewer}
                 currentUserId={user?.user_id ?? null}
-                onChange={load}
+                onChange={refresh}
                 toast={showToast}
               />
               {viewer.preferences && (
@@ -565,14 +574,14 @@ export function PropertyPageView() {
                   toast={showToast}
                 />
               )}
-              <HandoffSection propertyId={id} toast={showToast} onChange={load} />
+              <HandoffSection propertyId={id} toast={showToast} onChange={refresh} />
             </>
           )}
         </div>
       </div>
 
       {lightbox !== null && photos[lightbox] && (
-        <PhotoLightbox photos={photos} index={lightbox} owner={owner} onIndex={setLightbox} onClose={() => setLightbox(null)} onChange={load} toast={showToast} />
+        <PhotoLightbox photos={photos} index={lightbox} owner={owner} onIndex={setLightbox} onClose={() => setLightbox(null)} onChange={refresh} toast={showToast} />
       )}
 
       {pinOpen && (
@@ -904,7 +913,7 @@ function AboutSection({
   propertyId: string;
   editing: boolean;
   setEditing: (open: boolean) => void;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
 }) {
   const text = typeof fact.value === "string" ? fact.value : "";
@@ -1003,7 +1012,7 @@ function FactSection({
   facts: Fact[];
   owner: boolean;
   propertyId: string;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
   before?: React.ReactNode;
   children?: React.ReactNode;
@@ -1320,7 +1329,7 @@ function ImprovementsSection({
   categories: string[];
   formOpen: boolean;
   setFormOpen: (open: boolean) => void;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
 }) {
   const total = improvements.reduce((sum, item) => sum + (item.cost_cents ?? 0), 0);
@@ -1344,10 +1353,13 @@ function ImprovementsSection({
             propertyId={propertyId}
             categories={categories}
             onCancel={() => setFormOpen(false)}
-            onSaved={async (count) => {
+            onSaved={async (count, improvement) => {
               setFormOpen(false);
               toast(count ? `Improvement recorded with ${count} attachment${count === 1 ? "" : "s"}.` : "Improvement recorded.");
-              await onChange();
+              await onChange(improvement ? (page) => ({
+                ...page,
+                improvements: [improvement, ...page.improvements.filter((row) => row.improvement_id !== improvement.improvement_id)],
+              }) : undefined);
             }}
           />
         </ImprovementDialog>
@@ -1439,7 +1451,7 @@ function ImprovementForm({
   categories: string[];
   item?: Improvement;
   onCancel: () => void;
-  onSaved: (attachments: number) => Promise<void> | void;
+  onSaved: (attachments: number, improvement?: Improvement) => Promise<void> | void;
   onDeleted?: () => Promise<void> | void;
 }) {
   const [title, setTitle] = useState(item?.title ?? "");
@@ -1462,13 +1474,13 @@ function ImprovementForm({
       setError(null);
       try {
         const payload = { title, category, performedAt: performedAt || null, cost: cost || null, contractor: contractor || null, notes: notes || null, visibility };
-        const improvementId = item
-          ? (await api.patchImprovement(item.improvement_id, payload)).improvement.improvement_id
-          : (await api.createImprovement(propertyId, payload)).improvement.improvement_id;
+        const saved = item
+          ? (await api.patchImprovement(item.improvement_id, payload)).improvement
+          : (await api.createImprovement(propertyId, payload)).improvement;
         for (const file of files) {
-          await api.upload(propertyId, file, { improvementId, visibility: attachmentVisibility(file, visibility) });
+          await api.upload(propertyId, file, { improvementId: saved.improvement_id, visibility: attachmentVisibility(file, visibility) });
         }
-        await onSaved(files.length);
+        await onSaved(files.length, saved);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not save improvement");
         setBusy(false);
@@ -1566,7 +1578,7 @@ function ImprovementCard({
   owner: boolean;
   propertyId: string;
   categories: string[];
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
 }) {
   const [busy, setBusy] = useState(false);
@@ -1602,10 +1614,13 @@ function ImprovementCard({
             categories={categories}
             item={item}
             onCancel={() => setEditing(false)}
-            onSaved={async (count) => {
+            onSaved={async (count, improvement) => {
               setEditing(false);
               toast(count ? `Improvement updated with ${count} new attachment${count === 1 ? "" : "s"}.` : "Improvement updated.");
-              await onChange();
+              await onChange(improvement ? (page) => ({
+                ...page,
+                improvements: page.improvements.map((row) => row.improvement_id === improvement.improvement_id ? { ...row, ...improvement } : row),
+              }) : undefined);
             }}
             onDeleted={async () => {
               setEditing(false);
@@ -1668,8 +1683,20 @@ function ImprovementCard({
       {owner && (
         <div className="improvement-foot">
           <div className="segmented small">
-            <button type="button" className={item.visibility === "public" ? "on" : ""} onClick={async () => { await api.patchImprovement(item.improvement_id, { visibility: "public" }); await onChange(); }}>Public</button>
-            <button type="button" className={item.visibility === "private" ? "on" : ""} onClick={async () => { await api.patchImprovement(item.improvement_id, { visibility: "private" }); await onChange(); }}>Private</button>
+            <button type="button" className={item.visibility === "public" ? "on" : ""} onClick={async () => {
+              await api.patchImprovement(item.improvement_id, { visibility: "public" });
+              await onChange((page) => ({
+                ...page,
+                improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: "public" } : row),
+              }));
+            }}>Public</button>
+            <button type="button" className={item.visibility === "private" ? "on" : ""} onClick={async () => {
+              await api.patchImprovement(item.improvement_id, { visibility: "private" });
+              await onChange((page) => ({
+                ...page,
+                improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: "private" } : row),
+              }));
+            }}>Private</button>
           </div>
           <button type="button" className="text-link" data-testid="improvement-edit" onClick={() => setEditing(true)}>Edit</button>
         </div>
@@ -1726,7 +1753,7 @@ function PhotoLightbox({
   owner: boolean;
   onIndex: (next: number) => void;
   onClose: () => void;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: (message: string) => void;
 }) {
   const photo = photos[index];
@@ -1841,7 +1868,7 @@ function ImprovementPhotos({
 }: {
   images: Doc[];
   owner: boolean;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: (message: string) => void;
   trailing?: React.ReactNode;
 }) {
@@ -1892,7 +1919,7 @@ function PhotosSection({
   cover: Doc | null;
   onUpload: (list: FileList | null) => Promise<void>;
   onOpen: (index: number) => void;
-  onChange: () => Promise<void> | void;
+  onChange: PageRefresh;
   toast: Toast;
 }) {
   const [busy, setBusy] = useState(false);
@@ -1966,7 +1993,10 @@ function PhotosSection({
                         <button type="button" className="text-link" data-testid={`cover-${doc.document_id}`} onClick={async () => {
                           await api.patchDocument(doc.document_id, { cover: true });
                           toast("Cover photo updated.");
-                          await onChange();
+                          await onChange((page) => ({
+                            ...page,
+                            documents: page.documents.map((item) => ({ ...item, is_cover: item.document_id === doc.document_id })),
+                          }));
                         }}>Set as cover</button>
                       )}
                       <button type="button" className="text-link danger" onClick={async () => {

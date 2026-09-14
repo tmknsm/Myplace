@@ -19,7 +19,8 @@ DEV_MAILBOX = "false"
 APP_ORIGIN = "https://myplace.6point1five.workers.dev"
 
 # Postgres (with PostGIS) reached through Hyperdrive. `npm run cf:setup` creates the
-# config from DATABASE_URL and writes its id here.
+# config from DATABASE_URL and writes its id here. Query caching stays off: this
+# app needs read-after-write on the property page (cover photo, improvements, …).
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "d7f6274a1eb4473d8c09c68759c4c7fd"

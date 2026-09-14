@@ -23,6 +23,23 @@ export function setSql(sql: Sql | null): void {
   shared = sql;
 }
 
+/**
+ * Run `fn` inside a transaction. Hyperdrive never caches transactional reads,
+ * so this is the way to load a row you just wrote.
+ */
+export async function withoutQueryCache<T>(fn: () => Promise<T>): Promise<T> {
+  const sql = getSql();
+  await sql`begin`;
+  try {
+    const result = await fn();
+    await sql`commit`;
+    return result;
+  } catch (error) {
+    await sql`rollback`.catch(() => undefined);
+    throw error;
+  }
+}
+
 export async function closeSql(): Promise<void> {
   if (shared) {
     await shared.end();

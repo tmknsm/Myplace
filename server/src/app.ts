@@ -16,7 +16,7 @@ import {
   upsertUser,
 } from "./auth.ts";
 import { config, isDevExperience } from "./config.ts";
-import { getSql } from "./db.ts";
+import { getSql, withoutQueryCache } from "./db.ts";
 import { DEBUG_CLAIM_PIN, DEBUG_OWNER_EMAIL, debugEnabled, isFixedSignin, pinMatches } from "./debug.ts";
 import { id } from "./ids.ts";
 import { insertAssertion, ownerAssertionVisibility, retractOwnerAssertion, setOwnerAssertionVisibility } from "./services/assertions.ts";
@@ -81,6 +81,13 @@ app.use("*", cors({
   credentials: true,
 }));
 app.use("/api/*", authMiddleware);
+app.use("/api/*", async (c, next) => {
+  await next();
+  if (c.req.path.startsWith("/api/tiles/")) return;
+  if (!c.res.headers.has("Cache-Control") && !c.res.headers.has("cache-control")) {
+    c.header("Cache-Control", "private, no-store");
+  }
+});
 
 app.onError((error, c) => {
   const status = error instanceof HTTPException
@@ -686,7 +693,9 @@ app.post("/api/properties/:id/improvements", async (c) => {
     payload: { improvement_id: improvementId, title, category },
     effectiveAt: parseDate(body.performedAt) ?? new Date(),
   });
-  const [improvement] = await loadImprovements(propertyId, true).then((list) => list.filter((row) => row.improvement_id === improvementId));
+  const [improvement] = await withoutQueryCache(() =>
+    loadImprovements(propertyId, true).then((list) => list.filter((row) => row.improvement_id === improvementId)),
+  );
   return c.json({ improvement }, 201);
 });
 
@@ -742,8 +751,10 @@ app.patch("/api/improvements/:id", async (c) => {
     actorId: user.user_id,
     payload: { improvement_id: improvement.improvement_id },
   });
-  const [updated] = await loadImprovements(improvement.property_id, true)
-    .then((list) => list.filter((row) => row.improvement_id === improvement.improvement_id));
+  const [updated] = await withoutQueryCache(() =>
+    loadImprovements(improvement.property_id, true)
+      .then((list) => list.filter((row) => row.improvement_id === improvement.improvement_id)),
+  );
   return c.json({ improvement: updated });
 });
 

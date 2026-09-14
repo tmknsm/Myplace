@@ -339,6 +339,8 @@ export interface Doc {
   created_at: string;
 }
 
+export type PageRefresh = (patch?: (property: PropertyPage) => PropertyPage) => Promise<void> | void;
+
 export interface MaintainedProperty {
   property_id: string;
   formatted: string | null;
