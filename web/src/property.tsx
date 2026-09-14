@@ -648,9 +648,40 @@ function StatStrip({ facts }: { facts: Fact[] }) {
 
 const SCROLL_DRIVEN = typeof CSS !== "undefined" && CSS.supports("animation-timeline: view()");
 
+const HERO_DOT = 6;
+const HERO_DOT_GAP = 6;
+const HERO_DOT_STEP = HERO_DOT + HERO_DOT_GAP;
+
+/** Stretch the active thumb from one dot into the next as the track scrolls. */
+function placeHeroThumb(el: HTMLElement | null, progress: number, count: number) {
+  if (!el || count < 2) return;
+  const max = count - 1;
+  const p = Math.max(0, Math.min(max, progress));
+  const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) {
+    el.style.width = `${HERO_DOT}px`;
+    el.style.transform = `translate3d(${p * HERO_DOT_STEP}px,0,0)`;
+    return;
+  }
+  const i = Math.floor(p);
+  const t = p - i;
+  if (t === 0 || i >= max) {
+    el.style.width = `${HERO_DOT}px`;
+    el.style.transform = `translate3d(${i * HERO_DOT_STEP}px,0,0)`;
+    return;
+  }
+  if (t <= 0.5) {
+    el.style.width = `${HERO_DOT + t * 2 * HERO_DOT_STEP}px`;
+    el.style.transform = `translate3d(${i * HERO_DOT_STEP}px,0,0)`;
+    return;
+  }
+  el.style.width = `${HERO_DOT + (1 - t) * 2 * HERO_DOT_STEP}px`;
+  el.style.transform = `translate3d(${i * HERO_DOT_STEP + (t * 2 - 1) * HERO_DOT_STEP}px,0,0)`;
+}
+
 /**
  * Swipeable hero. A native scroll-snap track does the gesture work; we only
- * read which slide has settled so the caption, badge, and dots can follow.
+ * read which slide has settled so the dots can follow.
  */
 function HeroCarousel({
   slides,
@@ -666,6 +697,7 @@ function HeroCarousel({
   onOpen: (doc: Doc) => void;
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
+  const thumbRef = useRef<HTMLSpanElement | null>(null);
   const count = slides.length;
   const current = Math.min(index, Math.max(0, count - 1));
 
@@ -675,13 +707,15 @@ function HeroCarousel({
     let frame = 0;
     const read = () => {
       const width = track.clientWidth || 1;
-      const next = Math.max(0, Math.min(count - 1, Math.round(track.scrollLeft / width)));
-      onIndex(next);
+      const progress = Math.max(0, Math.min(count - 1, track.scrollLeft / width));
+      placeHeroThumb(thumbRef.current, progress, count);
+      onIndex(Math.round(progress));
     };
     const onScroll = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(read);
     };
+    read();
     track.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       cancelAnimationFrame(frame);
@@ -729,6 +763,7 @@ function HeroCarousel({
       </div>
       {count > 1 && (
         <div className="hero-dots" role="tablist" aria-label="Photos">
+          <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
           {slides.map((doc, i) => (
             <button
               key={doc.document_id}
