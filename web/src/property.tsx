@@ -167,6 +167,7 @@ export function PropertyPageView() {
   const [aboutEditing, setAboutEditing] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [heroIndex, setHeroIndex] = useState(0);
+  const [photoUploads, setPhotoUploads] = useState(0);
 
   const load = useCallback(async (opts?: { allowDowngrade?: boolean }) => {
     if (!id) return;
@@ -248,6 +249,7 @@ export function PropertyPageView() {
   const uploadPhotos = async (list: FileList | null, options: { cover?: boolean } = {}) => {
     const files = Array.from(list ?? []);
     if (!files.length) return;
+    setPhotoUploads((count) => count + files.length);
     try {
       let first = true;
       for (const file of files) {
@@ -262,8 +264,12 @@ export function PropertyPageView() {
       await refresh();
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : "Photo could not be added. Try again.");
+    } finally {
+      setPhotoUploads((count) => Math.max(0, count - files.length));
     }
   };
+
+  const uploading = photoUploads > 0;
 
   const showAbout = owner || hasSummary;
   const showPhotos = owner || available.length > 0;
@@ -323,9 +329,10 @@ export function PropertyPageView() {
             }}>Only you can see this {slide.is_cover ? "cover" : "photo"} · Make public</button>
           )}
           {!cover && owner && (
-            <label className="btn file-btn hero-cta" data-testid="cover-input-label">
+            <label className={`btn file-btn hero-cta ${uploading ? "is-busy" : ""}`} data-testid="cover-input-label">
+              {uploading && <Spinner />}
               Add a cover photo
-              <input type="file" accept="image/*" data-testid="cover-input" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
+              <input type="file" accept="image/*" disabled={uploading} data-testid="cover-input" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
             </label>
           )}
           {!cover && !owner && property.geometryQuality && (
@@ -367,9 +374,10 @@ export function PropertyPageView() {
                 {viewer.verifiedAt ? ` · since ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
               </span>
               <div className="action-row compact">
-                <label className="btn file-btn">
+                <label className={`btn file-btn ${uploading ? "is-busy" : ""}`}>
+                  {uploading && <Spinner />}
                   Add photos
-                  <input type="file" accept="image/*" multiple data-testid="head-photo-input" onChange={(event) => { void uploadPhotos(event.target.files); event.target.value = ""; }} />
+                  <input type="file" accept="image/*" multiple disabled={uploading} data-testid="head-photo-input" onChange={(event) => { void uploadPhotos(event.target.files); event.target.value = ""; }} />
                 </label>
                 <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
               </div>
@@ -458,6 +466,8 @@ export function PropertyPageView() {
             <PhotosSection
               photos={photos}
               cover={cover}
+              pendingCount={photoUploads}
+              uploading={uploading}
               onUpload={(list) => uploadPhotos(list)}
               onOpen={(index) => setLightbox(index)}
               {...sectionProps}
@@ -1908,10 +1918,31 @@ function ImprovementPhotos({
   );
 }
 
+function Spinner() {
+  return <span className="spinner" aria-hidden="true" />;
+}
+
+function PhotoImage({ src, alt }: { src: string; alt: string }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => { setReady(false); }, [src]);
+  return (
+    <>
+      {!ready && (
+        <span className="photo-wait" aria-hidden="true">
+          <Spinner />
+        </span>
+      )}
+      <img src={src} alt={alt} onLoad={() => setReady(true)} />
+    </>
+  );
+}
+
 function PhotosSection({
   owner,
   photos,
   cover,
+  pendingCount = 0,
+  uploading = false,
   onUpload,
   onOpen,
   onChange,
@@ -1921,26 +1952,26 @@ function PhotosSection({
   propertyId: string;
   photos: Doc[];
   cover: Doc | null;
+  pendingCount?: number;
+  uploading?: boolean;
   onUpload: (list: FileList | null) => Promise<void>;
   onOpen: (index: number) => void;
   onChange: PageRefresh;
   toast: Toast;
 }) {
-  const [busy, setBusy] = useState(false);
   return (
     <section className="section" id="photos">
       <div className="section-head">
         <h2>Photos</h2>
         {owner && (
-          <label className={`text-btn accent file-btn ${busy ? "is-busy" : ""}`}>
-            {busy ? "Uploading…" : "Add photos"}
-            <input type="file" accept="image/*" multiple disabled={busy} data-testid="photo-input" onChange={async (event) => {
+          <label className={`text-btn accent file-btn ${uploading ? "is-busy" : ""}`}>
+            {uploading && <Spinner />}
+            Add photos
+            <input type="file" accept="image/*" multiple disabled={uploading} data-testid="photo-input" onChange={async (event) => {
               const list = event.target.files;
-              setBusy(true);
               try {
                 await onUpload(list);
               } finally {
-                setBusy(false);
                 event.target.value = "";
               }
             }} />
@@ -1948,10 +1979,10 @@ function PhotosSection({
         )}
       </div>
       {owner && <p className="meta-line section-note">Photos are public unless you make them private. The cover is the first thing a visitor sees.{photos.some((doc) => !hasFile(doc)) ? " Cards marked “file missing” need the original photo reattached; after that they stay in Cloudflare." : ""}</p>}
-      {photos.length === 0 ? (
+      {photos.length === 0 && pendingCount === 0 ? (
         <div className="group empty-card">{owner ? "No photos yet. Exterior, roof, mechanicals, and before-and-after shots all belong here." : "None shared yet."}</div>
       ) : (
-        <div className={`photo-grid ${photos.length > 2 ? "featured" : ""}`}>
+        <div className={`photo-grid ${photos.length + pendingCount > 2 ? "featured" : ""}`}>
           {photos.map((doc, index) => (
             <figure key={doc.document_id} className={`photo-card ${doc.visibility === "private" ? "is-private" : ""} ${hasFile(doc) ? "" : "is-missing"}`}>
               {owner && !hasFile(doc) ? (
@@ -1965,7 +1996,7 @@ function PhotosSection({
                 />
               ) : (
                 <button type="button" className="photo-open" onClick={() => onOpen(index)} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
-                  <img src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} loading="lazy" />
+                  <PhotoImage src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} />
                   {cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
                   {owner && doc.visibility === "private" && <span className="photo-flag private">Private</span>}
                 </button>
@@ -2013,6 +2044,15 @@ function PhotosSection({
               ) : (
                 doc.caption && <figcaption>{doc.caption}</figcaption>
               )}
+            </figure>
+          ))}
+          {Array.from({ length: pendingCount }, (_, index) => (
+            <figure key={`pending-${index}`} className="photo-card is-pending">
+              <div className="photo-open" aria-label="Uploading photo">
+                <span className="photo-wait">
+                  <Spinner />
+                </span>
+              </div>
             </figure>
           ))}
         </div>

@@ -1,6 +1,6 @@
 import { deflateSync } from "node:zlib";
 import { expect, test } from "vitest";
-import { imageDimensions } from "../../../shared/image-size.ts";
+import { imageDimensions, tooBigForWorker } from "../../../shared/image-size.ts";
 import { optimizePhoto, shouldOptimizePhoto } from "./photos.ts";
 import { ensureWebpDecode } from "./photos-wasm.ts";
 
@@ -77,6 +77,15 @@ test("a large png becomes a smaller webp without changing the picture size budge
   expect(result.bytes.byteLength).toBeGreaterThan(20);
   expect(result.bytes.byteLength).toBeLessThan(png.byteLength * 0.5);
 }, 20_000);
+
+test("16 MP iPhone stills stay inside the Worker encode budget", () => {
+  const still = Uint8Array.from([
+    0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x12, 0x0b, 0x0d, 0x88, 0x03,
+    0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00, 0xff, 0xd9,
+  ]);
+  expect(imageDimensions(still)).toEqual({ width: 3464, height: 4619 });
+  expect(tooBigForWorker(still)).toBe(false);
+});
 
 test("a jpeg that would OOM the Worker is stored as-is instead of decoded", async () => {
   const huge = Uint8Array.from([

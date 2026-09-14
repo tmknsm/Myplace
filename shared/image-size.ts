@@ -2,8 +2,8 @@
 export const PHOTO_MAX_EDGE = 5120;
 /** Stay inside iOS canvas / Worker memory. 5120×2880 16:9 still fits. */
 export const PHOTO_MAX_PIXELS = 16_000_000;
-/** Decode-and-encode budget on a 128 MB Worker. 48 MP camera files skip WASM. */
-export const PHOTO_WORKER_PIXELS = 16_000_000;
+/** iPhone 16 MP stills are ~16,000,216 px — keep them inside the Worker budget. 48 MP skips. */
+export const PHOTO_WORKER_PIXELS = 20_000_000;
 
 export type ImageSize = { width: number; height: number };
 
