@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PropertyPage, type Viewer } from "./api";
 import { useAuth } from "./auth";
@@ -1386,26 +1387,39 @@ function costInputValue(cents: number | null | undefined): string {
   return String(cents / 100);
 }
 
+/** html is the viewport scroller; locking body overflow alone does nothing. */
+function useLockPageScroll() {
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const scrollY = window.scrollY;
+    html.classList.add("dialog-open");
+    body.style.top = `-${scrollY}px`;
+    return () => {
+      html.classList.remove("dialog-open");
+      body.style.top = "";
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+}
+
 /**
  * Hosts the improvement form as a full-height sheet on phones and a centered
  * modal on wider screens, so editing never reflows the page underneath.
  */
 function ImprovementDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  useLockPageScroll();
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       className="modal-backdrop improvement-dialog-backdrop"
       onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+      onWheel={(event) => { if (event.target === event.currentTarget) event.preventDefault(); }}
     >
       <div className="improvement-dialog" role="dialog" aria-modal="true" aria-labelledby="improvement-dialog-title" data-testid="improvement-dialog">
         <header className="improvement-dialog-head">
@@ -1414,7 +1428,8 @@ function ImprovementDialog({ title, onClose, children }: { title: string; onClos
         </header>
         <div className="improvement-dialog-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1730,19 +1745,15 @@ function PhotoLightbox({
     setConfirm(false);
   }, [index, onIndex, photos.length]);
 
+  useLockPageScroll();
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
       if (event.key === "ArrowRight") step(1);
       if (event.key === "ArrowLeft") step(-1);
     };
     window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [onClose, step]);
 
   if (!photo) return null;

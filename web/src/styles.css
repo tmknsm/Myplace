@@ -1662,9 +1662,23 @@ table small { display: block; }
 .sheet-links a:hover { text-decoration: underline; }
 .sheet code { background: var(--surface); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
 
+/* Freeze the real viewport scroller (html) while a dialog is open. overflow on
+   body alone is a no-op; position:fixed also stops iOS rubber-band scroll. */
+html.dialog-open,
+html.dialog-open body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+html.dialog-open body {
+  position: fixed;
+  left: 0;
+  right: 0;
+  width: 100%;
+}
+
 /* Improvement editor: centered modal on wide screens, full-height sheet on
    phones. The page underneath never reflows. */
-.improvement-dialog-backdrop { z-index: 70; }
+.improvement-dialog-backdrop { z-index: 70; overscroll-behavior: none; }
 .improvement-dialog {
   position: relative;
   display: flex;
@@ -1691,6 +1705,7 @@ table small { display: block; }
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: 0 24px 24px;
 }
