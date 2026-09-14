@@ -33,6 +33,9 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* html is the viewport scroller. hidden here clips sideways drag without
+     creating a second scroll box on body/#root, which would kill sticky. */
+  overflow-x: hidden;
   overscroll-behavior-x: none;
 }
 html, body, #root { min-height: 100%; }
@@ -45,7 +48,6 @@ body {
   font-family: var(--font);
   font-size: 16px;
   line-height: 1.47;
-  /* clip (not hidden) so the page can still host position: sticky. */
   overflow-x: clip;
   overscroll-behavior-x: none;
   -webkit-font-smoothing: antialiased;
@@ -762,13 +764,10 @@ tr:last-child td { border-bottom: 0; }
 .profile { padding-top: 0; }
 /* Break out of .page so the hero runs edge to edge directly under the topbar. */
 .profile-hero-band {
-  /* Bleed to the viewport without 100vw widening the document (iOS rubber-band). */
-  width: 100vw;
-  max-width: 100vw;
-  position: relative;
-  left: 50%;
-  translate: -50% 0;
-  margin: 0 0 22px;
+  /* Bleed only as far as the page padding — never 100vw, which is wider than
+     the layout viewport on iOS and lets the whole screen rubber-band sideways. */
+  width: auto;
+  margin: 0 calc(-1 * var(--page-inline-end, var(--pad))) 22px calc(-1 * var(--page-inline-start, var(--pad)));
   background: var(--surface-2);
   border-radius: 24px 24px 0 0;
   overflow: hidden;
@@ -1643,10 +1642,6 @@ table small { display: block; }
 
   .profile { padding-top: 0; }
   .profile-hero-band {
-    width: auto;
-    max-width: none;
-    left: auto;
-    translate: none;
     margin-left: calc(-1 * var(--page-inline-start, var(--pad)));
     margin-right: calc(-1 * var(--page-inline-end, var(--pad)));
     margin-bottom: 16px;
@@ -1672,7 +1667,7 @@ table small { display: block; }
     position: sticky;
     top: var(--topbar-height, calc(52px + env(safe-area-inset-top)));
     z-index: 21;
-    margin: 0 calc(-1 * var(--pad));
+    margin: 0 calc(-1 * var(--page-inline-end, var(--pad))) 0 calc(-1 * var(--page-inline-start, var(--pad)));
     min-width: 0;
   }
   /*
@@ -1704,7 +1699,7 @@ table small { display: block; }
     top: auto;
     gap: 6px;
     margin: 0;
-    padding: 0 var(--pad) var(--profile-nav-pad-y);
+    padding: 0 var(--page-inline-end, var(--pad)) var(--profile-nav-pad-y) var(--page-inline-start, var(--pad));
     min-width: 0;
     background: none;
     -webkit-overflow-scrolling: touch;
@@ -1788,8 +1783,8 @@ table small { display: block; }
     overscroll-behavior-x: contain;
     position: static;
     gap: 6px;
-    margin: 0 calc(-1 * var(--pad));
-    padding: 0 var(--pad);
+    margin: 0 calc(-1 * var(--page-inline-end, var(--pad))) 0 calc(-1 * var(--page-inline-start, var(--pad)));
+    padding: 0 var(--page-inline-end, var(--pad)) 0 var(--page-inline-start, var(--pad));
     -webkit-overflow-scrolling: touch;
   }
   .side-nav button {
