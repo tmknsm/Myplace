@@ -617,14 +617,20 @@ function StatStrip({ facts }: { facts: Fact[] }) {
 
 const SCROLL_DRIVEN = typeof CSS !== "undefined" && CSS.supports("animation-timeline: view()");
 
-/** Move the chip bar, not the page, so a selected chip stays on screen. */
+/** Scroll the chip bar just enough that the selected chip sits at the visible end. */
 function scrollChipIntoBar(scroller: HTMLElement, chip: HTMLElement) {
   if (scroller.scrollWidth <= scroller.clientWidth + 1) return;
   const scrollerBox = scroller.getBoundingClientRect();
   const chipBox = chip.getBoundingClientRect();
-  const inset = 16;
-  if (chipBox.left >= scrollerBox.left + inset && chipBox.right <= scrollerBox.right - inset) return;
-  const delta = chipBox.left + chipBox.width / 2 - (scrollerBox.left + scrollerBox.width / 2);
+  const styles = getComputedStyle(scroller);
+  const padLeft = Number.parseFloat(styles.paddingLeft) || 0;
+  const padRight = Number.parseFloat(styles.paddingRight) || 0;
+  const visibleLeft = scrollerBox.left + padLeft;
+  const visibleRight = scrollerBox.right - padRight;
+  let delta = 0;
+  if (chipBox.right > visibleRight) delta = chipBox.right - visibleRight;
+  else if (chipBox.left < visibleLeft) delta = chipBox.left - visibleLeft;
+  else return;
   const next = Math.max(0, Math.min(scroller.scrollWidth - scroller.clientWidth, scroller.scrollLeft + delta));
   const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   scroller.scrollTo({ left: next, behavior: reduce ? "auto" : "smooth" });
