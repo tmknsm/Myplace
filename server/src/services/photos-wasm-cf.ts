@@ -11,18 +11,17 @@ import WEBP_ENC from "@jsquash/webp/codec/enc/webp_enc.wasm";
 import WEBP_ENC_SIMD from "@jsquash/webp/codec/enc/webp_enc_simd.wasm";
 // @ts-expect-error CompiledWasm default export
 import RESIZE from "@jsquash/resize/lib/resize/pkg/squoosh_resize_bg.wasm";
-import { initPhotoCodecs, setPhotoCodecLoader } from "./photos-wasm.ts";
+import { setPhotoCodecSource } from "./photos-wasm.ts";
 
 export function registerCloudflarePhotoCodecs(): void {
-  setPhotoCodecLoader(async () => {
-    const { simd } = await import("wasm-feature-detect");
-    const useSimd = await simd();
-    await initPhotoCodecs({
-      jpegDec: JPEG_DEC,
-      pngDec: PNG_DEC,
-      webpDec: WEBP_DEC,
-      webpEnc: useSimd ? WEBP_ENC_SIMD : WEBP_ENC,
-      resize: RESIZE,
-    });
+  setPhotoCodecSource({
+    jpegDec: async () => JPEG_DEC,
+    pngDec: async () => PNG_DEC,
+    webpDec: async () => WEBP_DEC,
+    webpEnc: async () => {
+      const { simd } = await import("wasm-feature-detect");
+      return (await simd()) ? WEBP_ENC_SIMD : WEBP_ENC;
+    },
+    resize: async () => RESIZE,
   });
 }

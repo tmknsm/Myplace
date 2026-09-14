@@ -54,6 +54,8 @@ export function DocumentsSection({
       for (const file of items) await api.upload(propertyId, file, { documentType: type });
       toast(`${items.length} document${items.length === 1 ? "" : "s"} added to the vault.`);
       await onChange();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "That file could not be added.");
     } finally {
       setBusy(false);
     }

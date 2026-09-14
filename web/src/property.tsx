@@ -248,17 +248,21 @@ export function PropertyPageView() {
   const uploadPhotos = async (list: FileList | null, options: { cover?: boolean } = {}) => {
     const files = Array.from(list ?? []);
     if (!files.length) return;
-    let first = true;
-    for (const file of files) {
-      await api.upload(id, file, {
-        documentType: "photo",
-        visibility: "public",
-        ...(options.cover && first ? { cover: "true" } : {}),
-      });
-      first = false;
+    try {
+      let first = true;
+      for (const file of files) {
+        await api.upload(id, file, {
+          documentType: "photo",
+          visibility: "public",
+          ...(options.cover && first ? { cover: "true" } : {}),
+        });
+        first = false;
+      }
+      showToast(options.cover ? "Cover photo set." : `${files.length} photo${files.length === 1 ? "" : "s"} added.`);
+      await refresh();
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Photo could not be added. Try again.");
     }
-    showToast(options.cover ? "Cover photo set." : `${files.length} photo${files.length === 1 ? "" : "s"} added.`);
-    await refresh();
   };
 
   const showAbout = owner || hasSummary;

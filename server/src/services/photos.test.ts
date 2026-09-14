@@ -1,6 +1,8 @@
 import { deflateSync } from "node:zlib";
 import { expect, test } from "vitest";
+import { imageDimensions } from "../../../shared/image-size.ts";
 import { optimizePhoto, shouldOptimizePhoto } from "./photos.ts";
+import { ensureWebpDecode } from "./photos-wasm.ts";
 
 function crc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
@@ -76,10 +78,22 @@ test("a large png becomes a smaller webp without changing the picture size budge
   expect(result.bytes.byteLength).toBeLessThan(png.byteLength * 0.5);
 }, 20_000);
 
+test("a jpeg that would OOM the Worker is stored as-is instead of decoded", async () => {
+  const huge = Uint8Array.from([
+    0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x27, 0x10, 0x1f, 0x40, 0x03,
+    0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00, 0xff, 0xd9,
+  ]);
+  expect(imageDimensions(huge)).toEqual({ width: 8000, height: 10000 });
+  const result = await optimizePhoto(huge, "image/jpeg", "IMG_0001.jpeg");
+  expect(result.bytes).toEqual(huge);
+  expect(result.mime).toBe("image/jpeg");
+});
+
 test("a photo wider than the display budget is resized before encode", async () => {
   const png = solidPng(5300, 40);
   const result = await optimizePhoto(png, "image/png", "panorama.png");
   expect(result.mime).toBe("image/webp");
+  await ensureWebpDecode();
   const { default: decode } = await import("@jsquash/webp/decode");
   const buffer = result.bytes.buffer.slice(result.bytes.byteOffset, result.bytes.byteOffset + result.bytes.byteLength) as ArrayBuffer;
   const image = await decode(buffer);
