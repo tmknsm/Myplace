@@ -12,6 +12,7 @@ import {
   DOCUMENT_TYPE_LABEL,
   fileSize,
   fileUrl,
+  hasFile,
   isImage,
   money,
   MULTILINE_FIELDS,
@@ -211,7 +212,8 @@ export function PropertyPageView() {
     : null;
   const address = property.formatted ?? "this property";
   const photos = property.documents.filter(isImage);
-  const cover = photos.find((doc) => doc.is_cover) ?? photos[0] ?? null;
+  const available = photos.filter(hasFile);
+  const cover = available.find((doc) => doc.is_cover) ?? available[0] ?? null;
   const summary = property.facts.find((fact) => fact.fieldKey === SUMMARY_KEY) ?? null;
   const hasSummary = Boolean(summary?.display);
   const systemsFacts = sections.get("systems") ?? [];
@@ -243,7 +245,7 @@ export function PropertyPageView() {
   };
 
   const showAbout = owner || hasSummary;
-  const showPhotos = owner || photos.length > 0;
+  const showPhotos = owner || available.length > 0;
   const showImprovements = owner || property.improvements.length > 0;
   const showSystems = owner || publicSystems.length > 0;
 
@@ -1398,6 +1400,36 @@ function ImprovementCard({
 // Photos
 // ---------------------------------------------------------------------------
 
+function RestorePhoto({
+  doc,
+  busy,
+  onPick,
+}: {
+  doc: Doc;
+  busy?: boolean;
+  onPick: (file: File) => void | Promise<void>;
+}) {
+  return (
+    <label className={`photo-open photo-missing ${busy ? "is-busy" : ""}`} data-testid={`restore-${doc.document_id}`}>
+      <span className="photo-missing-copy">
+        <strong>File missing</strong>
+        <span>Tap to restore {doc.original_filename}</span>
+      </span>
+      <input
+        type="file"
+        accept="image/*"
+        disabled={busy}
+        aria-label={`Restore ${doc.original_filename}`}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) void onPick(file);
+        }}
+      />
+    </label>
+  );
+}
+
 function PhotoLightbox({
   photos,
   index,
@@ -1441,13 +1473,14 @@ function PhotoLightbox({
   }, [onClose, step]);
 
   if (!photo) return null;
+  const missing = !hasFile(photo);
 
   const replace = async (file: File | undefined) => {
     if (!file) return;
     setBusy(true);
     try {
       await api.replaceDocument(photo.document_id, file);
-      toast("Photo updated.");
+      toast(missing ? "Photo restored." : "Photo updated.");
       await onChange();
     } finally {
       setBusy(false);
@@ -1479,14 +1512,18 @@ function PhotoLightbox({
       <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>×</button>
       {photos.length > 1 && <button type="button" className="lightbox-step prev" aria-label="Previous photo" onClick={() => step(-1)}>‹</button>}
       <figure className="lightbox-figure">
-        <img src={fileUrl(photo)} alt={photo.caption ?? photo.original_filename} />
+        {missing ? (
+          <RestorePhoto doc={photo} busy={busy} onPick={(file) => void replace(file)} />
+        ) : (
+          <img src={fileUrl(photo)} alt={photo.caption ?? photo.original_filename} />
+        )}
         <figcaption>
           {photo.caption && <strong>{photo.caption}</strong>}
           <span className="meta-line">{photos.length > 1 ? `${index + 1} of ${photos.length}` : ""}{photo.created_at ? `${photos.length > 1 ? " · " : ""}${dateLabel(photo.created_at)}` : ""}</span>
           {owner && (
             <div className="lightbox-actions">
               <label className={`btn secondary file-btn ${busy ? "is-busy" : ""}`}>
-                {busy ? "Saving…" : "Change"}
+                {busy ? "Saving…" : missing ? "Restore" : "Change"}
                 <input
                   type="file"
                   accept="image/*"
@@ -1540,7 +1577,7 @@ function ImprovementPhotos({
             onClick={() => setOpen(index)}
             aria-label={doc.caption ?? doc.original_filename}
           >
-            <img src={fileUrl(doc)} alt="" loading="lazy" />
+            {hasFile(doc) ? <img src={fileUrl(doc)} alt="" loading="lazy" /> : <span className="photo-missing-label">Missing</span>}
           </button>
         ))}
       </div>
@@ -1598,18 +1635,29 @@ function PhotosSection({
           </label>
         )}
       </div>
-      {owner && <p className="meta-line section-note">Photos are public unless you make them private. The cover is the first thing a visitor sees.</p>}
+      {owner && <p className="meta-line section-note">Photos are public unless you make them private. The cover is the first thing a visitor sees.{photos.some((doc) => !hasFile(doc)) ? " Cards marked “file missing” need the original photo reattached; after that they stay with this property." : ""}</p>}
       {photos.length === 0 ? (
         <div className="group empty-card">{owner ? "No photos yet. Exterior, roof, mechanicals, and before-and-after shots all belong here." : "None shared yet."}</div>
       ) : (
         <div className={`photo-grid ${photos.length > 2 ? "featured" : ""}`}>
           {photos.map((doc, index) => (
-            <figure key={doc.document_id} className={`photo-card ${doc.visibility === "private" ? "is-private" : ""}`}>
-              <button type="button" className="photo-open" onClick={() => onOpen(index)} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
-                <img src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} loading="lazy" />
-                {cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
-                {owner && doc.visibility === "private" && <span className="photo-flag private">Private</span>}
-              </button>
+            <figure key={doc.document_id} className={`photo-card ${doc.visibility === "private" ? "is-private" : ""} ${hasFile(doc) ? "" : "is-missing"}`}>
+              {owner && !hasFile(doc) ? (
+                <RestorePhoto
+                  doc={doc}
+                  onPick={async (file) => {
+                    await api.replaceDocument(doc.document_id, file);
+                    toast("Photo restored.");
+                    await onChange();
+                  }}
+                />
+              ) : (
+                <button type="button" className="photo-open" onClick={() => onOpen(index)} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
+                  <img src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} loading="lazy" />
+                  {cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
+                  {owner && doc.visibility === "private" && <span className="photo-flag private">Private</span>}
+                </button>
+              )}
               {owner ? (
                 <figcaption>
                   <input

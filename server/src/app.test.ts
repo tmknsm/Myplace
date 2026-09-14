@@ -541,6 +541,52 @@ test("public photos are served to visitors; private ones stay gated", async () =
   expect(removed.status).toBe(401);
 });
 
+test("photos whose bytes are gone stay off the public page and can be restored", async () => {
+  process.env.DOCUMENT_ROOT = mkdtempSync(join(tmpdir(), "myplace-docs-"));
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const form = new FormData();
+  form.append("file", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])], "IMG_9526.jpeg", { type: "image/jpeg" }));
+  form.append("documentType", "photo");
+  form.append("visibility", "public");
+  form.append("cover", "true");
+  const uploaded = await app.request("http://localhost/api/properties/prop_test/documents", {
+    method: "POST",
+    headers: { cookie: ownerCookie },
+    body: form,
+  });
+  expect(uploaded.status).toBe(201);
+  const photoId = (await uploaded.json()).documentId as string;
+
+  await sql`DELETE FROM document_blobs`;
+  process.env.DOCUMENT_ROOT = mkdtempSync(join(tmpdir(), "myplace-empty-"));
+
+  const visitor = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(visitor.property.documents).toEqual([]);
+  const ownerPage = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
+  expect(ownerPage.property.documents).toEqual([
+    expect.objectContaining({ document_id: photoId, has_file: false, original_filename: "IMG_9526.jpeg" }),
+  ]);
+  const missing = await app.request(`http://localhost/api/documents/${photoId}/file`);
+  expect(missing.status).toBe(404);
+
+  const replaceForm = new FormData();
+  replaceForm.append("file", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 8, 7])], "IMG_9526.jpeg", { type: "image/jpeg" }));
+  const restored = await app.request(`http://localhost/api/documents/${photoId}/file`, {
+    method: "POST",
+    headers: { cookie: ownerCookie },
+    body: replaceForm,
+  });
+  expect(restored.status).toBe(200);
+  const visitorAgain = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(visitorAgain.property.documents).toEqual([
+    expect.objectContaining({ document_id: photoId, has_file: true }),
+  ]);
+  const file = await app.request(`http://localhost/api/documents/${photoId}/file`);
+  expect(file.status).toBe(200);
+  expect((await file.arrayBuffer()).byteLength).toBe(7);
+});
+
 test("Greene official lot lines and Columbia sketches stay distinct", async () => {
   await sql`
     INSERT INTO sources (source_id, name, source_type, health_status, jurisdiction)

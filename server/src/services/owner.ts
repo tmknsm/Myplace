@@ -2,6 +2,7 @@ import { getSql } from "../db.ts";
 import { id } from "../ids.ts";
 import { FIELD_BY_KEY } from "../vocab.ts";
 import { emitEvent } from "./events.ts";
+import { missingDocumentKeys } from "./storage.ts";
 
 export const IMPROVEMENT_CATEGORIES = [
   "roof",
@@ -73,6 +74,17 @@ export interface DocumentRow {
   is_cover: boolean;
   created_at: string;
   uploaded_by: string | null;
+  has_file: boolean;
+}
+
+type StoredDocumentRow = Omit<DocumentRow, "has_file"> & { storage_key: string };
+
+async function withFileFlags(rows: StoredDocumentRow[]): Promise<DocumentRow[]> {
+  const missing = await missingDocumentKeys(rows.map((row) => row.storage_key));
+  return rows.map((row) => {
+    const { storage_key, ...rest } = row;
+    return { ...rest, has_file: !missing.has(storage_key) };
+  });
 }
 
 /**
@@ -90,32 +102,34 @@ export async function loadImprovements(propertyId: string, viewerIsMaintainer: b
     ORDER BY performed_at DESC NULLS LAST, created_at DESC
   `;
   const documents = improvements.length
-    ? await sql<DocumentRow[]>`
+    ? await withFileFlags(await sql<StoredDocumentRow[]>`
         SELECT document_id, property_id, improvement_id, original_filename, document_type, mime_type,
-               byte_size, visibility, transferability, caption, is_cover, created_at, uploaded_by
+               byte_size, visibility, transferability, caption, is_cover, created_at, uploaded_by, storage_key
         FROM documents
         WHERE property_id = ${propertyId} AND removed_at IS NULL AND improvement_id IS NOT NULL
           AND ${viewerIsMaintainer ? sql`TRUE` : sql`visibility = 'public'`}
         ORDER BY created_at
-      `
+      `)
     : [];
+  const visible = viewerIsMaintainer ? documents : documents.filter((doc) => doc.has_file);
   return improvements.map((row) => ({
     ...row,
     cost_cents: row.cost_cents === null ? null : Number(row.cost_cents),
-    documents: documents.filter((doc) => doc.improvement_id === row.improvement_id),
+    documents: visible.filter((doc) => doc.improvement_id === row.improvement_id),
   }));
 }
 
 export async function loadDocuments(propertyId: string, viewerIsMaintainer: boolean) {
   const sql = getSql();
-  return sql<DocumentRow[]>`
+  const documents = await withFileFlags(await sql<StoredDocumentRow[]>`
     SELECT document_id, property_id, improvement_id, original_filename, document_type, mime_type,
-           byte_size, visibility, transferability, caption, is_cover, created_at, uploaded_by
+           byte_size, visibility, transferability, caption, is_cover, created_at, uploaded_by, storage_key
     FROM documents
     WHERE property_id = ${propertyId} AND claim_id IS NULL AND removed_at IS NULL
       AND ${viewerIsMaintainer ? sql`TRUE` : sql`visibility = 'public'`}
     ORDER BY is_cover DESC, created_at DESC
-  `;
+  `);
+  return viewerIsMaintainer ? documents : documents.filter((doc) => doc.has_file);
 }
 
 /** Make one photo the profile cover, or clear the cover when `documentId` is null. */

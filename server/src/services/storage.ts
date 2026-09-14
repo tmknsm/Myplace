@@ -107,3 +107,34 @@ export async function getDocument(key: string): Promise<Uint8Array> {
   }
   throw missingFile();
 }
+
+async function existsOnDisk(key: string): Promise<boolean> {
+  try {
+    const { access } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    await access(join(config.documentRoot, key));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Keys whose bytes are missing from Postgres, R2, and local disk. */
+export async function missingDocumentKeys(keys: string[]): Promise<Set<string>> {
+  const unique = [...new Set(keys.filter(Boolean))];
+  if (!unique.length) return new Set();
+  const sql = getSql();
+  const rows = await sql<{ storage_key: string }[]>`
+    SELECT storage_key FROM document_blobs WHERE storage_key IN ${sql(unique)}
+  `;
+  const found = new Set(rows.map((row) => row.storage_key));
+  const missing: string[] = [];
+  for (const key of unique) {
+    if (found.has(key)) continue;
+    const runtime = currentRuntime()?.storage;
+    if (runtime && await tryGet(runtime, key)) continue;
+    if (await existsOnDisk(key)) continue;
+    missing.push(key);
+  }
+  return new Set(missing);
+}

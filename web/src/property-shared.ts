@@ -62,6 +62,10 @@ export function isImage(doc: Doc): boolean {
   return Boolean(doc.mime_type?.startsWith("image/")) || doc.document_type === "photo";
 }
 
+export function hasFile(doc: Doc): boolean {
+  return doc.has_file !== false;
+}
+
 export function fileUrl(doc: Doc): string {
   return `/api/documents/${doc.document_id}/file?v=${doc.byte_size ?? 0}`;
 }
