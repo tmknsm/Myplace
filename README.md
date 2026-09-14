@@ -88,6 +88,18 @@ DATABASE_URL=postgres://ubuntu:myplace@localhost:5432/myplace npm run setup
 App: [http://localhost:5173](http://localhost:5173)  
 API: [http://localhost:8787](http://localhost:8787)
 
+## Production
+
+Live: [https://myplace.6point1five.workers.dev](https://myplace.6point1five.workers.dev)
+
+The app is a Cloudflare Worker with the Vite build as static assets. Postgres (Neon + PostGIS) is reached through Hyperdrive; photos and documents go to the `myplace-documents` R2 bucket.
+
+```bash
+npm run deploy
+```
+
+Sign-in emails are stored in Postgres and only delivered when `POSTMARK_SERVER_TOKEN` and `MAIL_FROM` are set as Worker secrets. Until those exist, mint a one-off code in the `auth_codes` table (hashed with `SESSION_SECRET`) rather than using the local debug mailbox.
+
 ## Local development flow
 
 1. Search `441 Warren Street` (Columbia, approximate lot lines) or `1 Main Street` (Greene, official lot lines), or click a parcel on the map. Use the Columbia / Greene chips to fly between the two cases.

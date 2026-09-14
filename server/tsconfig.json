@@ -4,5 +4,6 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["./**/*.ts", "../db/**/*.ts"]
+  "include": ["./**/*.ts", "../db/**/*.ts"],
+  "exclude": ["./**/*.test.ts", "../db/**/*.test.ts"]
 }
