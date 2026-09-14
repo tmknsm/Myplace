@@ -1597,7 +1597,7 @@ table small { display: block; }
   --page-inline-end: max(var(--page-margin), env(safe-area-inset-right));
   padding: 0 var(--page-inline-end) max(var(--page-margin), env(safe-area-inset-bottom)) var(--page-inline-start);
 }
-/* Hero is full-bleed: flush under the header, edge to edge, square bottom. */
+/* Hero is full-bleed: flush under the header, edge to edge, rounded top only. */
 .property-page .profile-hero-band {
   width: 100vw;
   max-width: 100vw;
@@ -1605,14 +1605,10 @@ table small { display: block; }
   margin-left: calc(50% - 50vw);
   margin-right: calc(50% - 50vw);
   background: none;
-  border-radius: 0;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 .property-page .profile-hero {
-  border-radius: 0;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 .property-page .hero-overlay { padding: var(--card-pad) var(--card-pad-x); }
 /* The address card reads as type on the canvas: no fill, flush with the page. */
