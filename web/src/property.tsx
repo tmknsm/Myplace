@@ -348,18 +348,6 @@ export function PropertyPageView() {
             <span className="hero-pill quiet">{property.geometryQuality === "official" ? "Official lot lines" : property.geometryQuality === "approximate" ? "Approximate lot lines" : "Demonstration sketch"}</span>
           )}
         </div>
-        {cover && (
-          <div className="hero-side">
-            <button
-              type="button"
-              className="hero-pill hero-count"
-              aria-label={`Photo ${Math.min(heroIndex, slides.length - 1) + 1} of ${slides.length}. Go to photos`}
-              onClick={() => scrollToId("photos")}
-            >
-              {Math.min(heroIndex, slides.length - 1) + 1} / {slides.length}
-            </button>
-          </div>
-        )}
       </figcaption>
     </figure>
   );
