@@ -101,6 +101,12 @@ export const api = {
   dispute: (id: string, body: { fieldKey: string; proposedValue?: string; note?: string }) =>
     request<{ contributionId: string }>(`/api/properties/${id}/disputes`, { method: "POST", body: JSON.stringify(body) }),
   withdrawContribution: (id: string) => request<{ ok: boolean }>(`/api/contributions/${id}`, { method: "DELETE" }),
+  inbox: (id: string) => request<{ items: InboxItem[] }>(`/api/properties/${id}/inbox`),
+  reviewContribution: (id: string, decision: "accepted" | "rejected") =>
+    request<{ ok: boolean; propertyId: string }>(`/api/contributions/${id}/review`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    }),
   savePreferences: (id: string, preferences: Record<string, string>) =>
     request<{ preferences: Record<string, string> }>(`/api/properties/${id}/preferences`, {
       method: "PUT",
@@ -190,6 +196,24 @@ export interface Viewer {
   invitation: { invitation_id: string; role: string; invited_by_name: string | null } | null;
   preferences: Record<string, string> | null;
   openClaim: { claim_id: string; status: string } | null;
+  inboxCount?: number;
+}
+
+export type InboxAction = "accept" | "decline" | "withdraw" | "view";
+export type InboxKind = "contribution_request" | "dispute" | "notice";
+
+export interface InboxItem {
+  id: string;
+  kind: InboxKind;
+  title: string;
+  body: string;
+  createdAt: string;
+  fieldKey: string | null;
+  fieldLabel: string | null;
+  proposedValue: unknown;
+  note: string | null;
+  contributionId: string | null;
+  actions: InboxAction[];
 }
 
 export interface Dispute {

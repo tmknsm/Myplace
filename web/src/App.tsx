@@ -6,6 +6,7 @@ import { eventLabel, ParcelMap, SearchBox } from "./components";
 import { DebugSheet } from "./debug";
 import { useMeta } from "./meta";
 import { PropertyPageView } from "./property";
+import { NotificationsRedirect, PropertyInboxPage, PropertyManagePage } from "./property-manage";
 
 function Layout({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
@@ -321,12 +322,6 @@ function ClaimStatusPage() {
   );
 }
 
-/** Older emails link here; the owner record now lives on the property page itself. */
-function ManageRedirect() {
-  const { id } = useParams();
-  return <Navigate to={`/property/${id}`} replace />;
-}
-
 function SignInPage() {
   const { refresh, user } = useAuth();
   const [params] = useSearchParams();
@@ -424,7 +419,7 @@ function AccountPage() {
         <div className="group">
           {properties.length === 0 && <div className="row"><span className="meta-line">None yet</span></div>}
           {properties.map((p) => (
-            <Link className="row" key={p.property_id} to={`/property/${p.property_id}`}>{p.formatted}</Link>
+            <Link className="row" key={p.property_id} to={`/property/${p.property_id}/manage`} data-testid="owned-property">{p.formatted}</Link>
           ))}
         </div>
       </section>
@@ -572,7 +567,9 @@ export function App() {
         <Route path="/property/:id" element={<PropertyPageView />} />
         <Route path="/property/:id/claim" element={<ClaimPage />} />
         <Route path="/property/:id/claim/:claimId" element={<ClaimStatusPage />} />
-        <Route path="/property/:id/manage" element={<ManageRedirect />} />
+        <Route path="/property/:id/manage" element={<PropertyManagePage />} />
+        <Route path="/property/:id/manage/inbox" element={<PropertyInboxPage />} />
+        <Route path="/property/:id/manage/notifications" element={<NotificationsRedirect />} />
         <Route path="/signin" element={<SignInPage />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/admin" element={<AdminPage />} />

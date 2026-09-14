@@ -772,6 +772,78 @@ test("a pending claim does not let an admin manage the property", async () => {
   expect(docs.status).toBe(403);
 });
 
+test("owner inbox lists disputes and lets the owner accept or decline change requests", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+
+  const empty = await app.request("http://localhost/api/properties/prop_test/inbox", {
+    headers: { cookie: ownerCookie },
+  });
+  expect(empty.status).toBe(200);
+  expect((await empty.json()).items).toEqual([]);
+
+  const stranger = await app.request("http://localhost/api/properties/prop_test/inbox");
+  expect(stranger.status).toBe(401);
+
+  const dispute = await app.request("http://localhost/api/properties/prop_test/disputes", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ fieldKey: "year_built", proposedValue: "1850", note: "The lintel says 1850." }),
+  });
+  expect(dispute.status).toBe(201);
+  const { contributionId: disputeId } = await dispute.json();
+
+  const neighbor = await signIn("neighbor@example.com");
+  const neighborUser = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'neighbor@example.com'`;
+  await sql`
+    INSERT INTO contributions (contribution_id, property_id, contributor_user_id, contributor_type, status, summary)
+    VALUES ('con_req', 'prop_test', ${neighborUser[0]!.user_id}, 'neighbor', 'needs_review', 'Neighbor proposed heating')
+  `;
+  await sql`
+    INSERT INTO contribution_assertions (contribution_assertion_id, contribution_id, field_key, value_json)
+    VALUES ('cas_req', 'con_req', 'heating', ${sql.json({ value: "Heat pump", note: "Installed last fall" } as never)})
+  `;
+
+  const listed = await app.request("http://localhost/api/properties/prop_test/inbox", {
+    headers: { cookie: ownerCookie },
+  });
+  const listedBody = await listed.json() as { items: Array<{ kind: string; contributionId: string; actions: string[] }> };
+  expect(listedBody.items.map((item) => item.kind)).toEqual(["contribution_request", "dispute"]);
+  const request = listedBody.items.find((item) => item.kind === "contribution_request")!;
+  const ownDispute = listedBody.items.find((item) => item.kind === "dispute")!;
+  expect(request.actions).toEqual(["accept", "decline", "view"]);
+  expect(ownDispute.actions).toEqual(["withdraw", "view"]);
+  expect(ownDispute.contributionId).toBe(disputeId);
+
+  const page = await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } });
+  expect((await page.json()).viewer.inboxCount).toBe(2);
+
+  const refuseOwn = await app.request(`http://localhost/api/contributions/${disputeId}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ decision: "accepted" }),
+  });
+  expect(refuseOwn.status).toBe(400);
+
+  const accept = await app.request("http://localhost/api/contributions/con_req/review", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ decision: "accepted" }),
+  });
+  expect(accept.status).toBe(200);
+
+  const after = await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } });
+  const afterBody = await after.json();
+  const heating = afterBody.property.facts.find((fact: { fieldKey: string }) => fact.fieldKey === "heating");
+  expect(heating.value).toBe("Heat pump");
+  expect(afterBody.viewer.inboxCount).toBe(1);
+
+  const leftover = await app.request("http://localhost/api/properties/prop_test/inbox", {
+    headers: { cookie: ownerCookie },
+  });
+  expect((await leftover.json()).items).toHaveLength(1);
+});
+
 test("production tester login accepts 000000 without a mailed code", async () => {
   const res = await runWithRuntime(
     { env: { ...process.env, NODE_ENV: "production", DEV_MAILBOX: "false" } },

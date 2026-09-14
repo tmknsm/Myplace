@@ -37,6 +37,7 @@ import {
   IMPROVEMENT_CATEGORIES,
   loadDocuments,
   loadImprovements,
+  loadInbox,
   loadOpenDisputes,
   loadPendingInvitations,
   loadPreferences,
@@ -45,6 +46,7 @@ import {
   parseDate,
   pendingInvitationFor,
   PREFERENCE_OPTIONS,
+  reviewContribution,
   savePreferences,
   setCoverPhoto,
   TRANSFERABLE_TYPES,
@@ -328,12 +330,13 @@ app.get("/api/properties/:id", async (c) => {
     const dispute = disputes.find((item) => item.fieldKey === fact.fieldKey);
     return dispute ? { ...fact, dispute } : fact;
   });
-  const [improvements, documents, invitations, invitation, preferences] = await Promise.all([
+  const [improvements, documents, invitations, invitation, preferences, inbox] = await Promise.all([
     loadImprovements(page.property_id, maintainer),
     loadDocuments(page.property_id, maintainer),
     maintainer ? loadPendingInvitations(page.property_id) : Promise.resolve([]),
     user && !maintainer ? pendingInvitationFor(page.property_id, user.primary_email) : Promise.resolve(null),
     maintainer && user ? loadPreferences(user.user_id, page.property_id) : Promise.resolve(null),
+    maintainer ? loadInbox(page.property_id) : Promise.resolve([]),
   ]);
   return c.json({
     property: { ...page, facts, improvements, documents, invitations, disputes },
@@ -345,6 +348,7 @@ app.get("/api/properties/:id", async (c) => {
       invitation,
       preferences,
       openClaim,
+      inboxCount: inbox.length,
     },
   });
 });
@@ -794,6 +798,33 @@ app.post("/api/properties/:id/disputes", async (c) => {
   if (!note && proposed === null) return c.json({ error: "Say what you believe is correct or why the fact is wrong." }, 400);
   const contributionId = await openDispute({ propertyId, userId: user.user_id, fieldKey: field.key, proposedValue: proposed, note });
   return c.json({ contributionId }, 201);
+});
+
+app.get("/api/properties/:id/inbox", async (c) => {
+  const propertyId = c.req.param("id");
+  await requireMaintainer(c, propertyId);
+  return c.json({ items: await loadInbox(propertyId) });
+});
+
+app.post("/api/contributions/:id/review", async (c) => {
+  const user = requireUser(c);
+  const sql = getSql();
+  const rows = await sql<{ property_id: string }[]>`
+    SELECT property_id FROM contributions WHERE contribution_id = ${c.req.param("id")}
+  `;
+  const row = rows[0];
+  if (!row) return c.json({ error: "Not found" }, 404);
+  await requireMaintainer(c, row.property_id);
+  const body = await c.req.json<{ decision?: string }>().catch(() => ({} as { decision?: string }));
+  if (body.decision !== "accepted" && body.decision !== "rejected") {
+    return c.json({ error: "Decision must be accepted or rejected." }, 400);
+  }
+  const result = await reviewContribution({
+    contributionId: c.req.param("id"),
+    reviewerId: user.user_id,
+    decision: body.decision,
+  });
+  return c.json({ ok: true, propertyId: result.propertyId });
 });
 
 app.delete("/api/contributions/:id", async (c) => {

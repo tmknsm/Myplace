@@ -1,6 +1,7 @@
 import { getSql } from "../db.ts";
 import { id } from "../ids.ts";
-import { FIELD_BY_KEY } from "../vocab.ts";
+import { FIELD_BY_KEY, formatFieldValue, ownerWritable } from "../vocab.ts";
+import { insertAssertion } from "./assertions.ts";
 import { emitEvent } from "./events.ts";
 import { missingDocumentKeys } from "./storage.ts";
 
@@ -179,6 +180,185 @@ export async function loadOpenDisputes(propertyId: string): Promise<DisputeView[
     createdAt: row.created_at,
     contributorUserId: row.contributor_user_id,
   }));
+}
+
+export type InboxAction = "accept" | "decline" | "withdraw" | "view";
+export type InboxKind = "contribution_request" | "dispute" | "notice";
+
+export interface InboxItem {
+  id: string;
+  kind: InboxKind;
+  title: string;
+  body: string;
+  createdAt: string;
+  fieldKey: string | null;
+  fieldLabel: string | null;
+  proposedValue: unknown;
+  note: string | null;
+  contributionId: string | null;
+  actions: InboxAction[];
+}
+
+function formatProposed(fieldKey: string, value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const field = FIELD_BY_KEY.get(fieldKey);
+  if (!field) return String(value);
+  return formatFieldValue(field, value) ?? String(value);
+}
+
+/**
+ * Messages a maintainer may need to act on: third-party change requests they
+ * can accept or decline, their own disputes waiting on the records desk, and
+ * official-record notices.
+ */
+export async function loadInbox(propertyId: string): Promise<InboxItem[]> {
+  const sql = getSql();
+  const contributions = await sql<{
+    contribution_id: string;
+    contributor_user_id: string | null;
+    contributor_type: string;
+    summary: string | null;
+    created_at: string;
+    field_key: string;
+    value_json: { value?: unknown; note?: string | null } | null;
+    display_name: string | null;
+    primary_email: string | null;
+  }[]>`
+    SELECT c.contribution_id, c.contributor_user_id, c.contributor_type, c.summary, c.created_at,
+           ca.field_key, ca.value_json, u.display_name, u.primary_email
+    FROM contributions c
+    JOIN contribution_assertions ca ON ca.contribution_id = c.contribution_id
+    LEFT JOIN users u ON u.user_id = c.contributor_user_id
+    WHERE c.property_id = ${propertyId} AND c.status = 'needs_review'
+    ORDER BY c.created_at DESC
+  `;
+
+  const items: InboxItem[] = contributions.map((row) => {
+    const field = FIELD_BY_KEY.get(row.field_key);
+    const label = field?.label ?? row.field_key;
+    const proposed = row.value_json?.value ?? null;
+    const note = row.value_json?.note ?? null;
+    const proposedLabel = formatProposed(row.field_key, proposed);
+    const who = row.display_name || row.primary_email || "Someone";
+    const ownerDispute = row.contributor_type === "verified_owner";
+    const parts = [
+      ownerDispute
+        ? `You flagged ${label.toLowerCase()} for review.`
+        : `${who} proposed a change to ${label.toLowerCase()}.`,
+      proposedLabel ? `Suggested value: ${proposedLabel}.` : null,
+      note ? `“${note}”` : null,
+    ].filter(Boolean);
+    return {
+      id: `con:${row.contribution_id}:${row.field_key}`,
+      kind: ownerDispute ? "dispute" : "contribution_request",
+      title: ownerDispute ? `Dispute of ${label}` : `Change requested: ${label}`,
+      body: parts.join(" "),
+      createdAt: row.created_at,
+      fieldKey: row.field_key,
+      fieldLabel: label,
+      proposedValue: proposed,
+      note,
+      contributionId: row.contribution_id,
+      actions: ownerDispute ? ["withdraw", "view"] : ["accept", "decline", "view"],
+    };
+  });
+
+  const notices = await sql<{ event_id: string; event_type: string; created_at: string }[]>`
+    SELECT event_id, event_type, created_at
+    FROM property_events
+    WHERE property_id = ${propertyId}
+      AND event_type IN ('assessment.updated', 'sale.recorded', 'parcel.geometry_updated')
+    ORDER BY created_at DESC
+    LIMIT 12
+  `;
+  const noticeTitle: Record<string, string> = {
+    "assessment.updated": "Assessment updated",
+    "sale.recorded": "Sale recorded",
+    "parcel.geometry_updated": "Lot lines refreshed",
+  };
+  const noticeBody: Record<string, string> = {
+    "assessment.updated": "An official source updated the assessment on this record.",
+    "sale.recorded": "A recorded sale was added to this property.",
+    "parcel.geometry_updated": "The parcel geometry was refreshed from a source.",
+  };
+  for (const row of notices) {
+    items.push({
+      id: `evt:${row.event_id}`,
+      kind: "notice",
+      title: noticeTitle[row.event_type] ?? row.event_type,
+      body: noticeBody[row.event_type] ?? "Something changed on this record.",
+      createdAt: row.created_at,
+      fieldKey: null,
+      fieldLabel: null,
+      proposedValue: null,
+      note: null,
+      contributionId: null,
+      actions: ["view"],
+    });
+  }
+
+  items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+  return items;
+}
+
+export async function reviewContribution(input: {
+  contributionId: string;
+  reviewerId: string;
+  decision: "accepted" | "rejected";
+}): Promise<{ propertyId: string }> {
+  const sql = getSql();
+  const rows = await sql<{
+    contribution_id: string;
+    property_id: string;
+    contributor_type: string;
+    status: string;
+  }[]>`
+    SELECT contribution_id, property_id, contributor_type, status
+    FROM contributions WHERE contribution_id = ${input.contributionId}
+  `;
+  const contribution = rows[0];
+  if (!contribution) throw Object.assign(new Error("Not found"), { status: 404 });
+  if (contribution.status !== "needs_review") {
+    throw Object.assign(new Error("This request is already resolved."), { status: 400 });
+  }
+  if (contribution.contributor_type === "verified_owner") {
+    throw Object.assign(new Error("Owner disputes are reviewed by the records desk. You can withdraw yours instead."), { status: 400 });
+  }
+
+  if (input.decision === "accepted") {
+    const assertions = await sql<{ field_key: string; value_json: { value?: unknown } | null }[]>`
+      SELECT field_key, value_json FROM contribution_assertions WHERE contribution_id = ${contribution.contribution_id}
+    `;
+    for (const assertion of assertions) {
+      const field = FIELD_BY_KEY.get(assertion.field_key);
+      if (!ownerWritable(field)) continue;
+      const value = assertion.value_json?.value;
+      if (value === null || value === undefined || value === "") continue;
+      await insertAssertion({
+        propertyId: contribution.property_id,
+        fieldKey: assertion.field_key,
+        value,
+        sourceType: "verified_owner",
+        actorType: "verified_owner",
+        actorId: input.reviewerId,
+        eventType: "owner_assertion.added",
+      });
+    }
+  }
+
+  await sql`
+    UPDATE contributions
+    SET status = ${input.decision}, resolved_at = now(), resolved_by = ${input.reviewerId}
+    WHERE contribution_id = ${contribution.contribution_id}
+  `;
+  await emitEvent({
+    propertyId: contribution.property_id,
+    eventType: input.decision === "accepted" ? "contribution.accepted" : "contribution.rejected",
+    actorType: "verified_owner",
+    actorId: input.reviewerId,
+    payload: { contribution_id: contribution.contribution_id, decision: input.decision },
+  });
+  return { propertyId: contribution.property_id };
 }
 
 export async function openDispute(input: {

@@ -6,7 +6,7 @@ import { useAuth } from "./auth";
 import { actorLabel, eventLabel, ParcelMap, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
 import { useMeta } from "./meta";
-import { DisputesSection, DocumentsSection, HandoffSection, MaintainersSection, NotificationsSection } from "./property-owner";
+import { DisputesSection } from "./property-owner";
 import { snapshotPhotoFile } from "./optimize-photo";
 import {
   CATEGORY_LABEL,
@@ -303,14 +303,6 @@ export function PropertyPageView() {
     { id: "building", label: "Building & lot" },
     { id: "records", label: "Parcel & records" },
     { id: "history", label: "History" },
-    ...(owner
-      ? [
-        { id: "documents", label: "Documents" },
-        { id: "maintainers", label: "Maintainers" },
-        { id: "notifications", label: "Notifications" },
-        { id: "handoff", label: "Handoff" },
-      ]
-      : []),
   ];
 
   const sectionProps = { owner, propertyId: id, onChange: refresh, toast: showToast };
@@ -447,6 +439,11 @@ export function PropertyPageView() {
               improvements={property.improvements}
               cover={cover}
               onGo={(target) => {
+                // The vault lives on the owner tools page now.
+                if (target === "documents") {
+                  navigate(`/property/${id}/manage`);
+                  return;
+                }
                 if (target === "about") setAboutEditing(true);
                 if (target === "improvements") setImprovementFormOpen(true);
                 scrollToId(target);
@@ -546,42 +543,8 @@ export function PropertyPageView() {
             </div>
           </section>
 
-          {owner && (
-            <>
-              <div className="owner-tools-head" id="owner-tools">
-                <div className="kicker">Owner tools</div>
-                <h2>Only maintainers see this part of the page</h2>
-                <p className="meta-line">Your vault, the people who maintain this record with you, and what happens when it changes hands.</p>
-              </div>
-              <DocumentsSection
-                propertyId={id}
-                documents={property.documents.filter((doc) => !doc.improvement_id)}
-                documentTypes={meta?.documentTypes ?? Object.keys(DOCUMENT_TYPE_LABEL)}
-                onChange={refresh}
-                toast={showToast}
-              />
-              {property.disputes.length > 0 && (
-                <DisputesSection disputes={property.disputes} onChange={refresh} toast={showToast} />
-              )}
-              <MaintainersSection
-                propertyId={id}
-                maintainers={property.maintainers}
-                invitations={property.invitations}
-                viewer={viewer}
-                currentUserId={user?.user_id ?? null}
-                onChange={refresh}
-                toast={showToast}
-              />
-              {viewer.preferences && (
-                <NotificationsSection
-                  propertyId={id}
-                  preferences={viewer.preferences}
-                  options={meta?.preferenceOptions ?? {}}
-                  toast={showToast}
-                />
-              )}
-              <HandoffSection propertyId={id} toast={showToast} onChange={refresh} />
-            </>
+          {owner && property.disputes.length > 0 && (
+            <DisputesSection disputes={property.disputes} onChange={refresh} toast={showToast} />
           )}
         </div>
       </div>
