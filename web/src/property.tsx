@@ -329,11 +329,9 @@ export function PropertyPageView() {
             }}>Only you can see this {slide.is_cover ? "cover" : "photo"} · Make public</button>
           )}
           {!cover && owner && (
-            <label className={`btn file-btn hero-cta ${uploading ? "is-busy" : ""}`} data-testid="cover-input-label">
-              {uploading && <Spinner />}
+            <PhotoFileButton className="btn hero-cta" busy={uploading} testId="cover-input" labelTestId="cover-input-label" onPick={(files) => uploadPhotos(files, { cover: true })}>
               Add a cover photo
-              <input type="file" accept="image/*" disabled={uploading} data-testid="cover-input" onChange={(event) => { void uploadPhotos(event.target.files, { cover: true }); event.target.value = ""; }} />
-            </label>
+            </PhotoFileButton>
           )}
           {!cover && !owner && property.geometryQuality && (
             <span className="hero-pill quiet">{property.geometryQuality === "official" ? "Official lot lines" : property.geometryQuality === "approximate" ? "Approximate lot lines" : "Demonstration sketch"}</span>
@@ -374,11 +372,9 @@ export function PropertyPageView() {
                 {viewer.verifiedAt ? ` · since ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
               </span>
               <div className="action-row compact">
-                <label className={`btn file-btn ${uploading ? "is-busy" : ""}`}>
-                  {uploading && <Spinner />}
+                <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)}>
                   Add photos
-                  <input type="file" accept="image/*" multiple disabled={uploading} data-testid="head-photo-input" onChange={(event) => { void uploadPhotos(event.target.files); event.target.value = ""; }} />
-                </label>
+                </PhotoFileButton>
                 <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
               </div>
             </>
@@ -1922,17 +1918,98 @@ function Spinner() {
   return <span className="spinner" aria-hidden="true" />;
 }
 
+function PhotoFileButton({
+  className,
+  busy,
+  multiple,
+  testId,
+  labelTestId,
+  onPick,
+  children,
+}: {
+  className: string;
+  busy: boolean;
+  multiple?: boolean;
+  testId: string;
+  labelTestId?: string;
+  onPick: (files: FileList) => void | Promise<void>;
+  children: ReactNode;
+}) {
+  const locked = useRef(false);
+  const block = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  return (
+    <label
+      className={`${className} file-btn ${busy ? "is-busy" : ""}`}
+      data-testid={labelTestId}
+      aria-busy={busy}
+      onClick={(event) => {
+        if (busy || locked.current) block(event);
+      }}
+    >
+      {busy && <Spinner />}
+      {children}
+      <input
+        type="file"
+        accept="image/*"
+        multiple={multiple}
+        disabled={busy}
+        tabIndex={busy ? -1 : 0}
+        data-testid={testId}
+        onClick={(event) => {
+          if (busy || locked.current) block(event);
+        }}
+        onChange={(event) => {
+          if (busy || locked.current) {
+            event.target.value = "";
+            return;
+          }
+          const files = event.target.files;
+          if (!files?.length) {
+            event.target.value = "";
+            return;
+          }
+          locked.current = true;
+          void Promise.resolve(onPick(files)).finally(() => {
+            locked.current = false;
+            event.target.value = "";
+          });
+        }}
+      />
+    </label>
+  );
+}
+
 function PhotoImage({ src, alt }: { src: string; alt: string }) {
+  const imgRef = useRef<HTMLImageElement>(null);
   const [ready, setReady] = useState(false);
-  useEffect(() => { setReady(false); }, [src]);
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) {
+      setReady(true);
+      return;
+    }
+    setReady(false);
+  }, [src]);
+
   return (
     <>
       {!ready && (
-        <span className="photo-wait" aria-hidden="true">
+        <span
+          className="photo-wait"
+          aria-hidden="true"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+        >
           <Spinner />
         </span>
       )}
-      <img src={src} alt={alt} onLoad={() => setReady(true)} />
+      <img ref={imgRef} src={src} alt={alt} onLoad={() => setReady(true)} onError={() => setReady(true)} />
     </>
   );
 }
@@ -1964,18 +2041,9 @@ function PhotosSection({
       <div className="section-head">
         <h2>Photos</h2>
         {owner && (
-          <label className={`text-btn accent file-btn ${uploading ? "is-busy" : ""}`}>
-            {uploading && <Spinner />}
+          <PhotoFileButton className="text-btn accent" busy={uploading} multiple testId="photo-input" onPick={(files) => onUpload(files)}>
             Add photos
-            <input type="file" accept="image/*" multiple disabled={uploading} data-testid="photo-input" onChange={async (event) => {
-              const list = event.target.files;
-              try {
-                await onUpload(list);
-              } finally {
-                event.target.value = "";
-              }
-            }} />
-          </label>
+          </PhotoFileButton>
         )}
       </div>
       {owner && <p className="meta-line section-note">Photos are public unless you make them private. The cover is the first thing a visitor sees.{photos.some((doc) => !hasFile(doc)) ? " Cards marked “file missing” need the original photo reattached; after that they stay in Cloudflare." : ""}</p>}
