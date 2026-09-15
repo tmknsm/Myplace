@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary } from "./api";
 import { useAuth } from "./auth";
-import { eventLabel, PageSpinner, ParcelMap, PropertyReadyProvider, SearchBox, ShareButton } from "./components";
+import { eventLabel, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
 import { DebugSheet } from "./debug";
 import { HomePage } from "./home";
 import { useMeta } from "./meta";
@@ -14,16 +14,12 @@ function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const meta = useMeta();
   const [debugOpen, setDebugOpen] = useState(false);
-  const [pageReady, setPageReady] = useState(false);
   const isHome = location.pathname === "/";
   const headerSearch = !isHome && !/^\/(signin|dev|admin)/.test(location.pathname);
   // The share button rides beside the search on the property page itself, in
-  // every state. It mounts only after the page spinner finishes so the field
-  // can contract and the button pop in together. Keyed on the id so it
-  // replays on every property load.
+  // every state. Keyed on the id so the slot re-opens for each page load.
   const propertyId = location.pathname.match(/^\/property\/([^/]+)\/?$/)?.[1] ?? null;
-  useEffect(() => { setPageReady(false); }, [propertyId]);
-  const share = propertyId && pageReady ? (
+  const share = propertyId ? (
     <div className="header-share" key={propertyId}>
       <ShareButton propertyId={propertyId} />
     </div>
@@ -95,7 +91,7 @@ function Layout({ children }: { children: React.ReactNode }) {
           </div>
         )}
       </header>
-      <PropertyReadyProvider onReady={setPageReady}>{children}</PropertyReadyProvider>
+      {children}
       {meta?.debug && debugOpen && <DebugSheet onClose={() => setDebugOpen(false)} />}
     </>
   );
