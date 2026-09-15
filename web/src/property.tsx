@@ -508,7 +508,6 @@ export function PropertyPageView() {
           {owner ? (
             <>
               <span className="owner-chip" data-testid="owner-chip">
-                <i aria-hidden="true" />
                 {viewer.role === "co_owner" ? "Co-owner" : "Claimed"}
                 {viewer.verifiedAt ? ` · ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
               </span>
@@ -524,7 +523,6 @@ export function PropertyPageView() {
             <>
               {maintained && (
                 <span className="owner-chip">
-                  <i aria-hidden="true" />
                   Owner-maintained
                 </span>
               )}
@@ -1121,7 +1119,6 @@ function VisibilityChip({ visibility, onToggle, busy = false }: { visibility: Fi
       title={isPrivate ? "Only maintainers can see this. Click to share it on the public profile." : "Shown on the public profile. Click to keep it private."}
       onClick={onToggle}
     >
-      <i aria-hidden="true" />
       {isPrivate ? "Private" : "Public"}
     </button>
   );
