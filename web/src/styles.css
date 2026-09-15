@@ -1672,7 +1672,7 @@ a.text-btn { text-decoration: none; }
 }
 .improvement-card .photo-strip { margin-top: 14px; }
 .improvement-card .file-chips { margin-top: 12px; }
-/* Visibility on the left, remove on the right. */
+/* Visibility on the left, Edit on the right. Shared by rooms, topics, improvements. */
 .improvement-foot {
   display: flex;
   align-items: center;

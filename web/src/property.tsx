@@ -1315,6 +1315,29 @@ function VisibilityChoice({ value, onChange }: { value: FieldVisibility; onChang
   );
 }
 
+/** Visibility on the left, Edit on the right — same bar on rooms, topics, and improvements. */
+function CardFoot({
+  visibility,
+  onVisibility,
+  onEdit,
+  editTestId,
+}: {
+  visibility: string;
+  onVisibility: (next: "public" | "private") => void | Promise<void>;
+  onEdit: () => void;
+  editTestId?: string;
+}) {
+  return (
+    <div className="improvement-foot">
+      <div className="segmented small">
+        <button type="button" className={visibility === "public" ? "on" : ""} onClick={() => void onVisibility("public")}>Public</button>
+        <button type="button" className={visibility === "private" ? "on" : ""} onClick={() => void onVisibility("private")}>Private</button>
+      </div>
+      <button type="button" className="text-link" data-testid={editTestId} onClick={onEdit}>Edit</button>
+    </div>
+  );
+}
+
 /** Amount paid, plus an independent toggle for showing it on the public page. Off = private. */
 function PriceField({
   cost,
@@ -1425,8 +1448,7 @@ function TopicCard({
   toast: Toast;
 }) {
   const filled = filledTopicFacts(topic, facts);
-  const privateCount = filled.filter(({ fact }) => fact.visibility === "private").length;
-  const allPrivate = filled.length > 0 && privateCount === filled.length;
+  const allPrivate = filled.length > 0 && filled.every(({ fact }) => fact.visibility === "private");
   const [busy, setBusy] = useState(false);
   const attach = async (list: FileList | null) => {
     if (!list?.length) return;
@@ -1454,8 +1476,6 @@ function TopicCard({
     <article className={`group topic-card${allPrivate ? " is-private" : ""}`} data-testid={`topic-${topic.id}`}>
       <header className="topic-head">
         <h3>{topic.title}</h3>
-        {privateCount > 0 && <span className="badge private">{allPrivate ? "private" : "partly private"}</span>}
-        {owner && <button type="button" className="text-btn accent" onClick={onOpen} data-testid={`edit-topic-${topic.id}`}>Edit</button>}
       </header>
       {filled.length > 0 && (
         <dl className="topic-rows">
@@ -1487,6 +1507,24 @@ function TopicCard({
               />
             </label>
           ) : null}
+        />
+      )}
+      {owner && (
+        <CardFoot
+          visibility={allPrivate ? "private" : "public"}
+          onVisibility={async (next) => {
+            const keys = filled
+              .filter(({ fact }) => ownerCanWrite(fact) && fact.visibility !== next)
+              .map(({ fact }) => fact.fieldKey);
+            if (keys.length === 0) return;
+            for (const key of keys) await api.setFieldVisibility(propertyId, key, next);
+            await onChange((page) => ({
+              ...page,
+              facts: page.facts.map((fact) => keys.includes(fact.fieldKey) ? { ...fact, visibility: next } : fact),
+            }));
+          }}
+          onEdit={onOpen}
+          editTestId={`edit-topic-${topic.id}`}
         />
       )}
     </article>
@@ -1657,8 +1695,6 @@ function RoomCard({
       )}
       <header className="topic-head">
         <h3>{roomTitle(room)}</h3>
-        {room.visibility === "private" && <span className="badge private">private</span>}
-        {owner && <button type="button" className="text-btn accent" onClick={editor.show} data-testid={`edit-room-${room.room_id}`}>Edit</button>}
       </header>
       {room.description?.trim() && <p className="topic-card-lede">{room.description.trim()}</p>}
       {(rows.length > 0 || paidLabel) && (
@@ -1706,6 +1742,21 @@ function RoomCard({
               />
             </label>
           ) : null}
+        />
+      )}
+      {owner && (
+        <CardFoot
+          visibility={room.visibility}
+          onVisibility={async (next) => {
+            if (room.visibility === next) return;
+            await api.patchRoom(room.room_id, { visibility: next });
+            await onChange((page) => ({
+              ...page,
+              rooms: (page.rooms ?? []).map((row) => row.room_id === room.room_id ? { ...row, visibility: next } : row),
+            }));
+          }}
+          onEdit={editor.show}
+          editTestId={`edit-room-${room.room_id}`}
         />
       )}
     </article>
@@ -2774,25 +2825,19 @@ function ImprovementCard({
         </ul>
       )}
       {owner && (
-        <div className="improvement-foot">
-          <div className="segmented small">
-            <button type="button" className={item.visibility === "public" ? "on" : ""} onClick={async () => {
-              await api.patchImprovement(item.improvement_id, { visibility: "public" });
-              await onChange((page) => ({
-                ...page,
-                improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: "public" } : row),
-              }));
-            }}>Public</button>
-            <button type="button" className={item.visibility === "private" ? "on" : ""} onClick={async () => {
-              await api.patchImprovement(item.improvement_id, { visibility: "private" });
-              await onChange((page) => ({
-                ...page,
-                improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: "private" } : row),
-              }));
-            }}>Private</button>
-          </div>
-          <button type="button" className="text-link" data-testid="improvement-edit" onClick={editor.show}>Edit</button>
-        </div>
+        <CardFoot
+          visibility={item.visibility}
+          onVisibility={async (next) => {
+            if (item.visibility === next) return;
+            await api.patchImprovement(item.improvement_id, { visibility: next });
+            await onChange((page) => ({
+              ...page,
+              improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: next } : row),
+            }));
+          }}
+          onEdit={editor.show}
+          editTestId="improvement-edit"
+        />
       )}
     </article>
   );
