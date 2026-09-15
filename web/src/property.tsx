@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
-import { actorLabel, eventLabel, ParcelMap, STATUS_LABEL, unknownHint } from "./components";
+import { actorLabel, eventLabel, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
 import { useMeta } from "./meta";
 import { DisputesSection } from "./property-owner";
@@ -22,7 +22,7 @@ import {
   type TopicField,
   type TopicFieldKind,
 } from "./property-topics";
-import { fieldsForRoom, ROOM_KIND_LABEL, ROOM_KINDS, type RoomField } from "../../shared/rooms";
+import { fieldsForRoom, ROOM_KIND_LABEL, ROOM_KINDS, ROOM_PAID_KEY, ROOM_PAID_PUBLIC_KEY, roomPaidCents, roomPaidPublic, type RoomField } from "../../shared/rooms";
 import { isTopicId } from "../../shared/topics";
 import {
   CATEGORY_LABEL,
@@ -49,6 +49,20 @@ function factHex(fieldKey: string, facts: Fact[]): string | null {
   const fact = facts.find((item) => item.fieldKey === key);
   const raw = fact?.display ?? (typeof fact?.value === "string" ? fact.value : null);
   return raw;
+}
+
+const OFFICIAL_SOURCES = new Set(["government", "platform_admin"]);
+
+/** True only when county/state (or desk) says this lot is in a historic district. */
+function isOfficialHistoricDistrict(facts: Fact[]): boolean {
+  const fact = facts.find((item) => item.fieldKey === "historic.district");
+  if (!fact || fact.dispute || fact.status !== "available") return false;
+  const official = fact.assertions.filter((item) => OFFICIAL_SOURCES.has(item.sourceType));
+  if (!official.length) return false;
+  const text = String(official[0]?.display ?? official[0]?.value ?? fact.display ?? fact.value ?? "");
+  if (!/historic\s+district/i.test(text)) return false;
+  if (/not in a listed/i.test(text) || /not a district/i.test(text)) return false;
+  return true;
 }
 
 type PageData = { property: PropertyPage; viewer: Viewer };
@@ -119,7 +133,7 @@ const FACT_SECTIONS: Array<{ id: string; title: string; keys?: string[]; group?:
  */
 const STRIP_KEYS: Array<{ key: string; label: string; asYear?: boolean }> = [
   { key: "exterior.color", label: "Exterior paint" },
-  { key: "style.architecture", label: "Style" },
+  { key: "style.architecture", label: "Architecture" },
   { key: "exterior.trim", label: "Trim color" },
   { key: "bedrooms", label: "Bedrooms" },
   { key: "bathrooms", label: "Baths" },
@@ -127,6 +141,30 @@ const STRIP_KEYS: Array<{ key: string; label: string; asYear?: boolean }> = [
   { key: "year_built", label: "Built", asYear: true },
 ];
 const STRIP_MAX = 6;
+
+/**
+ * The character tiles an unclaimed page is missing, shown as quiet outlines so
+ * a prospective owner sees what the strip becomes once it's theirs. Real facts
+ * always come first; these only fill the slots left over.
+ */
+const GHOST_TILES: Array<{ key: string; label: string; text: string; swatch: boolean }> = [
+  { key: "exterior.color", label: "Exterior paint", text: "Name & swatch", swatch: true },
+  { key: "style.architecture", label: "Architecture", text: "Period & details", swatch: false },
+  { key: "exterior.trim", label: "Trim color", text: "Name & swatch", swatch: true },
+];
+
+/**
+ * The owner's half of the page, as it reads before anyone has claimed it. One
+ * card per section a claimed page would have, each a door to the claim flow.
+ * Ids match the section chips so the nav works the same on both pages.
+ */
+const PREVIEW_CARDS: Array<{ id: string; label: string; title: string; body: string }> = [
+  { id: "photos", label: "Photos", title: "Photos", body: "A cover photo, the kitchen, the before-and-afters. Public by default; the owner picks what stays private." },
+  { id: "character", label: "Style", title: "Style & finishes", body: "The paint, named, with a swatch. The style, and what's still original." },
+  { id: "rooms", label: "Rooms", title: "Rooms", body: "Kitchen, baths, bedrooms: the flooring, the fixtures, the color on the walls." },
+  { id: "improvements", label: "Improvements", title: "Improvements", body: "What was done, who did it, what it cost. Receipts stay private and travel with the house." },
+  { id: "systems", label: "Systems", title: "Systems", body: "Roof, heat, water, wiring, septic, and the year each went in." },
+];
 
 function organizeFacts(facts: Fact[]): Map<string, Fact[]> {
   const placed = new Set<string>([SUMMARY_KEY]);
@@ -285,7 +323,7 @@ export function PropertyPageView() {
   const closeSheet = useCallback(() => setSheet(null), []);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!data || !id) return <div className="page">Loading record…</div>;
+  if (!data || !id) return <PageSpinner label="Loading record" />;
 
   const { property, viewer } = data;
   const owner = Boolean(viewer.maintainer && !viewer.openClaim);
@@ -309,6 +347,7 @@ export function PropertyPageView() {
   const summary = property.facts.find((fact) => fact.fieldKey === SUMMARY_KEY) ?? null;
   const hasSummary = Boolean(summary?.display);
   const maintained = property.maintainers.length > 0;
+  const historicDistrict = isOfficialHistoricDistrict(property.facts);
   // Visitors only see topics with something public in them; the owner sees every card.
   const topicHasPhotos = (topic: Topic) => property.documents.some((doc) => doc.topic_id === topic.id && isImage(doc) && hasFile(doc));
   const visibleTopics = (list: Topic[]) => owner
@@ -333,6 +372,14 @@ export function PropertyPageView() {
       return;
     }
     navigate(user ? `/property/${id}/claim` : `/signin?next=/property/${id}/claim`);
+  };
+  /** Where the preview's doors lead: into the claim flow, or to the claim already under review. */
+  const goClaim = () => {
+    if (viewer.openClaim) {
+      navigate(`/property/${id}/claim/${viewer.openClaim.claim_id}`);
+      return;
+    }
+    startClaim();
   };
 
   const uploadPhotos = async (files: File[], options: { cover?: boolean } = {}) => {
@@ -379,13 +426,21 @@ export function PropertyPageView() {
   const showCharacter = characterTopics.length > 0;
   const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id && !doc.room_id && !doc.topic_id).length;
 
+  // Nobody has claimed this page yet: show the owner's half as outlines so a
+  // prospective owner can see what it becomes. Pages someone else maintains
+  // stay as they are; a visitor there isn't the one who'd fill them in.
+  const prospect = !owner && !maintained;
+  const shown: Record<string, boolean> = { photos: showPhotos, character: showCharacter, rooms: showRooms, improvements: showImprovements, systems: showSystems };
+  const previewCards = prospect ? PREVIEW_CARDS.filter((card) => !shown[card.id]) : [];
+  const previews = (sectionId: string) => previewCards.some((card) => card.id === sectionId);
+
   const nav: Array<{ id: string; label: string }> = [
-    ...(showPhotos ? [{ id: "photos", label: "Photos" }] : []),
+    ...(showPhotos || previews("photos") ? [{ id: "photos", label: "Photos" }] : []),
     ...(showAbout ? [{ id: "about", label: "About" }] : []),
-    ...(showCharacter ? [{ id: "character", label: "Style" }] : []),
-    ...(showRooms ? [{ id: "rooms", label: "Rooms" }] : []),
-    ...(showImprovements ? [{ id: "improvements", label: "Improvements" }] : []),
-    ...(showSystems ? [{ id: "systems", label: "Systems" }] : []),
+    ...(showCharacter || previews("character") ? [{ id: "character", label: "Style" }] : []),
+    ...(showRooms || previews("rooms") ? [{ id: "rooms", label: "Rooms" }] : []),
+    ...(showImprovements || previews("improvements") ? [{ id: "improvements", label: "Improvements" }] : []),
+    ...(showSystems || previews("systems") ? [{ id: "systems", label: "Systems" }] : []),
     ...(owner ? [{ id: "vault", label: "Vault" }] : []),
     { id: "location", label: "Location" },
     { id: "rules", label: "Flood & zoning" },
@@ -394,16 +449,6 @@ export function PropertyPageView() {
     { id: "records", label: "County record" },
     { id: "history", label: "History" },
   ];
-
-  const copyLink = async () => {
-    const url = `${window.location.origin}/property/${id}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      showToast("Link copied. Send it instead of answering the DM.");
-    } catch {
-      window.prompt("Copy this link", url);
-    }
-  };
 
   const sectionProps = { owner, propertyId: id, onChange: refresh, toast: showToast };
   const factSheetProps = {
@@ -460,34 +505,36 @@ export function PropertyPageView() {
 
       <header className="profile-head group">
         <div className="profile-title">
-          <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
+          {((maintained && !owner) || historicDistrict) && (
+            <div className="profile-chips">
+              {maintained && !owner && (
+                <span className="owner-chip" data-testid="owner-chip">Claimed</span>
+              )}
+              {historicDistrict && (
+                <span className="owner-chip" data-testid="historic-chip">Historic district</span>
+              )}
+            </div>
+          )}
+          {!maintained && (
+            <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
+          )}
           <h1>{title}</h1>
-          <p className="profile-meta mono">{[locality, property.sbl ? `SBL ${property.sbl}` : null].filter(Boolean).join(" · ")}</p>
+          <p className="profile-meta mono">{
+            maintained
+              ? [locality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")
+              : [locality, property.sbl ? `SBL ${property.sbl}` : null].filter(Boolean).join(" · ")
+          }</p>
         </div>
         <div className="profile-actions">
           {owner ? (
-            <>
-              <span className="owner-chip" data-testid="owner-chip">
-                <i aria-hidden="true" />
-                {viewer.role === "co_owner" ? "Co-owner" : "Claimed"}
-                {viewer.verifiedAt ? ` · ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
-              </span>
-              <div className="action-row compact">
-                <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
-                  Add photos
-                </PhotoFileButton>
-                <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
-                <button type="button" className="btn secondary" data-testid="copy-link" onClick={() => void copyLink()}>Copy link</button>
-              </div>
-            </>
+            <div className="action-row compact">
+              <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
+                Add photos
+              </PhotoFileButton>
+              <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
+            </div>
           ) : (
             <>
-              {maintained && (
-                <span className="owner-chip">
-                  <i aria-hidden="true" />
-                  Owner-maintained
-                </span>
-              )}
               {(!maintained || viewer.openClaim || viewer.invitation?.role === "owner") && (
                 <div className="action-row compact">
                   {viewer.openClaim ? (
@@ -507,7 +554,7 @@ export function PropertyPageView() {
         </div>
       </header>
 
-      <StatStrip facts={property.facts} />
+      <StatStrip facts={property.facts} onClaim={prospect ? goClaim : undefined} />
 
       <div className="profile-grid">
         <SectionNav items={nav} />
@@ -584,8 +631,10 @@ export function PropertyPageView() {
           {showAbout && summary && (
             <AboutSection
               fact={summary}
+              owner={owner}
+              propertyId={id}
               onEdit={() => openSheet({ kind: "about" })}
-              {...sectionProps}
+              onChange={refresh}
             />
           )}
 
@@ -646,6 +695,14 @@ export function PropertyPageView() {
           )}
 
           {owner && <VaultCard propertyId={id} count={vaultCount} maintainers={property.maintainers.length} />}
+
+          {previewCards.length > 0 && (
+            <ClaimPreview
+              cards={previewCards}
+              openClaim={viewer.openClaim ? `/property/${id}/claim/${viewer.openClaim.claim_id}` : null}
+              onClaim={goClaim}
+            />
+          )}
 
           <FactSection
             id="location"
@@ -754,6 +811,59 @@ function VaultCard({ propertyId, count, maintainers }: { propertyId: string; cou
 }
 
 // ---------------------------------------------------------------------------
+// The owner's half, before anyone has claimed it
+// ---------------------------------------------------------------------------
+
+/**
+ * Outlines of the sections a claimed page carries. Each card is a door into
+ * the claim flow, and the section ends on the claim button again so a reader
+ * who scrolled past the header doesn't have to go back up for it.
+ */
+function ClaimPreview({
+  cards,
+  openClaim,
+  onClaim,
+}: {
+  cards: typeof PREVIEW_CARDS;
+  /** Link to the claim under review, when the viewer already has one open. */
+  openClaim: string | null;
+  onClaim: () => void;
+}) {
+  return (
+    <section className="section claim-preview" data-testid="claim-preview">
+      <h2>The owner's half</h2>
+      <p className="meta-line section-note">
+        Empty until someone claims the page. This is what they'd fill in; the county record picks up at Location.
+      </p>
+      <div className="topic-list">
+        {cards.map((card) => (
+          <button
+            key={card.id}
+            type="button"
+            id={card.id}
+            className="group topic-card topic-empty preview-card"
+            onClick={onClaim}
+            data-testid={`preview-${card.id}`}
+          >
+            <span className="preview-card-title">{card.title}</span>
+            <span className="meta-line">{card.body}</span>
+            <span className="preview-card-cta">{openClaim ? "Claim under review" : "Claim to add"}</span>
+          </button>
+        ))}
+      </div>
+      <div className="claim-preview-foot">
+        {openClaim ? (
+          <Link className="btn secondary" to={openClaim}>Claim under review</Link>
+        ) : (
+          <button type="button" className="btn" data-testid="claim-preview-button" onClick={onClaim}>Claim this address</button>
+        )}
+        <span className="meta-line">Verification takes a day or two. There's a private vault too, for the deed, the survey, the manuals.</span>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Hero support: stat strip, in-page nav, lightbox
 // ---------------------------------------------------------------------------
 
@@ -776,8 +886,10 @@ function factYear(fact: Fact): string | null {
  * The tiles under the hero. Only facts that already have a value. Character
  * first (paint, style, trim color), then the public ones that are actually
  * worth glancing at (beds, baths, the year it last sold, the year it was built).
+ * With `onClaim`, the character slots still empty are drawn as outlines that
+ * lead into the claim flow.
  */
-function StatStrip({ facts }: { facts: Fact[] }) {
+function StatStrip({ facts, onClaim }: { facts: Fact[]; onClaim?: () => void }) {
   const tiles = STRIP_KEYS.flatMap((tile) => {
     const fact = facts.find((item) => item.fieldKey === tile.key);
     if (!fact || fact.status === "unknown") return [];
@@ -790,9 +902,13 @@ function StatStrip({ facts }: { facts: Fact[] }) {
     const { text, swatch } = splitSwatch(tile.key, fact.display, factHex(tile.key, facts));
     return [{ key: tile.key, label: tile.label, text, swatch, isPrivate: fact.visibility === "private" }];
   }).slice(0, STRIP_MAX);
-  if (tiles.length === 0) return null;
+  const ghosts = onClaim
+    ? GHOST_TILES.filter((ghost) => !tiles.some((tile) => tile.key === ghost.key)).slice(0, Math.max(0, STRIP_MAX - tiles.length))
+    : [];
+  const count = tiles.length + ghosts.length;
+  if (count === 0) return null;
   return (
-    <div className={`stat-strip${tiles.length % 2 ? " odd" : ""}`} data-testid="stat-strip">
+    <div className={`stat-strip${count % 2 ? " odd" : ""}`} data-testid="stat-strip">
       {tiles.map((tile) => (
         <div key={tile.key} className={`stat${tile.isPrivate ? " is-private" : ""}`} data-field={tile.key}>
           <span>{tile.label}{tile.isPrivate ? " · private" : ""}</span>
@@ -801,6 +917,23 @@ function StatStrip({ facts }: { facts: Fact[] }) {
             {tile.text}
           </strong>
         </div>
+      ))}
+      {ghosts.map((ghost) => (
+        <button
+          key={ghost.key}
+          type="button"
+          className="stat stat-ghost"
+          data-field={ghost.key}
+          data-testid={`stat-ghost-${ghost.key}`}
+          aria-label={`${ghost.label}: the owner adds this after claiming`}
+          onClick={onClaim}
+        >
+          <span>{ghost.label}</span>
+          <strong>
+            {ghost.swatch && <i className="swatch swatch-empty" aria-hidden="true" />}
+            {ghost.text}
+          </strong>
+        </button>
       ))}
     </div>
   );
@@ -923,6 +1056,11 @@ function HeroCarousel({
   const mapIndex = photos.length;
   const count = mapIndex + 1;
   const current = Math.min(index, Math.max(0, count - 1));
+  const [dotsOn, setDotsOn] = useState(true);
+  const hideTimer = useRef(0);
+  const armed = useRef(false);
+  const swiping = useRef(false);
+  const startX = useRef(0);
 
   // A shorter list (photo removed) can leave the index past the last slide.
   useEffect(() => {
@@ -930,6 +1068,67 @@ function HeroCarousel({
   }, [count, index, onIndex]);
 
   const goTo = useSnapTrack({ trackRef, thumbRef, count, current, onIndex });
+
+  useEffect(() => {
+    const show = () => {
+      setDotsOn(true);
+      window.clearTimeout(hideTimer.current);
+    };
+    const hideSoon = () => {
+      window.clearTimeout(hideTimer.current);
+      hideTimer.current = window.setTimeout(() => setDotsOn(false), 1000);
+    };
+    hideSoon();
+    const track = trackRef.current;
+    if (!track) return () => window.clearTimeout(hideTimer.current);
+
+    const begin = (event: PointerEvent | TouchEvent) => {
+      armed.current = true;
+      swiping.current = false;
+      const x = "clientX" in event ? event.clientX : event.touches[0]?.clientX ?? 0;
+      startX.current = x;
+    };
+    const move = (event: PointerEvent | TouchEvent) => {
+      if (!armed.current || swiping.current) return;
+      const x = "clientX" in event ? event.clientX : event.touches[0]?.clientX ?? startX.current;
+      if (Math.abs(x - startX.current) < 6) return;
+      swiping.current = true;
+      show();
+    };
+    const end = () => {
+      if (!armed.current && !swiping.current) return;
+      armed.current = false;
+      if (swiping.current) hideSoon();
+    };
+    const onScroll = () => {
+      if (armed.current) swiping.current = true;
+      if (!swiping.current) return;
+      show();
+      if (!armed.current) hideSoon();
+    };
+
+    // Capture: the slides are buttons, and a native swipe cancels the pointer
+    // before scroll. Touch + capture keep the gesture even after that.
+    track.addEventListener("pointerdown", begin, { capture: true });
+    track.addEventListener("touchstart", begin, { capture: true, passive: true });
+    window.addEventListener("pointermove", move, { passive: true });
+    window.addEventListener("touchmove", move, { passive: true });
+    window.addEventListener("pointerup", end);
+    window.addEventListener("touchend", end);
+    window.addEventListener("touchcancel", end);
+    track.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.clearTimeout(hideTimer.current);
+      track.removeEventListener("pointerdown", begin, { capture: true });
+      track.removeEventListener("touchstart", begin, { capture: true });
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("touchend", end);
+      window.removeEventListener("touchcancel", end);
+      track.removeEventListener("scroll", onScroll);
+    };
+  }, []);
 
   return (
     <>
@@ -956,27 +1155,31 @@ function HeroCarousel({
         </div>
       </div>
       {count > 1 && (
-        <div className="hero-dots" role="tablist" aria-label="Hero">
-          <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
-          {photos.map((doc, i) => (
+        <div className={`hero-dots${dotsOn ? " is-on" : ""}`} role="tablist" aria-label="Hero">
+          <div className="hero-dots-inner">
+            <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
+            {photos.map((doc, i) => (
+              <button
+                key={doc.document_id}
+                type="button"
+                role="tab"
+                aria-selected={i === current}
+                aria-label={`Photo ${i + 1}`}
+                className={i === current ? "on" : ""}
+                tabIndex={dotsOn ? 0 : -1}
+                onClick={() => goTo(i)}
+              />
+            ))}
             <button
-              key={doc.document_id}
               type="button"
               role="tab"
-              aria-selected={i === current}
-              aria-label={`Photo ${i + 1}`}
-              className={i === current ? "on" : ""}
-              onClick={() => goTo(i)}
+              aria-selected={current === mapIndex}
+              aria-label="Map"
+              className={current === mapIndex ? "on" : ""}
+              tabIndex={dotsOn ? 0 : -1}
+              onClick={() => goTo(mapIndex)}
             />
-          ))}
-          <button
-            type="button"
-            role="tab"
-            aria-selected={current === mapIndex}
-            aria-label="Map"
-            className={current === mapIndex ? "on" : ""}
-            onClick={() => goTo(mapIndex)}
-          />
+          </div>
         </div>
       )}
     </>
@@ -997,7 +1200,6 @@ function VisibilityChip({ visibility, onToggle, busy = false }: { visibility: Fi
       title={isPrivate ? "Only maintainers can see this. Click to share it on the public profile." : "Shown on the public profile. Click to keep it private."}
       onClick={onToggle}
     >
-      <i aria-hidden="true" />
       {isPrivate ? "Private" : "Public"}
     </button>
   );
@@ -1013,36 +1215,36 @@ function AboutSection({
   propertyId,
   onEdit,
   onChange,
-  toast,
 }: {
   fact: Fact;
   owner: boolean;
   propertyId: string;
   onEdit: () => void;
   onChange: PageRefresh;
-  toast: Toast;
 }) {
   const text = typeof fact.value === "string" ? fact.value : "";
   return (
     <section className="section about" id="about">
       <div className="section-head">
-        <h2>About this place</h2>
-        {owner && fact.visibility && text && (
-          <VisibilityChip visibility={fact.visibility} onToggle={async () => {
-            const next = fact.visibility === "private" ? "public" : "private";
-            await api.setFieldVisibility(propertyId, SUMMARY_KEY, next);
-            toast(next === "private" ? "About this place is now private." : "About this place is now public.");
-            await onChange();
-          }} />
-        )}
+        <h2>About</h2>
       </div>
       {text ? (
-        <div className="group about-card">
+        <div className={`group about-card${fact.visibility === "private" ? " is-private" : ""}`}>
           <p className="about-text">{text}</p>
           {owner && (
-            <div className="about-foot">
-              <button type="button" className="text-link" onClick={onEdit} data-testid="about-edit">Edit</button>
-            </div>
+            <CardFoot
+              visibility={fact.visibility ?? "public"}
+              onVisibility={async (next) => {
+                if (fact.visibility === next) return;
+                await api.setFieldVisibility(propertyId, SUMMARY_KEY, next);
+                await onChange((page) => ({
+                  ...page,
+                  facts: page.facts.map((row) => row.fieldKey === SUMMARY_KEY ? { ...row, visibility: next } : row),
+                }));
+              }}
+              onEdit={onEdit}
+              editTestId="about-edit"
+            />
           )}
         </div>
       ) : (
@@ -1112,6 +1314,62 @@ function VisibilityChoice({ value, onChange }: { value: FieldVisibility; onChang
         <button type="button" className={value === "private" ? "on" : ""} onClick={() => onChange("private")}>Private</button>
       </div>
     </label>
+  );
+}
+
+/** Visibility on the left, Edit on the right — same bar on about, rooms, topics, and improvements. */
+function CardFoot({
+  visibility,
+  onVisibility,
+  onEdit,
+  editTestId,
+}: {
+  visibility: string;
+  onVisibility: (next: "public" | "private") => void | Promise<void>;
+  onEdit: () => void;
+  editTestId?: string;
+}) {
+  return (
+    <div className="improvement-foot">
+      <div className="segmented small">
+        <button type="button" className={visibility === "public" ? "on" : ""} onClick={() => void onVisibility("public")}>Public</button>
+        <button type="button" className={visibility === "private" ? "on" : ""} onClick={() => void onVisibility("private")}>Private</button>
+      </div>
+      <button type="button" className="text-link" data-testid={editTestId} onClick={onEdit}>Edit</button>
+    </div>
+  );
+}
+
+/** Amount paid, plus an independent toggle for showing it on the public page. Off = private. */
+function PriceField({
+  cost,
+  onCost,
+  showPublic,
+  onShowPublic,
+}: {
+  cost: string;
+  onCost: (next: string) => void;
+  showPublic: boolean;
+  onShowPublic: (next: boolean) => void;
+}) {
+  return (
+    <div className="stack span-2 price-field">
+      <span>Amount paid</span>
+      <div className="price-field-row">
+        <input className="field" inputMode="decimal" placeholder="$" value={cost} onChange={(event) => onCost(event.target.value)} data-testid="price-input" />
+        <button
+          type="button"
+          className={`price-toggle${showPublic ? " on" : ""}`}
+          role="switch"
+          aria-checked={showPublic}
+          data-testid="price-public"
+          onClick={() => onShowPublic(!showPublic)}
+        >
+          <i aria-hidden="true" />
+          <span>{showPublic ? "Public" : "Private"}</span>
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1192,8 +1450,7 @@ function TopicCard({
   toast: Toast;
 }) {
   const filled = filledTopicFacts(topic, facts);
-  const privateCount = filled.filter(({ fact }) => fact.visibility === "private").length;
-  const allPrivate = filled.length > 0 && privateCount === filled.length;
+  const allPrivate = filled.length > 0 && filled.every(({ fact }) => fact.visibility === "private");
   const [busy, setBusy] = useState(false);
   const attach = async (list: FileList | null) => {
     if (!list?.length) return;
@@ -1221,8 +1478,6 @@ function TopicCard({
     <article className={`group topic-card${allPrivate ? " is-private" : ""}`} data-testid={`topic-${topic.id}`}>
       <header className="topic-head">
         <h3>{topic.title}</h3>
-        {privateCount > 0 && <span className="badge private">{allPrivate ? "private" : "partly private"}</span>}
-        {owner && <button type="button" className="text-btn accent" onClick={onOpen} data-testid={`edit-topic-${topic.id}`}>Edit</button>}
       </header>
       {filled.length > 0 && (
         <dl className="topic-rows">
@@ -1254,6 +1509,24 @@ function TopicCard({
               />
             </label>
           ) : null}
+        />
+      )}
+      {owner && (
+        <CardFoot
+          visibility={allPrivate ? "private" : "public"}
+          onVisibility={async (next) => {
+            const keys = filled
+              .filter(({ fact }) => ownerCanWrite(fact) && fact.visibility !== next)
+              .map(({ fact }) => fact.fieldKey);
+            if (keys.length === 0) return;
+            for (const key of keys) await api.setFieldVisibility(propertyId, key, next);
+            await onChange((page) => ({
+              ...page,
+              facts: page.facts.map((fact) => keys.includes(fact.fieldKey) ? { ...fact, visibility: next } : fact),
+            }));
+          }}
+          onEdit={onOpen}
+          editTestId={`edit-topic-${topic.id}`}
         />
       )}
     </article>
@@ -1372,6 +1645,8 @@ function RoomCard({
   const editor = useSheet();
   const [busy, setBusy] = useState(false);
   const rows = roomDisplayRows(room);
+  const paidCents = roomPaidCents(room.details);
+  const paidLabel = paidCents !== null && (owner || roomPaidPublic(room.details)) ? money(paidCents) : null;
   const images = room.documents.filter(isImage);
   const attach = async (list: FileList | null) => {
     if (!list?.length) return;
@@ -1422,11 +1697,9 @@ function RoomCard({
       )}
       <header className="topic-head">
         <h3>{roomTitle(room)}</h3>
-        {room.visibility === "private" && <span className="badge private">private</span>}
-        {owner && <button type="button" className="text-btn accent" onClick={editor.show} data-testid={`edit-room-${room.room_id}`}>Edit</button>}
       </header>
       {room.description?.trim() && <p className="topic-card-lede">{room.description.trim()}</p>}
-      {rows.length > 0 && (
+      {(rows.length > 0 || paidLabel) && (
         <dl className="topic-rows">
           {rows.map(({ field, value, swatch }) => (
             <div key={field.key} className="topic-row">
@@ -1443,6 +1716,12 @@ function RoomCard({
               </dd>
             </div>
           ))}
+          {paidLabel && (
+            <div className="topic-row">
+              <dt>Amount paid</dt>
+              <dd>{paidLabel}{owner && !roomPaidPublic(room.details) ? <em className="badge private">private</em> : null}</dd>
+            </div>
+          )}
         </dl>
       )}
       {(images.length > 0 || owner) && (
@@ -1467,6 +1746,21 @@ function RoomCard({
           ) : null}
         />
       )}
+      {owner && (
+        <CardFoot
+          visibility={room.visibility}
+          onVisibility={async (next) => {
+            if (room.visibility === next) return;
+            await api.patchRoom(room.room_id, { visibility: next });
+            await onChange((page) => ({
+              ...page,
+              rooms: (page.rooms ?? []).map((row) => row.room_id === room.room_id ? { ...row, visibility: next } : row),
+            }));
+          }}
+          onEdit={editor.show}
+          editTestId={`edit-room-${room.room_id}`}
+        />
+      )}
     </article>
   );
 }
@@ -1488,6 +1782,8 @@ function RoomForm({
   const [description, setDescription] = useState(item?.description ?? "");
   const [values, setValues] = useState<Record<string, string>>(() => ({ ...(item?.details ?? {}) }));
   const [visibility, setVisibility] = useState(item?.visibility ?? "public");
+  const [cost, setCost] = useState(costInputValue(roomPaidCents(item?.details)));
+  const [costPublic, setCostPublic] = useState(roomPaidPublic(item?.details));
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1524,6 +1820,12 @@ function RoomForm({
           continue;
         }
         details[field.key] = raw;
+      }
+      if (cost.trim()) {
+        const cents = parseFormCostCents(cost);
+        if (cents === null) throw new Error("Amount paid should be a number.");
+        details[ROOM_PAID_KEY] = String(cents);
+        if (costPublic) details[ROOM_PAID_PUBLIC_KEY] = "1";
       }
       const payload = { kind, description: description.trim() || null, details, visibility };
       const saved = item
@@ -1591,6 +1893,7 @@ function RoomForm({
           )}
           {files.length > 0 && <small className="meta-line">{files.map((file) => file.name).join(", ")}</small>}
         </label>
+        <PriceField cost={cost} onCost={setCost} showPublic={costPublic} onShowPublic={setCostPublic} />
       </div>
       <VisibilityChoice value={visibility as FieldVisibility} onChange={(next) => setVisibility(next)} />
       {error && <p className="error">{error}</p>}
@@ -2263,6 +2566,14 @@ function costInputValue(cents: number | null | undefined): string {
   return String(cents / 100);
 }
 
+function parseFormCostCents(value: string): number | null {
+  const text = value.replace(/[$,\s]/g, "");
+  if (!text) return null;
+  const n = Number(text);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100);
+}
+
 function ImprovementForm({
   propertyId,
   categories,
@@ -2282,7 +2593,9 @@ function ImprovementForm({
   const [category, setCategory] = useState(item?.category ?? "roof");
   const [performedAt, setPerformedAt] = useState(dateInputValue(item?.performed_at));
   const [cost, setCost] = useState(costInputValue(item?.cost_cents));
+  const [costPublic, setCostPublic] = useState(item?.cost_visibility === "public");
   const [contractor, setContractor] = useState(item?.contractor ?? "");
+  const [scope, setScope] = useState(item?.scope ?? "");
   const [notes, setNotes] = useState(item?.notes ?? "");
   const [visibility, setVisibility] = useState(item?.visibility ?? "public");
   const [files, setFiles] = useState<File[]>([]);
@@ -2297,7 +2610,7 @@ function ImprovementForm({
       setBusy(true);
       setError(null);
       try {
-        const payload = { title, category, performedAt: performedAt || null, cost: cost || null, contractor: contractor || null, notes: notes || null, visibility };
+        const payload = { title, category, performedAt: performedAt || null, cost: cost || null, costVisibility: costPublic ? "public" : "private", contractor: contractor || null, scope: scope || null, notes: notes || null, visibility };
         const saved = item
           ? (await api.patchImprovement(item.improvement_id, payload)).improvement
           : (await api.createImprovement(propertyId, payload)).improvement;
@@ -2325,13 +2638,13 @@ function ImprovementForm({
           <span>Date completed</span>
           <input className="field" type="date" value={performedAt} onChange={(event) => setPerformedAt(event.target.value)} />
         </label>
-        <label className="stack">
-          <span>Cost</span>
-          <input className="field" inputMode="decimal" placeholder="$" value={cost} onChange={(event) => setCost(event.target.value)} />
-        </label>
-        <label className="stack">
+        <label className="stack span-2">
           <span>Who did it</span>
           <input className="field" value={contractor} placeholder="Contractor, company, or you" onChange={(event) => setContractor(event.target.value)} />
+        </label>
+        <label className="stack span-2">
+          <span>Scope of work</span>
+          <textarea className="field" rows={2} value={scope} placeholder="Full tear-off, ice-and-water, standing seam from ridge to gutter" onChange={(event) => setScope(event.target.value)} />
         </label>
         <label className="stack span-2">
           <span>Materials & finishes</span>
@@ -2345,6 +2658,7 @@ function ImprovementForm({
           )}
           {files.length > 0 && <small className="meta-line">{files.map((file) => file.name).join(", ")}</small>}
         </label>
+        <PriceField cost={cost} onCost={setCost} showPublic={costPublic} onShowPublic={setCostPublic} />
         <label className="stack span-2 inline-choice">
           <span>Visibility</span>
           <div className="segmented">
@@ -2409,11 +2723,12 @@ function ImprovementCard({
   const editor = useSheet();
   const images = item.documents.filter(isImage);
   const files = item.documents.filter((doc) => !isImage(doc));
+  const costLabel = (owner || item.cost_visibility === "public") ? money(item.cost_cents) : null;
   const meta = [
     { key: "date", value: dateLabel(item.performed_at) },
-    { key: "cost", value: money(item.cost_cents) },
+    { key: "cost", value: costLabel, private: Boolean(owner && costLabel && item.cost_visibility !== "public") },
     { key: "contractor", value: item.contractor },
-  ].filter((entry): entry is { key: string; value: string } => Boolean(entry.value));
+  ].filter((entry): entry is { key: string; value: string; private?: boolean } => Boolean(entry.value));
 
   const attach = async (list: FileList | null) => {
     if (!list?.length) return;
@@ -2460,10 +2775,16 @@ function ImprovementCard({
         <h3>{item.title}</h3>
         {meta.length > 0 && (
           <ul className="improvement-meta">
-            {meta.map((entry) => <li key={entry.key} className={entry.key}>{entry.value}</li>)}
+            {meta.map((entry) => (
+              <li key={entry.key} className={entry.key}>
+                {entry.value}
+                {entry.private ? <em className="badge private">private</em> : null}
+              </li>
+            ))}
           </ul>
         )}
       </header>
+      {item.scope && <p className="improvement-notes">{item.scope}</p>}
       {item.notes && <p className="improvement-notes">{item.notes}</p>}
       {(images.length > 0 || owner) && (
         <ImprovementPhotos
@@ -2506,25 +2827,19 @@ function ImprovementCard({
         </ul>
       )}
       {owner && (
-        <div className="improvement-foot">
-          <div className="segmented small">
-            <button type="button" className={item.visibility === "public" ? "on" : ""} onClick={async () => {
-              await api.patchImprovement(item.improvement_id, { visibility: "public" });
-              await onChange((page) => ({
-                ...page,
-                improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: "public" } : row),
-              }));
-            }}>Public</button>
-            <button type="button" className={item.visibility === "private" ? "on" : ""} onClick={async () => {
-              await api.patchImprovement(item.improvement_id, { visibility: "private" });
-              await onChange((page) => ({
-                ...page,
-                improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: "private" } : row),
-              }));
-            }}>Private</button>
-          </div>
-          <button type="button" className="text-link" data-testid="improvement-edit" onClick={editor.show}>Edit</button>
-        </div>
+        <CardFoot
+          visibility={item.visibility}
+          onVisibility={async (next) => {
+            if (item.visibility === next) return;
+            await api.patchImprovement(item.improvement_id, { visibility: next });
+            await onChange((page) => ({
+              ...page,
+              improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: next } : row),
+            }));
+          }}
+          onEdit={editor.show}
+          editTestId="improvement-edit"
+        />
       )}
     </article>
   );
@@ -2767,10 +3082,6 @@ function ImprovementPhotos({
       )}
     </>
   );
-}
-
-function Spinner() {
-  return <span className="spinner" aria-hidden="true" />;
 }
 
 function PhotoFileButton({
@@ -3094,7 +3405,7 @@ export function PropertyPhotosPage() {
   }, [data, title]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!data || !id) return <div className="page">Loading record…</div>;
+  if (!data || !id) return <PageSpinner label="Loading record" />;
 
   const { property, viewer } = data;
   const owner = Boolean(viewer.maintainer && !viewer.openClaim);

@@ -54,7 +54,9 @@ export interface ImprovementRow {
   category: string;
   performed_at: string | null;
   cost_cents: string | number | null;
+  cost_visibility: string;
   contractor: string | null;
+  scope: string | null;
   notes: string | null;
   visibility: string;
   transferability: string;
@@ -110,7 +112,7 @@ export async function loadImprovements(propertyId: string, viewerIsMaintainer: b
   const sql = getSql();
   const improvements = await sql<ImprovementRow[]>`
     SELECT improvement_id, property_id, created_by, title, category, performed_at::text AS performed_at, cost_cents,
-           contractor, notes, visibility, transferability, created_at
+           cost_visibility, contractor, scope, notes, visibility, transferability, created_at
     FROM property_improvements
     WHERE property_id = ${propertyId} AND removed_at IS NULL
       AND ${viewerIsMaintainer ? sql`TRUE` : sql`visibility = 'public'`}
@@ -127,11 +129,15 @@ export async function loadImprovements(propertyId: string, viewerIsMaintainer: b
       `)
     : [];
   const visible = viewerIsMaintainer ? documents : documents.filter((doc) => doc.has_file);
-  return improvements.map((row) => ({
-    ...row,
-    cost_cents: row.cost_cents === null ? null : Number(row.cost_cents),
-    documents: visible.filter((doc) => doc.improvement_id === row.improvement_id),
-  }));
+  return improvements.map((row) => {
+    const showCost = viewerIsMaintainer || row.cost_visibility === "public";
+    return {
+      ...row,
+      cost_cents: showCost && row.cost_cents !== null ? Number(row.cost_cents) : null,
+      cost_visibility: row.cost_visibility === "public" ? "public" : "private",
+      documents: visible.filter((doc) => doc.improvement_id === row.improvement_id),
+    };
+  });
 }
 
 export async function loadDocuments(propertyId: string, viewerIsMaintainer: boolean) {
@@ -171,11 +177,18 @@ export async function loadRooms(propertyId: string, viewerIsMaintainer: boolean)
       `)
     : [];
   const visible = viewerIsMaintainer ? documents : documents.filter((doc) => doc.has_file);
-  return rooms.map((row) => ({
-    ...row,
-    details: row.details && typeof row.details === "object" ? row.details : {},
-    documents: visible.filter((doc) => doc.room_id === row.room_id),
-  }));
+  return rooms.map((row) => {
+    const details = row.details && typeof row.details === "object" ? { ...row.details } : {};
+    if (!viewerIsMaintainer && details.paid_public !== "1") {
+      delete details.paid;
+      delete details.paid_public;
+    }
+    return {
+      ...row,
+      details,
+      documents: visible.filter((doc) => doc.room_id === row.room_id),
+    };
+  });
 }
 
 /** Make one photo the profile cover, or clear the cover when `documentId` is null. */

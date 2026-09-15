@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary } from "./api";
 import { useAuth } from "./auth";
-import { eventLabel, ParcelMap, SearchBox } from "./components";
+import { eventLabel, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
 import { DebugSheet } from "./debug";
 import { HomePage } from "./home";
 import { useMeta } from "./meta";
@@ -16,6 +16,14 @@ function Layout({ children }: { children: React.ReactNode }) {
   const [debugOpen, setDebugOpen] = useState(false);
   const isHome = location.pathname === "/";
   const headerSearch = !isHome && !/^\/(signin|dev|admin)/.test(location.pathname);
+  // The share button rides beside the search on the property page itself, in
+  // every state. Keyed on the id so the slot re-opens for each page load.
+  const propertyId = location.pathname.match(/^\/property\/([^/]+)\/?$/)?.[1] ?? null;
+  const share = propertyId ? (
+    <div className="header-share" key={propertyId}>
+      <ShareButton propertyId={propertyId} />
+    </div>
+  ) : null;
   const topbarRef = useRef<HTMLElement | null>(null);
   useEffect(() => setDebugOpen(false), [location.pathname]);
   useEffect(() => {
@@ -51,6 +59,7 @@ function Layout({ children }: { children: React.ReactNode }) {
           {headerSearch && (
             <div className="header-search wide-only">
               <SearchBox compact />
+              {share}
             </div>
           )}
           {isHome && (
@@ -78,6 +87,7 @@ function Layout({ children }: { children: React.ReactNode }) {
         {headerSearch && (
           <div className="header-search narrow-only">
             <SearchBox />
+            {share}
           </div>
         )}
       </header>
@@ -241,7 +251,7 @@ function ClaimStatusPage() {
   }, [claimId]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!claim) return <div className="page">Loading claim…</div>;
+  if (!claim) return <PageSpinner label="Loading claim" />;
 
   const status = claim.status;
   return (
@@ -441,9 +451,9 @@ function AdminClaimPage() {
     });
   }, [claimId, user]);
 
-  if (!ready) return <div className="page">Loading…</div>;
+  if (!ready) return <PageSpinner />;
   if (!user?.is_admin) return <Navigate to="/signin?next=/admin" replace />;
-  if (!claim) return <div className="page">Loading…</div>;
+  if (!claim) return <PageSpinner label="Loading claim" />;
   return (
     <div className="page wizard">
       <div className="kicker">Review claim</div>

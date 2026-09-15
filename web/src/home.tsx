@@ -198,7 +198,7 @@ function ClaimScene() {
             <div className="kicker">12 Maple Lane</div>
             <h4>Kitchen renovation</h4>
           </div>
-          <span className="owner-chip"><i aria-hidden="true" />Claimed</span>
+          <span className="owner-chip">Claimed</span>
         </div>
         <dl className="home-facts">
           <div><dt>Cabinetry</dt><dd>Hudson Valley Cabinetry</dd></div>
@@ -225,7 +225,7 @@ function PrivateScene() {
           <li><span>Survey</span><small>PDF</small></li>
           <li><span>Boiler manual</span><small>PDF</small></li>
         </ul>
-        <span className="vis-chip is-private"><i aria-hidden="true" />Only you</span>
+        <span className="vis-chip is-private">Only you</span>
       </div>
     </div>
   );
@@ -424,9 +424,9 @@ export function HomePage() {
           </article>
           <article className="home-pillar">
             <div className="home-pillar-art home-pillar-vis">
-              <span className="vis-chip"><i aria-hidden="true" />Photos · Public</span>
-              <span className="vis-chip is-private"><i aria-hidden="true" />Insurance · Only you</span>
-              <span className="vis-chip"><i aria-hidden="true" />Boiler manual · Transfers</span>
+              <span className="vis-chip">Photos · Public</span>
+              <span className="vis-chip is-private">Insurance · Only you</span>
+              <span className="vis-chip">Boiler manual · Transfers</span>
             </div>
             <h3>Yours</h3>
             <p>Photos, improvements, systems, documents. You set each one public, private, or transfers.</p>

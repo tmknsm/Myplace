@@ -880,13 +880,24 @@ test("owner can add, edit, and delete a room", async () => {
     headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({
       kind: "kitchen",
-      details: { cabinetry: "Hudson Valley Cabinetry", counters: "Soapstone", paint: "Shaded White", paint_hex: "#e7e0d0" },
+      details: {
+        cabinetry: "Hudson Valley Cabinetry",
+        cabinetry_color: "Hague Blue",
+        island: "Custom millwork",
+        island_color: "Walnut",
+        counters: "Soapstone",
+        paint: "Shaded White",
+        paint_hex: "#e7e0d0",
+      },
     }),
   });
   expect(created.status).toBe(201);
   const createdBody = await created.json() as { room: { room_id: string; kind: string; details: Record<string, string> } };
   expect(createdBody.room.kind).toBe("kitchen");
   expect(createdBody.room.details.cabinetry).toBe("Hudson Valley Cabinetry");
+  expect(createdBody.room.details.cabinetry_color).toBe("Hague Blue");
+  expect(createdBody.room.details.island).toBe("Custom millwork");
+  expect(createdBody.room.details.island_color).toBe("Walnut");
 
   const page = await app.request("http://localhost/api/properties/prop_test");
   const pageBody = await page.json() as { property: { rooms: Array<{ kind: string; details: Record<string, string> }> } };
@@ -1036,4 +1047,87 @@ test("owner can attach a photo to a topic card", async () => {
   };
   const doc = page.property.documents.find((item) => item.document_id === documentId);
   expect(doc?.topic_id).toBe("style");
+});
+
+test("room amount paid stays private unless the owner toggles it public", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("roompaid@example.com", "roompaid-desk@example.com");
+
+  const created = await app.request("http://localhost/api/properties/prop_test/rooms", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({
+      kind: "kitchen",
+      visibility: "public",
+      details: { cabinetry: "Inset Shaker", paid: "125000", paid_public: "0" },
+    }),
+  });
+  expect(created.status).toBe(201);
+  const { room } = await created.json() as { room: { room_id: string; details: Record<string, string> } };
+  expect(room.details.paid).toBe("125000");
+  expect(room.details.paid_public).toBeUndefined();
+
+  type Page = { property: { rooms: Array<{ details: Record<string, string> }> } };
+  const publicHidden = await (await app.request("http://localhost/api/properties/prop_test")).json() as Page;
+  expect(publicHidden.property.rooms[0]?.details.cabinetry).toBe("Inset Shaker");
+  expect(publicHidden.property.rooms[0]?.details.paid).toBeUndefined();
+  expect(publicHidden.property.rooms[0]?.details.paid_public).toBeUndefined();
+
+  const ownerHidden = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).json() as Page;
+  expect(ownerHidden.property.rooms[0]?.details.paid).toBe("125000");
+
+  const shown = await app.request(`http://localhost/api/rooms/${room.room_id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ details: { cabinetry: "Inset Shaker", paid: "125000", paid_public: "1" } }),
+  });
+  expect(shown.status).toBe(200);
+  const publicShown = await (await app.request("http://localhost/api/properties/prop_test")).json() as Page;
+  expect(publicShown.property.rooms[0]?.details.paid).toBe("125000");
+  expect(publicShown.property.rooms[0]?.details.paid_public).toBe("1");
+});
+
+test("improvement amount paid stays private unless the owner toggles it public", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("imppaid@example.com", "imppaid-desk@example.com");
+
+  const created = await app.request("http://localhost/api/properties/prop_test/improvements", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({
+      title: "New standing-seam roof",
+      category: "roof",
+      cost: "18000",
+      scope: "  Full tear-off, ice-and-water, standing seam  ",
+      visibility: "public",
+    }),
+  });
+  expect(created.status).toBe(201);
+  const { improvement } = await created.json() as {
+    improvement: { improvement_id: string; cost_cents: number | null; cost_visibility: string; visibility: string; scope: string | null };
+  };
+  expect(improvement.scope).toBe("Full tear-off, ice-and-water, standing seam");
+  expect(improvement.cost_cents).toBe(1_800_000);
+  expect(improvement.cost_visibility).toBe("private");
+  expect(improvement.visibility).toBe("public");
+
+  type Page = { property: { improvements: Array<{ cost_cents: number | null; cost_visibility?: string; visibility: string }> } };
+  const publicHidden = await (await app.request("http://localhost/api/properties/prop_test")).json() as Page;
+  expect(publicHidden.property.improvements).toHaveLength(1);
+  expect(publicHidden.property.improvements[0]?.visibility).toBe("public");
+  expect(publicHidden.property.improvements[0]?.cost_cents).toBeNull();
+  expect(publicHidden.property.improvements[0]?.cost_visibility).toBe("private");
+
+  const ownerHidden = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).json() as Page;
+  expect(ownerHidden.property.improvements[0]?.cost_cents).toBe(1_800_000);
+
+  const shown = await app.request(`http://localhost/api/improvements/${improvement.improvement_id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ costVisibility: "public" }),
+  });
+  expect(shown.status).toBe(200);
+  const publicShown = await (await app.request("http://localhost/api/properties/prop_test")).json() as Page;
+  expect(publicShown.property.improvements[0]?.cost_cents).toBe(1_800_000);
+  expect(publicShown.property.improvements[0]?.cost_visibility).toBe("public");
 });

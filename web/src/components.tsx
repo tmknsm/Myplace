@@ -5,6 +5,71 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { api, type Fact, type SearchHit } from "./api";
 import { useMeta } from "./meta";
 
+/** The same ring used in busy buttons, photo tiles, and full-page waits. */
+export function Spinner() {
+  return <span className="spinner" aria-hidden="true" />;
+}
+
+/** A page-filling wait: the spinner, centered, and nothing else. */
+export function PageSpinner({ label = "Loading" }: { label?: string }) {
+  return (
+    <div className="page page-spinner" role="status" aria-label={label}>
+      <Spinner />
+    </div>
+  );
+}
+
+/**
+ * Share the property page. Hands off to the system share sheet where there is
+ * one; otherwise copies the link and confirms in place, no toast plumbing.
+ */
+export function ShareButton({ propertyId }: { propertyId: string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef(0);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  const share = async () => {
+    const url = `${window.location.origin}/property/${propertyId}`;
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: document.title, url });
+        return;
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      window.prompt("Copy this link", url);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className={`share-btn${copied ? " is-copied" : ""}`}
+      aria-label={copied ? "Link copied" : "Share this page"}
+      title="Share"
+      data-testid="share-button"
+      onClick={() => void share()}
+    >
+      <svg className="share-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 3v12" />
+        <path d="M8 7l4-4 4 4" />
+        <path d="M6 11H5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-1" />
+      </svg>
+      <svg className="share-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M5 12.5l4.5 4.5L19 7.5" />
+      </svg>
+      <span className="visually-hidden" role="status">{copied ? "Link copied" : ""}</span>
+    </button>
+  );
+}
+
 export function SearchBox({ compact = false, autoFocus = false }: { compact?: boolean; autoFocus?: boolean }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
