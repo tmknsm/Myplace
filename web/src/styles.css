@@ -2602,7 +2602,8 @@ html.peek-gated body {
  * Signed-out visitors on a claimed page. A 40% black scrim covers the whole
  * hero. Heading + button sit on that photo; the gray note lives in the
  * covered area. The canvas gradient veils chip labels and goes solid on the
- * values. Only the lockup captures clicks.
+ * values. The scrim and lockup catch pointer events so the carousel
+ * cannot be swiped.
  */
 .peek-gate {
   position: fixed;
@@ -2626,6 +2627,8 @@ html.peek-gated body {
   height: var(--gate-hero-height, 42%);
   background: rgba(0, 0, 0, 0.4);
   border-radius: var(--radius) var(--radius) 0 0;
+  pointer-events: auto;
+  touch-action: none;
 }
 @media (min-width: 881px) {
   .peek-gate-scrim { border-radius: var(--radius); }
@@ -2697,6 +2700,11 @@ html.peek-gated body {
   visibility: hidden;
 }
 .property-page.is-gated .hero-dots { display: none; }
+.property-page.is-gated .hero-track {
+  overflow: hidden;
+  pointer-events: none;
+  touch-action: none;
+}
 
 /* Section titles sit flush with the cards, not inset to the card padding. */
 .property-page .section > h2,
