@@ -503,7 +503,6 @@ export function PropertyPageView() {
           {owner ? (
             <span className="owner-chip" data-testid="owner-chip">
               {viewer.role === "co_owner" ? "Co-owner" : "Claimed"}
-              {viewer.verifiedAt ? ` · ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
             </span>
           ) : maintained ? (
             <span className="owner-chip">Owner-maintained</span>
