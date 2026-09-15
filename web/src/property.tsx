@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyPage, type Viewer } from "./api";
+import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, ParcelMap, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
@@ -22,6 +22,7 @@ import {
   type TopicField,
   type TopicFieldKind,
 } from "./property-topics";
+import { fieldsForRoom, ROOM_KIND_LABEL, ROOM_KINDS, type RoomField } from "../../shared/rooms";
 import {
   CATEGORY_LABEL,
   dateLabel,
@@ -350,7 +351,9 @@ export function PropertyPageView() {
   const showPhotos = owner || available.length > 0;
   const showImprovements = owner || property.improvements.length > 0;
   const showSystems = systemsTopics.length > 0;
-  const showCharacter = characterTopics.length > 0;
+  const rooms = property.rooms ?? [];
+  const showRooms = owner || rooms.length > 0;
+  const showCharacter = characterTopics.length > 0 || showRooms;
   const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id).length;
 
   const nav: Array<{ id: string; label: string }> = [
@@ -515,6 +518,7 @@ export function PropertyPageView() {
               facts={property.facts}
               documents={property.documents}
               improvements={property.improvements}
+              rooms={rooms}
               cover={cover}
               onGo={(target) => {
                 // The vault lives on the owner tools page now.
@@ -552,13 +556,21 @@ export function PropertyPageView() {
               id="character"
               title="Style & finishes"
               description={owner
-                ? "What people actually ask about when they slow down out front: the paint, the style, what's still original. Public unless you mark it private."
+                ? "What people actually ask about when they slow down out front: the paint, the style, the rooms. Public unless you mark it private."
                 : "How the owner describes the place. Their words, not the county's."}
               topics={characterTopics}
               facts={property.facts}
               owner={owner}
               onOpen={(topic) => openSheet({ kind: "topic", id: topic.id })}
-            />
+            >
+              <RoomsBlock
+                rooms={rooms}
+                owner={owner}
+                propertyId={id}
+                onChange={refresh}
+                toast={showToast}
+              />
+            </TopicSection>
           )}
 
           {showPhotos && (
@@ -1052,6 +1064,7 @@ function TopicSection({
   facts,
   owner,
   onOpen,
+  children,
 }: {
   id: string;
   title: string;
@@ -1060,8 +1073,9 @@ function TopicSection({
   facts: Fact[];
   owner: boolean;
   onOpen: (topic: Topic) => void;
+  children?: ReactNode;
 }) {
-  if (topics.length === 0) return null;
+  if (topics.length === 0 && !children) return null;
   return (
     <section className="section" id={id}>
       <h2>{title}</h2>
@@ -1070,6 +1084,7 @@ function TopicSection({
         {topics.map((topic) => (
           <TopicCard key={topic.id} topic={topic} facts={facts} owner={owner} onOpen={() => onOpen(topic)} />
         ))}
+        {children}
       </div>
     </section>
   );
@@ -1120,6 +1135,339 @@ function TopicValue({ field, fact, facts }: { field: TopicField; fact: Fact; fac
       {swatch && <i className="swatch" style={{ background: swatch }} aria-hidden="true" />}
       {text}
     </>
+  );
+}
+
+function roomTitle(room: Room): string {
+  return room.title?.trim() || ROOM_KIND_LABEL[room.kind] || "Room";
+}
+
+function roomDisplayRows(room: Room): Array<{ field: RoomField; value: string; swatch: string | null }> {
+  const details = room.details ?? {};
+  return fieldsForRoom(room.kind).flatMap((field) => {
+    if (field.kind === "hex") return [];
+    const value = details[field.key]?.trim() ?? "";
+    if (!value) return [];
+    const swatch = field.key === "paint" ? parseHex(details.paint_hex) : null;
+    return [{ field, value, swatch }];
+  });
+}
+
+function RoomsBlock({
+  rooms,
+  owner,
+  propertyId,
+  onChange,
+  toast,
+}: {
+  rooms: Room[];
+  owner: boolean;
+  propertyId: string;
+  onChange: PageRefresh;
+  toast: Toast;
+}) {
+  const adder = useSheet();
+  return (
+    <>
+      {rooms.map((room) => (
+        <RoomCard key={room.room_id} room={room} owner={owner} propertyId={propertyId} onChange={onChange} toast={toast} />
+      ))}
+      {owner && (
+        <>
+          <button type="button" className="group topic-card topic-empty" onClick={adder.show} data-testid="add-room">
+            <span className="topic-empty-title">Add a room</span>
+            <span className="meta-line">Kitchen, baths, bedrooms. Pick one and fill in the finishes.</span>
+          </button>
+          <Sheet
+            open={adder.open}
+            title="Add a room"
+            lede="Choose the room first. The fields below follow from that."
+            onClose={adder.hide}
+            testId="room-sheet"
+          >
+            <RoomForm
+              key={adder.seq}
+              propertyId={propertyId}
+              onCancel={adder.hide}
+              onSaved={async (count, room) => {
+                adder.hide();
+                toast(count ? `Room added with ${count} photo${count === 1 ? "" : "s"}.` : "Room added.");
+                await onChange(room ? (page) => ({
+                  ...page,
+                  rooms: [...(page.rooms ?? []).filter((row) => row.room_id !== room.room_id), room],
+                }) : undefined);
+              }}
+            />
+          </Sheet>
+        </>
+      )}
+    </>
+  );
+}
+
+function RoomCard({
+  room,
+  owner,
+  propertyId,
+  onChange,
+  toast,
+}: {
+  room: Room;
+  owner: boolean;
+  propertyId: string;
+  onChange: PageRefresh;
+  toast: Toast;
+}) {
+  const editor = useSheet();
+  const [busy, setBusy] = useState(false);
+  const rows = roomDisplayRows(room);
+  const images = room.documents.filter(isImage);
+  const attach = async (list: FileList | null) => {
+    if (!list?.length) return;
+    setBusy(true);
+    try {
+      for (const file of Array.from(list)) {
+        await api.upload(propertyId, file, { roomId: room.room_id, visibility: room.visibility === "private" ? "private" : "public" });
+      }
+      toast(`${list.length} photo${list.length === 1 ? "" : "s"} added.`);
+      await onChange();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <article className={`group topic-card${room.visibility === "private" ? " is-private" : ""}`} data-testid={`room-${room.room_id}`}>
+      {owner && (
+        <Sheet
+          open={editor.open}
+          title={roomTitle(room)}
+          lede="Change the room and the fields follow. Photos stay with it."
+          onClose={editor.hide}
+          testId="room-sheet"
+        >
+          <RoomForm
+            key={editor.seq}
+            propertyId={propertyId}
+            item={room}
+            onCancel={editor.hide}
+            onSaved={async (count, saved) => {
+              editor.hide();
+              toast(count ? `Room updated with ${count} new photo${count === 1 ? "" : "s"}.` : "Room updated.");
+              await onChange(saved ? (page) => ({
+                ...page,
+                rooms: (page.rooms ?? []).map((row) => row.room_id === saved.room_id ? saved : row),
+              }) : undefined);
+            }}
+            onDeleted={async () => {
+              editor.hide();
+              toast("Room removed.");
+              await onChange((page) => ({
+                ...page,
+                rooms: (page.rooms ?? []).filter((row) => row.room_id !== room.room_id),
+              }));
+            }}
+          />
+        </Sheet>
+      )}
+      <header className="topic-head">
+        <h3>{roomTitle(room)}</h3>
+        {room.visibility === "private" && <span className="badge private">private</span>}
+        {owner && <button type="button" className="text-btn accent" onClick={editor.show} data-testid={`edit-room-${room.room_id}`}>Edit</button>}
+      </header>
+      {rows.length > 0 && (
+        <dl className="topic-rows">
+          {rows.map(({ field, value, swatch }) => (
+            <div key={field.key} className="topic-row">
+              <dt>{field.label}</dt>
+              <dd>
+                {field.kind === "link" ? (
+                  <a href={value} target="_blank" rel="noopener noreferrer" className="topic-link">{linkLabel(value)}</a>
+                ) : (
+                  <>
+                    {swatch && <i className="swatch" style={{ background: swatch }} aria-hidden="true" />}
+                    {value}
+                  </>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {(images.length > 0 || owner) && (
+        <ImprovementPhotos
+          images={images}
+          owner={owner}
+          onChange={onChange}
+          toast={toast}
+          trailing={owner ? (
+            <label className={`photo-thumb photo-add file-btn ${busy ? "is-busy" : ""}`}>
+              <span className="photo-add-plus" aria-hidden="true">+</span>
+              <span className="photo-add-label">{busy ? "Uploading…" : "Add photos"}</span>
+              <input
+                type="file"
+                multiple
+                accept="image/*,.heic"
+                disabled={busy}
+                aria-label="Add room photos"
+                onChange={(event) => { void attach(event.target.files); event.target.value = ""; }}
+              />
+            </label>
+          ) : null}
+        />
+      )}
+    </article>
+  );
+}
+
+function RoomForm({
+  propertyId,
+  item,
+  onCancel,
+  onSaved,
+  onDeleted,
+}: {
+  propertyId: string;
+  item?: Room;
+  onCancel: () => void;
+  onSaved: (attachments: number, room?: Room) => Promise<void> | void;
+  onDeleted?: () => Promise<void> | void;
+}) {
+  const [kind, setKind] = useState(item?.kind ?? "kitchen");
+  const [title, setTitle] = useState(item?.title ?? "");
+  const [values, setValues] = useState<Record<string, string>>(() => ({ ...(item?.details ?? {}) }));
+  const [visibility, setVisibility] = useState(item?.visibility ?? "public");
+  const [files, setFiles] = useState<File[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const fields = fieldsForRoom(kind);
+  const editing = Boolean(item);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const details: Record<string, string> = {};
+      for (const field of fields) {
+        const raw = (values[field.key] ?? "").trim();
+        if (!raw) continue;
+        if (field.kind === "link") {
+          const url = normalizeLink(raw);
+          if (!url) throw new Error(`${field.label} needs to be a web address.`);
+          details[field.key] = url;
+          continue;
+        }
+        if (field.kind === "year") {
+          const year = Number(raw);
+          if (!/^\d{4}$/.test(raw) || year < 1600 || year > new Date().getFullYear() + 1) {
+            throw new Error(`${field.label} should be a four-digit year.`);
+          }
+          details[field.key] = raw;
+          continue;
+        }
+        if (field.kind === "hex") {
+          const hex = parseHex(raw);
+          if (!hex) throw new Error(`${field.label} should be a hex color, like #30474f.`);
+          details[field.key] = hex;
+          continue;
+        }
+        details[field.key] = raw;
+      }
+      const payload = { kind, title: title.trim() || null, details, visibility };
+      const saved = item
+        ? (await api.patchRoom(item.room_id, payload)).room
+        : (await api.createRoom(propertyId, payload)).room;
+      for (const file of files) {
+        await api.upload(propertyId, file, { roomId: saved.room_id, visibility: visibility === "private" ? "private" : "public" });
+      }
+      await onSaved(files.length, saved);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save room");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="sheet-form" data-testid="room-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+      <div className="form-grid">
+        <label className="stack span-2">
+          <span>Room</span>
+          <select className="field" value={kind} onChange={(event) => setKind(event.target.value)} data-testid="room-kind">
+            {ROOM_KINDS.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          </select>
+        </label>
+        <label className="stack span-2">
+          <span>Called <i>(optional)</i></span>
+          <input className="field" value={title} placeholder={ROOM_KIND_LABEL[kind] ?? "The back kitchen"} onChange={(event) => setTitle(event.target.value)} />
+        </label>
+        {fields.map((field) => {
+          const half = Boolean(field.half && field.kind !== "multiline");
+          const value = values[field.key] ?? "";
+          return (
+            <label key={field.key} className={`stack${half ? "" : " span-2"}`}>
+              <span>{field.label}</span>
+              {field.kind === "multiline" ? (
+                <textarea className="field" rows={3} value={value} placeholder={field.hint} onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))} />
+              ) : (
+                <input
+                  className="field"
+                  type="text"
+                  inputMode={field.kind === "year" ? "decimal" : field.kind === "link" ? "url" : undefined}
+                  autoComplete={field.kind === "link" ? "url" : "off"}
+                  autoCapitalize={field.kind === "link" || field.kind === "hex" ? "off" : undefined}
+                  spellCheck={field.kind === "hex" ? false : undefined}
+                  value={value}
+                  placeholder={field.hint}
+                  onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                />
+              )}
+            </label>
+          );
+        })}
+        <label className="stack span-2">
+          <span>Photos</span>
+          <input className="field file" type="file" multiple accept="image/*,.heic" onChange={(event) => setFiles(Array.from(event.target.files ?? []))} data-testid="room-files" />
+          {editing && item && item.documents.length > 0 && (
+            <small className="meta-line">{item.documents.length} already attached. New files are added to those.</small>
+          )}
+          {files.length > 0 && <small className="meta-line">{files.map((file) => file.name).join(", ")}</small>}
+        </label>
+      </div>
+      <VisibilityChoice value={visibility as FieldVisibility} onChange={(next) => setVisibility(next)} />
+      {error && <p className="error">{error}</p>}
+      {editing && item && onDeleted && (
+        <div className="form-danger">
+          {confirmDelete ? (
+            <span className="confirm-inline">
+              Delete this room and its photos?
+              <button
+                type="button"
+                className="text-link danger"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError(null);
+                  try {
+                    await api.deleteRoom(item.room_id);
+                    await onDeleted();
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Could not delete room");
+                    setBusy(false);
+                  }
+                }}
+              >Delete</button>
+              <button type="button" className="text-link" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep</button>
+            </span>
+          ) : (
+            <button type="button" className="text-link danger" disabled={busy} data-testid="room-delete" onClick={() => setConfirmDelete(true)}>Delete room</button>
+          )}
+        </div>
+      )}
+      <div className="action-row compact sheet-actions">
+        <button type="submit" className="btn" disabled={busy} data-testid="room-save">{busy ? "Saving…" : editing ? "Save changes" : "Save room"}</button>
+        <button type="button" className="btn secondary" disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
   );
 }
 
@@ -1572,12 +1920,14 @@ function ProfileChecklist({
   facts,
   documents,
   improvements,
+  rooms = [],
   cover,
   onGo,
 }: {
   facts: Fact[];
   documents: Doc[];
   improvements: Improvement[];
+  rooms?: Room[];
   cover: Doc | null;
   onGo: (target: string) => void;
 }) {
@@ -1590,6 +1940,7 @@ function ProfileChecklist({
     { label: "Trim color", ok: has("exterior.trim"), target: "field:exterior.trim", cta: "Name the trim" },
     { label: "The story", ok: has(SUMMARY_KEY), target: "about", cta: "Tell the story" },
     { label: "Photos", ok: documents.some(isImage), target: "photos" },
+    { label: "A room", ok: rooms.length > 0, target: "character", cta: "Add a room" },
     { label: "Still original", ok: has("original_details"), target: "field:original_details", cta: "List what's original" },
     { label: "Work done", ok: improvements.length > 0, target: "improvements", cta: "Log the last big job" },
     { label: "Roof", ok: has("roof.type") || has("roof.year") || improvements.some((item) => item.category === "roof"), target: "field:roof.type" },

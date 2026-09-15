@@ -32,11 +32,13 @@ import {
   sendMail,
 } from "./services/mail.ts";
 import { COUNTY_PROFILES, DEFAULT_MAP, isGeometryQuality } from "./counties.ts";
+import { isRoomKind, normalizeRoomDetails } from "../../shared/rooms.ts";
 import {
   DOCUMENT_TYPES,
   IMPROVEMENT_CATEGORIES,
   loadDocuments,
   loadImprovements,
+  loadRooms,
   loadInbox,
   loadOpenDisputes,
   loadPendingInvitations,
@@ -330,8 +332,9 @@ app.get("/api/properties/:id", async (c) => {
     const dispute = disputes.find((item) => item.fieldKey === fact.fieldKey);
     return dispute ? { ...fact, dispute } : fact;
   });
-  const [improvements, documents, invitations, invitation, preferences, inbox] = await Promise.all([
+  const [improvements, rooms, documents, invitations, invitation, preferences, inbox] = await Promise.all([
     loadImprovements(page.property_id, maintainer),
+    loadRooms(page.property_id, maintainer),
     loadDocuments(page.property_id, maintainer),
     maintainer ? loadPendingInvitations(page.property_id) : Promise.resolve([]),
     user && !maintainer ? pendingInvitationFor(page.property_id, user.primary_email) : Promise.resolve(null),
@@ -339,7 +342,7 @@ app.get("/api/properties/:id", async (c) => {
     maintainer ? loadInbox(page.property_id) : Promise.resolve([]),
   ]);
   return c.json({
-    property: { ...page, facts, improvements, documents, invitations, disputes },
+    property: { ...page, facts, improvements, rooms, documents, invitations, disputes },
     viewer: {
       maintainer,
       role: role?.role ?? null,
@@ -504,11 +507,12 @@ app.post("/api/properties/:id/documents", async (c) => {
 
   const claimId = typeof form.claimId === "string" && form.claimId ? form.claimId : null;
   const improvementId = typeof form.improvementId === "string" && form.improvementId ? form.improvementId : null;
+  const roomId = typeof form.roomId === "string" && form.roomId ? form.roomId : null;
   const caption = typeof form.caption === "string" && form.caption.trim() ? form.caption.trim() : null;
   const isImage = file.type.startsWith("image/");
   const asCover = form.cover === "true" && isImage && !claimId;
   const requestedType = typeof form.documentType === "string" && form.documentType ? form.documentType : null;
-  const documentType = requestedType ?? (improvementId ? (isImage ? "photo" : "receipt") : isImage ? "photo" : "other");
+  const documentType = requestedType ?? (improvementId || roomId ? (isImage ? "photo" : "receipt") : isImage ? "photo" : "other");
   const visibility = typeof form.visibility === "string" && form.visibility
     ? form.visibility
     : (documentType === "photo" || isImage ? "public" : "private");
@@ -538,16 +542,23 @@ app.post("/api/properties/:id/documents", async (c) => {
     `;
     if (!improvement[0]) return c.json({ error: "Improvement not found" }, 404);
   }
+  if (roomId) {
+    const room = await sql`
+      SELECT room_id FROM property_rooms
+      WHERE room_id = ${roomId} AND property_id = ${propertyId} AND removed_at IS NULL
+    `;
+    if (!room[0]) return c.json({ error: "Room not found" }, 404);
+  }
 
   const documentId = id("doc");
   const upload = await storeUpload(propertyId, documentId, file);
   const { stored, key } = upload;
   await sql`
     INSERT INTO documents (
-      document_id, property_id, claim_id, improvement_id, uploaded_by, storage_key, original_filename,
+      document_id, property_id, claim_id, improvement_id, room_id, uploaded_by, storage_key, original_filename,
       mime_type, byte_size, document_type, visibility, transferability, caption
     ) VALUES (
-      ${documentId}, ${propertyId}, ${claimId}, ${improvementId}, ${user.user_id}, ${key}, ${stored.filename},
+      ${documentId}, ${propertyId}, ${claimId}, ${improvementId}, ${roomId}, ${user.user_id}, ${key}, ${stored.filename},
       ${stored.mime}, ${stored.bytes.byteLength}, ${documentType}, ${visibility}, ${transferability}, ${caption}
     )
   `;
@@ -783,6 +794,101 @@ app.delete("/api/improvements/:id", async (c) => {
     actorType: "verified_owner",
     actorId: user.user_id,
     payload: { improvement_id: improvement.improvement_id, title: improvement.title },
+  });
+  return c.json({ ok: true });
+});
+
+app.post("/api/properties/:id/rooms", async (c) => {
+  const propertyId = c.req.param("id");
+  const user = await requireMaintainer(c, propertyId);
+  const body = await c.req.json<{
+    kind?: string;
+    title?: string | null;
+    details?: unknown;
+    visibility?: string;
+  }>();
+  const kind = body.kind ?? "";
+  if (!isRoomKind(kind)) return c.json({ error: "Choose a room." }, 400);
+  const visibility = body.visibility === "private" ? "private" : "public";
+  const details = normalizeRoomDetails(kind, body.details);
+  const title = body.title?.trim() || null;
+  const sql = getSql();
+  const roomId = id("room");
+  await sql`
+    INSERT INTO property_rooms (room_id, property_id, created_by, kind, title, details, visibility)
+    VALUES (${roomId}, ${propertyId}, ${user.user_id}, ${kind}, ${title}, ${sql.json(details)}, ${visibility})
+  `;
+  await emitEvent({
+    propertyId,
+    eventType: "room.added",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { room_id: roomId, kind },
+  });
+  const [room] = await loadRooms(propertyId, true).then((list) => list.filter((row) => row.room_id === roomId));
+  return c.json({ room }, 201);
+});
+
+async function loadOwnedRoom(c: Parameters<typeof requireUser>[0], roomId: string) {
+  const user = requireUser(c);
+  const sql = getSql();
+  const rows = await sql<{ room_id: string; property_id: string; kind: string }[]>`
+    SELECT room_id, property_id, kind FROM property_rooms
+    WHERE room_id = ${roomId} AND removed_at IS NULL
+  `;
+  const room = rows[0];
+  if (!room) throw Object.assign(new Error("Room not found"), { status: 404 });
+  if (!(await isMaintainer(user.user_id, room.property_id))) {
+    throw Object.assign(new Error("Only a current maintainer can do that."), { status: 403 });
+  }
+  return { user, room };
+}
+
+app.patch("/api/rooms/:id", async (c) => {
+  const { user, room } = await loadOwnedRoom(c, c.req.param("id"));
+  const body = await c.req.json<{
+    kind?: string;
+    title?: string | null;
+    details?: unknown;
+    visibility?: string;
+  }>();
+  const kind = body.kind !== undefined ? body.kind : room.kind;
+  if (!isRoomKind(kind)) return c.json({ error: "Choose a room." }, 400);
+  const visibility = body.visibility === "public" || body.visibility === "private" ? body.visibility : null;
+  const title = body.title === undefined ? undefined : body.title?.trim() || null;
+  const details = body.details === undefined ? undefined : normalizeRoomDetails(kind, body.details);
+  const sql = getSql();
+  await sql`
+    UPDATE property_rooms
+    SET
+      kind = ${kind},
+      title = ${title === undefined ? sql`title` : title},
+      details = ${details === undefined ? sql`details` : sql.json(details)},
+      visibility = ${visibility ?? sql`visibility`}
+    WHERE room_id = ${room.room_id}
+  `;
+  await emitEvent({
+    propertyId: room.property_id,
+    eventType: "room.updated",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { room_id: room.room_id, kind },
+  });
+  const [updated] = await loadRooms(room.property_id, true).then((list) => list.filter((row) => row.room_id === room.room_id));
+  return c.json({ room: updated });
+});
+
+app.delete("/api/rooms/:id", async (c) => {
+  const { user, room } = await loadOwnedRoom(c, c.req.param("id"));
+  const sql = getSql();
+  await sql`UPDATE property_rooms SET removed_at = now() WHERE room_id = ${room.room_id}`;
+  await sql`UPDATE documents SET removed_at = now() WHERE room_id = ${room.room_id} AND removed_at IS NULL`;
+  await emitEvent({
+    propertyId: room.property_id,
+    eventType: "room.removed",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { room_id: room.room_id, kind: room.kind },
   });
   return c.json({ ok: true });
 });

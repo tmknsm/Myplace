@@ -11,6 +11,7 @@ export const ALL_TABLES = [
   "document_blobs", // dropped by 005; kept here so --reset still wipes leftover DBs
   "notification_preferences",
   "property_improvements",
+  "property_rooms",
   "field_vocabulary",
   "handoff_invitations",
   "emails",

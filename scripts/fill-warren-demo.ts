@@ -7,6 +7,7 @@
  */
 import { closeSql, getSql } from "../server/src/db.ts";
 import { insertAssertion } from "../server/src/services/assertions.ts";
+import { normalizeRoomDetails } from "../shared/rooms.ts";
 
 const PROPERTY_ID = "prop_76045741fc817ccf3afcfc4c40";
 
@@ -89,6 +90,54 @@ async function main() {
     console.log(`write ${fieldKey}`);
   }
   console.log(`done. wrote ${written}, skipped ${Object.keys(FIELDS).length - written}`);
+
+  const existingRooms = await sql<{ room_id: string }[]>`
+    SELECT room_id FROM property_rooms
+    WHERE property_id = ${PROPERTY_ID} AND removed_at IS NULL
+  `;
+  if (existingRooms.length) {
+    console.log(`rooms skip (${existingRooms.length} already on the page)`);
+  } else {
+    const rooms: Array<{ room_id: string; kind: string; title: string | null; details: Record<string, string> }> = [
+      {
+        room_id: "room_warren_kitchen",
+        kind: "kitchen",
+        title: null,
+        details: normalizeRoomDetails("kitchen", {
+          cabinetry: "Inset painted cabinets, garden-facing",
+          counters: "Soapstone",
+          appliances: "Induction range facing the garden",
+          flooring: "Tile in the kitchen addition",
+          fixtures: "Unlacquered brass",
+          paint: "Warm plaster whites",
+          notes: "The kitchen sits in the later addition off the brick-walled garden.",
+        }),
+      },
+      {
+        room_id: "room_warren_parlor",
+        kind: "living_room",
+        title: "Parlor",
+        details: normalizeRoomDetails("living_room", {
+          flooring: "Heart pine",
+          paint: "One dark green parlor",
+          fireplace: "Original parlor mantel, working",
+          notes: "Natural brick where it was never plastered.",
+        }),
+      },
+    ];
+    for (const room of rooms) {
+      await sql`
+        INSERT INTO property_rooms (room_id, property_id, created_by, kind, title, details, visibility)
+        VALUES (
+          ${room.room_id}, ${PROPERTY_ID}, ${owner.user_id}, ${room.kind}, ${room.title},
+          ${sql.json(room.details)}, 'public'
+        )
+        ON CONFLICT (room_id) DO NOTHING
+      `;
+      console.log(`room  ${room.kind}${room.title ? ` (${room.title})` : ""}`);
+    }
+  }
+
   await closeSql();
 }
 

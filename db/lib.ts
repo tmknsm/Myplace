@@ -130,6 +130,7 @@ export async function wipePropertyTables(sql: Sql): Promise<void> {
   await sql`DELETE FROM contributions`;
   await sql`DELETE FROM documents`;
   await sql`DELETE FROM property_improvements`;
+  await sql`DELETE FROM property_rooms`;
   await sql`DELETE FROM property_maintainers`;
   await sql`DELETE FROM ownership_claims`;
   await sql`DELETE FROM property_events`;

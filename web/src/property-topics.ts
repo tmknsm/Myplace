@@ -67,21 +67,6 @@ export const TOPICS: Topic[] = [
     ],
   },
   {
-    id: "interior",
-    section: "character",
-    title: "Inside",
-    lede: "Floors, kitchen, palette, hardware. The finishes people ask about after they've been over.",
-    cta: "Describe the inside",
-    fields: [
-      { key: "interior.floors", label: "Floors", hint: "Wide-plank pine upstairs, oak strip below" },
-      { key: "interior.kitchen", label: "Kitchen", hint: "Soapstone counters, inset Shaker cabinets" },
-      { key: "interior.hardware", label: "Hardware & fixtures", hint: "Unlacquered brass, mostly Rejuvenation" },
-      { key: "interior.palette", label: "Palette", kind: "multiline", hint: "Warm whites, one dark green room" },
-      { key: "interior.year", label: "Last renovated", kind: "year", hint: "2019", half: true },
-      link("interior.link", "The designer, the tile, the source list"),
-    ],
-  },
-  {
     id: "grounds",
     section: "character",
     title: "Garden & grounds",

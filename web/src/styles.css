@@ -1024,6 +1024,7 @@ tr:last-child td { border-bottom: 0; }
 .topic-empty-title { color: var(--accent); font-weight: 600; font-size: 15px; }
 .topic-empty-title::before { content: "+ "; }
 .topic-empty .meta-line { margin: 0; max-width: 52ch; }
+.topic-card .photo-strip { margin-top: 12px; }
 /* A paint chip from the hex field next to the color name. */
 .swatch {
   display: inline-block;

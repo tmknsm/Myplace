@@ -98,6 +98,11 @@ export const api = {
   patchImprovement: (id: string, body: Partial<ImprovementInput>) =>
     request<{ improvement: Improvement }>(`/api/improvements/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteImprovement: (id: string) => request<{ ok: boolean }>(`/api/improvements/${id}`, { method: "DELETE" }),
+  createRoom: (id: string, body: RoomInput) =>
+    request<{ room: Room }>(`/api/properties/${id}/rooms`, { method: "POST", body: JSON.stringify(body) }),
+  patchRoom: (id: string, body: Partial<RoomInput>) =>
+    request<{ room: Room }>(`/api/rooms/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteRoom: (id: string) => request<{ ok: boolean }>(`/api/rooms/${id}`, { method: "DELETE" }),
   dispute: (id: string, body: { fieldKey: string; proposedValue?: string; note?: string }) =>
     request<{ contributionId: string }>(`/api/properties/${id}/disputes`, { method: "POST", body: JSON.stringify(body) }),
   withdrawContribution: (id: string) => request<{ ok: boolean }>(`/api/contributions/${id}`, { method: "DELETE" }),
@@ -260,6 +265,25 @@ export interface ImprovementInput {
   visibility?: string;
 }
 
+export interface RoomInput {
+  kind: string;
+  title?: string | null;
+  details?: Record<string, string>;
+  visibility?: string;
+}
+
+export interface Room {
+  room_id: string;
+  property_id: string;
+  created_by: string | null;
+  kind: string;
+  title: string | null;
+  details: Record<string, string>;
+  visibility: string;
+  created_at: string;
+  documents: Doc[];
+}
+
 export interface Improvement {
   improvement_id: string;
   property_id: string;
@@ -334,6 +358,7 @@ export interface PropertyPage {
   coverage: Record<string, string>;
   historyNote: string;
   improvements: Improvement[];
+  rooms: Room[];
   documents: Doc[];
   invitations: Invitation[];
   disputes: Dispute[];
@@ -363,6 +388,7 @@ export interface Doc {
   transferability?: string;
   caption?: string | null;
   improvement_id?: string | null;
+  room_id?: string | null;
   is_cover?: boolean;
   has_file?: boolean;
   byte_size: number;

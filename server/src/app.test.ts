@@ -45,6 +45,7 @@ beforeEach(async () => {
   await sql`DELETE FROM contributions`;
   await sql`DELETE FROM documents`;
   await sql`DELETE FROM property_improvements`;
+  await sql`DELETE FROM property_rooms`;
   await sql`DELETE FROM property_maintainers`;
   await sql`DELETE FROM ownership_claims`;
   await sql`DELETE FROM property_events`;
@@ -868,4 +869,47 @@ test("production tester login accepts 000000 without a mailed code", async () =>
     }),
   );
   expect(denied.status).toBe(400);
+});
+
+test("owner can add, edit, and delete a room", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("rooms@example.com", "rooms-desk@example.com");
+
+  const created = await app.request("http://localhost/api/properties/prop_test/rooms", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({
+      kind: "kitchen",
+      details: { cabinetry: "Hudson Valley Cabinetry", counters: "Soapstone", paint: "Shaded White", paint_hex: "#e7e0d0" },
+    }),
+  });
+  expect(created.status).toBe(201);
+  const createdBody = await created.json() as { room: { room_id: string; kind: string; details: Record<string, string> } };
+  expect(createdBody.room.kind).toBe("kitchen");
+  expect(createdBody.room.details.cabinetry).toBe("Hudson Valley Cabinetry");
+
+  const page = await app.request("http://localhost/api/properties/prop_test");
+  const pageBody = await page.json() as { property: { rooms: Array<{ kind: string; details: Record<string, string> }> } };
+  expect(pageBody.property.rooms).toHaveLength(1);
+  expect(pageBody.property.rooms[0]?.kind).toBe("kitchen");
+
+  const patched = await app.request(`http://localhost/api/rooms/${createdBody.room.room_id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ kind: "primary_bathroom", details: { tub_shower: "Cast-iron tub" } }),
+  });
+  expect(patched.status).toBe(200);
+  const patchedBody = await patched.json() as { room: { kind: string; details: Record<string, string> } };
+  expect(patchedBody.room.kind).toBe("primary_bathroom");
+  expect(patchedBody.room.details.tub_shower).toBe("Cast-iron tub");
+  expect(patchedBody.room.details.cabinetry).toBeUndefined();
+
+  const removed = await app.request(`http://localhost/api/rooms/${createdBody.room.room_id}`, {
+    method: "DELETE",
+    headers: { cookie },
+  });
+  expect(removed.status).toBe(200);
+  const after = await app.request("http://localhost/api/properties/prop_test");
+  const afterBody = await after.json() as { property: { rooms: unknown[] } };
+  expect(afterBody.property.rooms).toEqual([]);
 });

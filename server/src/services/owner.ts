@@ -61,10 +61,22 @@ export interface ImprovementRow {
   created_at: string;
 }
 
+export interface RoomRow {
+  room_id: string;
+  property_id: string;
+  created_by: string | null;
+  kind: string;
+  title: string | null;
+  details: Record<string, string> | null;
+  visibility: string;
+  created_at: string;
+}
+
 export interface DocumentRow {
   document_id: string;
   property_id: string;
   improvement_id: string | null;
+  room_id?: string | null;
   original_filename: string | null;
   document_type: string | null;
   mime_type: string | null;
@@ -131,6 +143,37 @@ export async function loadDocuments(propertyId: string, viewerIsMaintainer: bool
     ORDER BY is_cover DESC, created_at DESC
   `);
   return viewerIsMaintainer ? documents : documents.filter((doc) => doc.has_file);
+}
+
+/**
+ * Rooms plus their photos. Maintainers see everything; the public sees only
+ * rooms and attachments marked public.
+ */
+export async function loadRooms(propertyId: string, viewerIsMaintainer: boolean) {
+  const sql = getSql();
+  const rooms = await sql<RoomRow[]>`
+    SELECT room_id, property_id, created_by, kind, title, details, visibility, created_at
+    FROM property_rooms
+    WHERE property_id = ${propertyId} AND removed_at IS NULL
+      AND ${viewerIsMaintainer ? sql`TRUE` : sql`visibility = 'public'`}
+    ORDER BY created_at
+  `;
+  const documents = rooms.length
+    ? await withFileFlags(await sql<StoredDocumentRow[]>`
+        SELECT document_id, property_id, improvement_id, room_id, original_filename, document_type, mime_type,
+               byte_size, visibility, transferability, caption, is_cover, created_at, uploaded_by, storage_key
+        FROM documents
+        WHERE property_id = ${propertyId} AND removed_at IS NULL AND room_id IS NOT NULL
+          AND ${viewerIsMaintainer ? sql`TRUE` : sql`visibility = 'public'`}
+        ORDER BY created_at
+      `)
+    : [];
+  const visible = viewerIsMaintainer ? documents : documents.filter((doc) => doc.has_file);
+  return rooms.map((row) => ({
+    ...row,
+    details: row.details && typeof row.details === "object" ? row.details : {},
+    documents: visible.filter((doc) => doc.room_id === row.room_id),
+  }));
 }
 
 /** Make one photo the profile cover, or clear the cover when `documentId` is null. */
