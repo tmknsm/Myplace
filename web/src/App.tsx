@@ -368,7 +368,7 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
         <div className="auth-body">
           <div className="kicker">{signup ? "Free account" : "Welcome back"}</div>
           <h1 className="display">{signup ? "Create your account" : "Sign in"}</h1>
-          <p className="meta-line auth-lede">We'll send you a six-digit code to your email. No password to remember.</p>
+          <p className="meta-line auth-lede">We'll send you a six-digit code to your email.</p>
           <p className="auth-switch">
             {signup ? (
               <>Already have an account? <Link to={otherHref("/signin")}>Sign in</Link></>
