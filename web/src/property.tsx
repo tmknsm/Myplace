@@ -608,7 +608,6 @@ export function PropertyPageView() {
           <FactSection id="assessment" title="Assessment & taxes" facts={sections.get("assessment") ?? []} {...sectionProps} {...factSheetProps} />
           <FactSection id="building" title="Building & lot" facts={sections.get("building") ?? []} {...sectionProps} {...factSheetProps} />
           <FactSection id="records" title="County record" facts={sections.get("records") ?? []} {...sectionProps} {...factSheetProps}>
-            <h3 className="subhead">Sources connected</h3>
             <div className="group coverage">
               {Object.entries(property.coverage).map(([key, value]) => (
                 <div key={key}><span>{key.replace("_", " ")}</span> {value}</div>
