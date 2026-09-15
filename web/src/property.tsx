@@ -255,6 +255,7 @@ export function PropertyPageView() {
   }, [data, title]);
 
   const sections = useMemo(() => organizeFacts(data?.property.facts ?? []), [data]);
+  const closeSheet = useCallback(() => setSheet(null), []);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!data || !id) return <div className="page">Loading record…</div>;
@@ -286,7 +287,6 @@ export function PropertyPageView() {
     setSheetSeq((n) => n + 1);
     setSheet(next);
   };
-  const closeSheet = useCallback(() => setSheet(null), []);
   /** Open whichever sheet edits this field: its topic, or a one-field sheet. */
   const openField = (key: string) => {
     const topic = topicForField(key);
