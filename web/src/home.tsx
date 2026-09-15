@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { ParcelMap, SearchBox } from "./components";
+import { useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
+import { SearchBox } from "./components";
 import { useMeta } from "./meta";
 
 // ---------------------------------------------------------------------------
@@ -235,15 +235,12 @@ function useSearchHandoff(anchor: React.RefObject<HTMLDivElement | null>) {
 // ---------------------------------------------------------------------------
 
 export function HomePage() {
-  const navigate = useNavigate();
   const meta = useMeta();
-  const [focus, setFocus] = useState<string>("all");
   const searchAnchor = useRef<HTMLDivElement | null>(null);
   useSearchHandoff(searchAnchor);
 
   const count = meta?.propertyCount ?? null;
   const counties = meta?.counties ?? [];
-  const selected = counties.find((county) => county.id === focus);
   const countLabel = count === null ? null : `${count.toLocaleString()} parcels`;
 
   return (
@@ -265,38 +262,6 @@ export function HomePage() {
             {countLabel ? `Search ${countLabel}` : "Search"} by address or tax map number, or <Link to="/map">wander the map</Link>.
           </p>
         </div>
-
-        <div className="home-map">
-          <ParcelMap
-            embedded
-            legend
-            focusKey={focus}
-            focusCenter={selected?.center}
-            focusZoom={selected?.zoom}
-            onSelect={(id) => navigate(`/property/${id}`)}
-          />
-          <div className="home-map-controls">
-            <div className="segmented home-county-switch" role="group" aria-label="Focus the map">
-              <button type="button" className={focus === "all" ? "on" : ""} onClick={() => setFocus("all")}>Both</button>
-              {counties.map((county) => (
-                <button
-                  key={county.id}
-                  type="button"
-                  className={focus === county.id ? "on" : ""}
-                  onClick={() => setFocus(county.id)}
-                >
-                  {county.id}
-                </button>
-              ))}
-            </div>
-            <Link to="/map" className="hero-pill home-map-open">Open the full map</Link>
-          </div>
-        </div>
-        <p className="meta-line home-map-caption">
-          {selected
-            ? `${selected.id} County: ${selected.parcelCount.toLocaleString()} parcels. ${selected.short}`
-            : "Greene publishes its official lot lines. Columbia doesn't, so ours are approximate and labeled that way."}
-        </p>
       </section>
 
       <div className="home-chapters">
