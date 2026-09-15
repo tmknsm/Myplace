@@ -327,6 +327,9 @@ export function HomePage() {
   return (
     <div className="home">
       <section className="home-hero" aria-labelledby="home-title">
+        <figure className="home-hero-band">
+          <Photo id={PHOTOS.farmhouse} width={1800} alt="A white farmhouse with a metal roof under a blue sky" className="home-hero-photo" />
+        </figure>
         <div className="home-hero-copy">
           <div className="kicker">Columbia &amp; Greene counties, New York</div>
           <h1 id="home-title">Every house here already has a page.</h1>
@@ -353,11 +356,12 @@ export function HomePage() {
         <ul className="home-featured-track">
           {FEATURED.map((home) => (
             <li key={home.address} className="home-featured-card">
-              <div className="home-featured-photos">
+              <figure className="home-featured-hero">
                 <Photo id={home.photos[0]} width={720} alt={`${home.address}, exterior`} />
-                <Photo id={home.photos[1]} width={360} alt="" />
-                <Photo id={home.photos[2]} width={360} alt="" />
-              </div>
+                <figcaption className="home-featured-overlay">
+                  <span className="hero-pill quiet">{home.photoCount} photos</span>
+                </figcaption>
+              </figure>
               <div className="home-featured-body">
                 <div className="kicker">{home.place}</div>
                 <h3>{home.address}</h3>
@@ -366,7 +370,6 @@ export function HomePage() {
                     <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>
                   ))}
                 </dl>
-                <p className="meta-line">{home.photoCount} photos · owner-reported</p>
               </div>
             </li>
           ))}

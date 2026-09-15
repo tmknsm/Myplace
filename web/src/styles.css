@@ -2340,9 +2340,9 @@ html.dialog-open body {
 /* ---- Landing page ------------------------------------------------------- */
 .home {
   --home-max: 1180px;
-  --home-radius: 28px;
-  /* Chapter scenes: the photograph is the card; UI floats sit one inset in. */
-  --home-scene-radius: 40px;
+  --home-radius: 24px;
+  /* Same frame as the property-page hero: 24px on the photo, UI floats inset. */
+  --home-scene-radius: 24px;
   --home-scene-pad: 24px;
   --home-float-radius: 16px;
   --home-float-pad: 24px;
@@ -2384,14 +2384,34 @@ html.dialog-open body {
   text-wrap: balance;
 }
 
-/* Hero */
-.home-hero { padding-top: 40px; }
+/* Hero: the same full-bleed, top-rounded photograph as a property page. */
+.home-hero { padding-top: 0; }
+.home-hero-band,
+.home-scene {
+  width: 100vw;
+  max-width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+}
+.home-hero-band {
+  margin: 0 calc(50% - 50vw);
+  overflow: hidden;
+  border-radius: var(--home-radius) var(--home-radius) 0 0;
+  background: var(--surface-2);
+}
+.home-hero-photo {
+  display: block;
+  width: 100%;
+  height: clamp(320px, 56vh, 640px);
+  object-fit: cover;
+  object-position: 50% 62%;
+}
 .home-hero-copy {
   position: relative;
   z-index: 2;
-  text-align: center;
+  text-align: left;
   max-width: 780px;
-  margin: 0 auto;
+  margin: 28px 0 0;
 }
 .home-hero-copy .kicker { font-size: 14px; }
 .home-hero h1 {
@@ -2404,14 +2424,14 @@ html.dialog-open body {
   font-size: 19px;
   line-height: 1.42;
   max-width: 54ch;
-  margin: 0 auto;
+  margin: 0;
 }
 .home-search-anchor {
   /* The arrival animation leaves a stacking context behind; lift it so the
-     results sheet clears the caption and the map. */
+     results sheet clears the caption. */
   position: relative;
   z-index: 3;
-  margin: 30px auto 0;
+  margin: 30px 0 0;
   max-width: 580px;
 }
 .home-search { position: relative; }
@@ -2474,45 +2494,47 @@ html.dialog-open body {
 .home-featured-track::-webkit-scrollbar { display: none; }
 .home-featured-card {
   flex: 0 0 auto;
-  width: min(340px, 82vw);
+  width: min(360px, 84vw);
   scroll-snap-align: start;
   background: var(--surface);
-  border-radius: 24px;
+  border-radius: var(--home-radius);
   box-shadow: var(--shadow);
-  padding: 10px 10px 22px;
+  overflow: hidden;
   min-width: 0;
 }
-.home-featured-photos {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-.home-featured-photos img {
-  width: 100%;
-  height: 100%;
-  aspect-ratio: 3 / 2;
-  object-fit: cover;
-  display: block;
-  border-radius: 8px;
+.home-featured-hero {
+  position: relative;
+  margin: 0;
+  height: 240px;
   background: var(--surface-2);
 }
-.home-featured-photos img:first-child {
-  grid-column: 1 / -1;
-  aspect-ratio: 4 / 3;
-  border-radius: 16px;
+.home-featured-hero img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
-.home-featured-body { padding: 18px 12px 0; }
+.home-featured-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: flex-end;
+  padding: 36px 16px 16px;
+  margin: 0;
+  background: linear-gradient(to top, rgba(29, 29, 31, 0.45), rgba(29, 29, 31, 0));
+}
+.home-featured-body { padding: 16px 16px 20px; }
 .home-featured-body .kicker { font-size: 12px; }
 .home-featured-body h3 {
   margin: 4px 0 0;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  line-height: 1.2;
+  font-size: 22px;
+  font-weight: 500;
+  font-family: var(--font-serif);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
 }
 .home-featured-body .home-facts { margin-top: 12px; }
 .home-featured-body .home-facts > div { grid-template-columns: 76px 1fr; }
-.home-featured-body .meta-line { margin: 12px 0 0; font-size: 13px; }
 
 /* Chapters */
 .home-chapters {
@@ -2539,12 +2561,14 @@ html.dialog-open body {
   height: min(calc(100dvh - var(--topbar-height, 84px) - 48px), 680px);
   min-height: 420px;
   margin-top: 36px;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
 }
 .home-scene-inner {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  border-radius: var(--home-scene-radius);
+  border-radius: var(--home-scene-radius) var(--home-scene-radius) 0 0;
   background: var(--surface-2);
   box-shadow: var(--shadow);
 }
@@ -2951,10 +2975,11 @@ html.home-search-docked .topbar .home-handoff {
 }
 
 @media (max-width: 880px) {
-  .home { --home-gap: 88px; --home-radius: 22px; --home-scene-radius: 32px; --home-scene-pad: 16px; --home-float-pad: 20px; }
+  .home { --home-gap: 88px; --home-radius: 24px; --home-scene-radius: 24px; --home-scene-pad: 16px; --home-float-pad: 20px; }
   .home h2 { font-size: clamp(30px, 8vw, 38px); }
-  .home-hero { padding-top: 18px; }
-  .home-hero-copy { text-align: left; }
+  .home-hero { padding-top: 0; }
+  .home-hero-photo { height: clamp(240px, 42dvh, 420px); }
+  .home-hero-copy { margin-top: 20px; }
   .home-hero h1 { font-size: clamp(36px, 10.5vw, 46px); margin: 8px 0 12px; }
   .home-lede { font-size: 16.5px; margin: 0; }
   .home-search-anchor { margin: 22px 0 0; max-width: none; }
@@ -2967,6 +2992,8 @@ html.home-search-docked .topbar .home-handoff {
     aspect-ratio: 5 / 6;
     max-height: 560px;
     margin-top: 22px;
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
   }
   .home-chapter-copy { margin: 22px 0 0; max-width: none; }
   .home-chapter-copy p { font-size: 16px; }
