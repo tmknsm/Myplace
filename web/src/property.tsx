@@ -1385,7 +1385,10 @@ function AboutForm({ fact, propertyId, onSaved, onCancel }: { fact: Fact; proper
         onChange={(event) => setDraft(event.target.value)}
         data-testid="about-input"
       />
-      <VisibilityChoice value={visibility} onChange={setVisibility} />
+      <div className="stack inline-choice vis-field">
+        <span>Visibility</span>
+        <VisibilityToggle value={visibility} onChange={setVisibility} />
+      </div>
       {error && <p className="error">{error}</p>}
       {text && (
         <div className="form-danger">
@@ -1402,10 +1405,13 @@ function AboutForm({ fact, propertyId, onSaved, onCancel }: { fact: Fact; proper
 
 function VisibilityChoice({ value, onChange }: { value: FieldVisibility; onChange: (next: FieldVisibility) => void }) {
   return (
-    <div className="stack inline-choice vis-field">
+    <label className="stack inline-choice">
       <span>Visibility</span>
-      <VisibilityToggle value={value} onChange={onChange} />
-    </div>
+      <div className="segmented">
+        <button type="button" className={value === "public" ? "on" : ""} onClick={() => onChange("public")}>Public</button>
+        <button type="button" className={value === "private" ? "on" : ""} onClick={() => onChange("private")}>Private</button>
+      </div>
+    </label>
   );
 }
 
@@ -1447,7 +1453,7 @@ function PriceField({
   return (
     <div className="stack span-2 price-field">
       <span>Amount paid</span>
-      <div className="price-field-row">
+      <div className="price-wrap">
         <input className="field" inputMode="decimal" placeholder="$" value={cost} onChange={(event) => onCost(event.target.value)} data-testid="price-input" />
         <VisibilityToggle
           value={showPublic ? "public" : "private"}
@@ -2284,7 +2290,10 @@ function TopicForm({
           </label>
         )}
       </div>
-      <VisibilityChoice value={visibility} onChange={setVisibility} />
+      <div className="stack inline-choice vis-field">
+        <span>Visibility</span>
+        <VisibilityToggle value={visibility} onChange={setVisibility} />
+      </div>
       {error && <p className="error">{error}</p>}
       <div className="action-row compact sheet-actions">
         <button type="submit" className="btn" disabled={busy} data-testid="topic-save">{busy ? "Saving…" : submitLabel}</button>
