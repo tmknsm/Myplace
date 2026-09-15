@@ -320,12 +320,22 @@ export function PropertyPageView() {
   useEffect(() => { void load({ allowDowngrade: !user }); }, [load, user?.user_id]);
   useOwnershipChanges(id, () => { void load({ allowDowngrade: true }); });
 
-  // Pin the gated page at the top. The copy sits on the hero; the gradient
-  // stays open through the chip labels and turns solid on the values.
+  // Clip the gated page to the viewport without position:fixed, so a pull
+  // at the top can still refresh. Snap back if anything scrolls down.
   useEffect(() => {
-    if (gated) window.scrollTo(0, 0);
+    if (!gated) return;
+    const html = document.documentElement;
+    html.classList.add("peek-gated");
+    window.scrollTo(0, 0);
+    const pin = () => {
+      if (window.scrollY > 0) window.scrollTo(0, 0);
+    };
+    window.addEventListener("scroll", pin, { passive: true });
+    return () => {
+      html.classList.remove("peek-gated");
+      window.removeEventListener("scroll", pin);
+    };
   }, [gated]);
-  useLockPageScroll(gated);
   useEffect(() => {
     if (!gated) {
       setGateMetrics(null);
@@ -659,11 +669,11 @@ export function PropertyPageView() {
           } as React.CSSProperties}
           data-testid="peek-gate"
         >
-          <div className="peek-gate-copy">
+          <div className="peek-gate-lockup">
             <h2>Sign up to see claimed properties</h2>
-            <p>The owner keeps this page. Create a free account to see everything they've added.</p>
             <Link className="btn" to={`/signin?next=/property/${id}`} data-testid="peek-gate-signup">Sign up</Link>
           </div>
+          <p className="peek-gate-note">The owner keeps this page. Create a free account to see everything they've added.</p>
         </div>
       )}
 
