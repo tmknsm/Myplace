@@ -61,8 +61,8 @@ export const TOPICS: Topic[] = [
     fields: [
       { key: "style.architecture", label: "Architectural style", hint: "Greek Revival farmhouse, with an 1880s porch" },
       { key: "house.name", label: "Known as", hint: "The blue Victorian", half: true },
-      { key: "built_by", label: "Built by", hint: "Local builder; the name is on the 1891 deed", half: true },
-      { key: "original_details", label: "Still original", kind: "multiline", hint: "Pocket doors, tin ceiling in the parlor, the clawfoot" },
+      { key: "built_by", label: "Architect", hint: "Local builder; the name is on the 1891 deed", half: true },
+      { key: "original_details", label: "Original details", kind: "multiline", hint: "Pocket doors, tin ceiling in the parlor, the clawfoot" },
       link("style.link", "A historic register listing, an old photo"),
     ],
   },

@@ -133,7 +133,7 @@ const FACT_SECTIONS: Array<{ id: string; title: string; keys?: string[]; group?:
  */
 const STRIP_KEYS: Array<{ key: string; label: string; asYear?: boolean }> = [
   { key: "exterior.color", label: "Exterior paint" },
-  { key: "style.architecture", label: "Style" },
+  { key: "style.architecture", label: "Architecture" },
   { key: "exterior.trim", label: "Trim color" },
   { key: "bedrooms", label: "Bedrooms" },
   { key: "bathrooms", label: "Baths" },
