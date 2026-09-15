@@ -1,7 +1,7 @@
 /**
  * Fill the remaining owner-layer fields on 441 Warren Street, the live
- * demonstration page. Skips any key that already has an accepted owner
- * assertion, so it is safe to re-run.
+ * demonstration page. Chip names (paint, style, trim) are always rewritten
+ * so they stay short. Other keys skip if they already have an owner value.
  *
  *   DATABASE_URL=… npx tsx scripts/fill-warren-demo.ts
  */
@@ -11,19 +11,27 @@ import { normalizeRoomDetails } from "../shared/rooms.ts";
 
 const PROPERTY_ID = "prop_76045741fc817ccf3afcfc4c40";
 
+/**
+ * Names that sit in the strip under the hero. Keep them short, like 51 State
+ * Route 9H (Italianate / OC-131 White Down) — a color or a style, not a sentence.
+ * Always rewritten on re-run so a long earlier fill can be shortened.
+ */
+const CHIP_FIELDS: Record<string, unknown> = {
+  "exterior.color": "Hudson brick",
+  "exterior.trim": "OC-17 White Dove",
+  "exterior.door": "Black",
+  "style.architecture": "Federal",
+  "paint.notes": "The brick is the body, never painted. Paint is the wood: White Dove on the cornice and sash (2021 restoration), black four-panel stoop door with the original box lock (2023).",
+};
+
 /** Missing character fields, plus year/link/notes the topic sheets added. */
 const FIELDS: Record<string, unknown> = {
-  "exterior.color": "Hudson brick, the body never painted",
   "exterior.color.hex": "#8a4a32",
-  "exterior.trim": "Benjamin Moore White Dove on the cornice and sash",
   "exterior.trim.hex": "#efeae1",
-  "exterior.door": "Black four-panel stoop door, original box lock",
   "exterior.door.hex": "#1b1b1b",
   "paint.year": 2023,
   "paint.link": "https://www.benjaminmoore.com/en-us/color-overview/find-your-color/color/oc-17/white-dove",
-  "paint.notes": "The brick is the body. Paint is the wood: cornice, sash, the stoop door. Sash last done with the 2021 restoration; the door in 2023.",
 
-  "style.architecture": "Federal brick row, common wall, 1850s storefront under a three-bay upper facade",
   "house.name": "The Warren Street row",
   "built_by": "Unknown. The 1854 date is from the building file, not a builder's name on the deed.",
   "original_details": "6-over-6 sash on Warren Street, the parlor mantel, the stair newel, the cellar fireplace, wide-board floors on the third floor",
@@ -71,6 +79,20 @@ async function main() {
   const have = new Set(existing.map((row) => row.field_key));
 
   let written = 0;
+  for (const [fieldKey, value] of Object.entries(CHIP_FIELDS)) {
+    await insertAssertion({
+      propertyId: PROPERTY_ID,
+      fieldKey,
+      value,
+      sourceType: "verified_owner",
+      visibility: "public",
+      actorType: "verified_owner",
+      actorId: owner.user_id,
+      eventType: "owner_assertion.added",
+    });
+    written += 1;
+    console.log(`chip  ${fieldKey}`);
+  }
   for (const [fieldKey, value] of Object.entries(FIELDS)) {
     if (have.has(fieldKey)) {
       console.log(`skip  ${fieldKey}`);
