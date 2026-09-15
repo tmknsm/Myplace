@@ -792,7 +792,7 @@ tr:last-child td { border-bottom: 0; }
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 .profile-head h1 {
   font-size: clamp(34px, 5.4vw, 56px);
@@ -2350,7 +2350,7 @@ html.dialog-open body {
   .property-page .profile-head { margin-bottom: var(--gutter); }
   .property-page .stat-strip { margin-top: 0; margin-bottom: var(--gutter); }
   .profile-head h1 { font-size: clamp(30px, 9vw, 40px); margin: 4px 0 6px; }
-  .profile-title .profile-chips { margin-bottom: 6px; }
+  .profile-title .profile-chips { margin-bottom: 10px; }
   .profile-actions { width: 100%; }
   .profile-actions .action-row.compact { width: 100%; }
   .profile-actions .btn { flex: 0 0 auto; }
