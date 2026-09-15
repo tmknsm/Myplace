@@ -2076,6 +2076,13 @@ html.dialog-open body {
 
 /* Framed elements on card edges */
 .property-page .photo-grid { gap: var(--gutter); }
+/* Public gallery: a mosaic of square tiles. No card chrome, no captions. */
+.property-page .photo-grid.is-public .photo-card {
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--surface-2);
+}
+.property-page .photo-grid.is-public .photo-open { aspect-ratio: 1 / 1; }
 .property-page .photo-strip { gap: var(--gutter); }
 .property-page .photo-thumb,
 .property-page .photo-add,
@@ -2232,6 +2239,11 @@ html.dialog-open body {
   .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .photo-grid.featured > .photo-card:first-child { grid-column: span 2; grid-row: auto; }
   .photo-grid.featured > .photo-card:first-child .photo-open { aspect-ratio: 16 / 10; min-height: 0; }
+  /* Public gallery runs edge to edge, like the hero band. */
+  .property-page .photo-grid.is-public {
+    margin-left: calc(-1 * var(--page-inline-start));
+    margin-right: calc(-1 * var(--page-inline-end));
+  }
   .map-card { height: 260px; }
   .lightbox { gap: 6px; padding: 8px; }
   .lightbox-step { width: 36px; height: 36px; font-size: 22px; }
@@ -2329,6 +2341,11 @@ html.dialog-open body {
 .home {
   --home-max: 1180px;
   --home-radius: 28px;
+  /* Chapter scenes: the photograph is the card; UI floats sit one inset in. */
+  --home-scene-radius: 40px;
+  --home-scene-pad: 24px;
+  --home-float-radius: 16px;
+  --home-float-pad: 24px;
   --home-gap: 136px;
   --home-inline-start: max(var(--pad), env(safe-area-inset-left));
   --home-inline-end: max(var(--pad), env(safe-area-inset-right));
@@ -2511,7 +2528,7 @@ html.dialog-open body {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  border-radius: var(--home-radius);
+  border-radius: var(--home-scene-radius);
   background: var(--surface-2);
   box-shadow: var(--shadow);
 }
@@ -2536,9 +2553,10 @@ html.dialog-open body {
   position: absolute;
   z-index: 1;
   background: var(--surface);
-  border-radius: 20px;
+  border-radius: var(--home-float-radius);
   box-shadow: var(--home-lift);
-  padding: 16px 18px;
+  padding: var(--home-float-pad);
+  max-width: calc(100% - 2 * var(--home-scene-pad));
   font-size: 14px;
   color: var(--ink);
   opacity: 0;
@@ -2575,15 +2593,15 @@ html.dialog-open body {
   background: var(--surface-2);
 }
 
-.home-float-claim { left: 5%; bottom: 7%; width: min(66%, 400px); }
-.home-float-claim .home-strip { margin: 12px 0; }
-.home-float-docs { right: 6%; bottom: 8%; width: min(60%, 300px); padding-bottom: 14px; }
-.home-doc-list { list-style: none; margin: 0 0 10px; padding: 0; font-size: 13px; }
+.home-float-claim { left: var(--home-scene-pad); bottom: var(--home-scene-pad); width: min(66%, 400px); }
+.home-float-claim .home-strip { margin: 14px 0 0; }
+.home-float-docs { right: var(--home-scene-pad); bottom: var(--home-scene-pad); width: min(60%, 300px); }
+.home-doc-list { list-style: none; margin: 0 0 12px; padding: 0; font-size: 13px; }
 .home-doc-list li {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  padding: 6px 0;
+  padding: 9px 0;
   border-bottom: 1px solid var(--hairline);
   font-weight: 520;
 }
@@ -2595,7 +2613,8 @@ html.dialog-open body {
 .home-scene-private .home-scene-photo { object-position: 40% 50%; }
 .home-scene-offer .home-scene-photo { object-position: 22% 50%; }
 .home-scene-handoff .home-scene-photo { object-position: 50% 60%; }
-.home-float-facts { right: 5%; top: 9%; width: min(66%, 400px); padding-bottom: 8px; }
+.home-float-facts { right: var(--home-scene-pad); top: var(--home-scene-pad); width: min(66%, 400px); }
+.home-float-facts h4 { margin: 2px 0 0; }
 .home-float-head {
   display: flex;
   align-items: flex-start;
@@ -2605,12 +2624,12 @@ html.dialog-open body {
 }
 .home-float-head h4 { margin: 2px 0 0; }
 .home-float-head .owner-chip { font-size: 12px; padding: 4px 10px; white-space: nowrap; margin-top: 2px; }
-.home-facts { margin: 6px 0 0; }
+.home-facts { margin: 10px 0 0; }
 .home-facts > div {
   display: grid;
   grid-template-columns: 112px 1fr;
   gap: 12px;
-  padding: 8px 0;
+  padding: 10px 0;
   border-bottom: 1px solid var(--hairline);
 }
 .home-facts > div:last-child { border-bottom: 0; }
@@ -2618,7 +2637,7 @@ html.dialog-open body {
 .home-facts dd { margin: 0; font-size: 14px; font-weight: 520; }
 .home-facts .badge { margin-left: 6px; }
 
-.home-float-handoff { left: 6%; bottom: 8%; width: min(70%, 400px); }
+.home-float-handoff { left: var(--home-scene-pad); bottom: var(--home-scene-pad); width: min(70%, 400px); }
 .home-transfer-list { list-style: none; margin: 10px 0 0; padding: 0; }
 .home-transfer-list li {
   display: grid;
@@ -2655,19 +2674,18 @@ html.dialog-open body {
 }
 .home-toggle.on { background: var(--ok); box-shadow: none; }
 .home-toggle.on::after { transform: translateX(12px); }
-.home-static-btn { width: 100%; margin-top: 14px; pointer-events: none; }
 
 .home-float-caption {
   position: absolute;
   z-index: 1;
-  top: 18px;
-  left: 18px;
+  top: var(--home-scene-pad);
+  left: var(--home-scene-pad);
   opacity: 0;
   transform: translateY(-8px);
   transition: opacity 500ms var(--home-ease), transform 700ms var(--home-ease);
 }
 .home-scene.is-on .home-float-caption { opacity: 1; transform: none; transition-delay: 160ms; }
-.home-float-history { right: 5%; bottom: 8%; width: min(64%, 340px); }
+.home-float-history { right: var(--home-scene-pad); bottom: var(--home-scene-pad); width: min(64%, 340px); }
 .home-timeline { padding: 0 0 0 6px; font-size: 13.5px; }
 .home-timeline li { padding: 7px 0 7px 14px; }
 .home-timeline li::before { top: 12px; }
@@ -2921,7 +2939,7 @@ html.home-search-docked .topbar .home-handoff {
 }
 
 @media (max-width: 880px) {
-  .home { --home-gap: 88px; --home-radius: 22px; }
+  .home { --home-gap: 88px; --home-radius: 22px; --home-scene-radius: 32px; --home-scene-pad: 16px; --home-float-pad: 20px; }
   .home h2 { font-size: clamp(30px, 8vw, 38px); }
   .home-hero { padding-top: 18px; }
   .home-hero-copy { text-align: left; }
@@ -2948,17 +2966,16 @@ html.home-search-docked .topbar .home-handoff {
   }
   .home-chapter-copy { margin: 22px 0 0; max-width: none; }
   .home-chapter-copy p { font-size: 16px; }
-  .home-float { padding: 14px 15px; font-size: 13px; }
+  .home-float { font-size: 13px; }
   .home-float h4 { font-size: 17px; }
-  .home-float-claim { width: min(88%, 380px); left: 6%; }
+  .home-float-claim { width: min(88%, 380px); }
   .home-float-claim .home-strip { display: none; }
-  .home-float-docs { width: min(78%, 320px); right: 6%; }
-  .home-float-facts { width: min(88%, 380px); top: 7%; }
+  .home-float-docs { width: min(78%, 320px); }
+  .home-float-facts { width: min(88%, 380px); }
   .home-facts > div { grid-template-columns: 96px 1fr; }
   .home-float-head { flex-direction: column-reverse; align-items: flex-start; gap: 10px; }
   .home-float-head .owner-chip { margin-top: 0; }
-  .home-float-handoff { width: min(88%, 380px); left: 6%; }
-  .home-static-btn { display: none; }
+  .home-float-handoff { width: min(88%, 380px); }
   .home-float-history { width: min(80%, 320px); }
   .home-pillar-grid { grid-template-columns: 1fr; gap: 8px; margin-top: 24px; }
   .home-pillar { padding: 10px 10px 22px; }

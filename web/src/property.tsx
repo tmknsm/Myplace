@@ -2335,7 +2335,7 @@ function PhotosSection({
       {photos.length === 0 && pendingCount === 0 ? (
         <div className="group empty-card">{owner ? "No photos yet. Start with the exterior and the room you'd show off. Before-and-afters earn their keep later." : "The owner hasn't shared photos yet."}</div>
       ) : (
-        <div className={`photo-grid ${photos.length + pendingCount > 2 ? "featured" : ""}`}>
+        <div className={`photo-grid ${photos.length + pendingCount > 2 ? "featured" : ""} ${owner ? "" : "is-public"}`}>
           {photos.map((doc, index) => (
             <figure key={doc.document_id} className={`photo-card ${doc.visibility === "private" ? "is-private" : ""} ${hasFile(doc) ? "" : "is-missing"}`}>
               {owner && !hasFile(doc) ? (
@@ -2350,11 +2350,11 @@ function PhotosSection({
               ) : (
                 <button type="button" className="photo-open" onClick={() => onOpen(index)} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
                   <PhotoImage src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} />
-                  {cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
+                  {owner && cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
                   {owner && doc.visibility === "private" && <span className="photo-flag private">Private</span>}
                 </button>
               )}
-              {owner ? (
+              {owner && (
                 <figcaption>
                   <input
                     className="caption-input"
@@ -2394,8 +2394,6 @@ function PhotosSection({
                     </span>
                   </div>
                 </figcaption>
-              ) : (
-                doc.caption && <figcaption>{doc.caption}</figcaption>
               )}
             </figure>
           ))}
