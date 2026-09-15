@@ -702,17 +702,17 @@ function StatStrip({ facts }: { facts: Fact[] }) {
     if (tile.asYear) {
       const year = factYear(fact);
       if (!year) return [];
-      return [{ key: tile.key, label: tile.label, text: year, swatch: null as string | null, isPrivate: fact.visibility === "private", prose: false }];
+      return [{ key: tile.key, label: tile.label, text: year, swatch: null as string | null, isPrivate: fact.visibility === "private" }];
     }
     if (!fact.display) return [];
     const { text, swatch } = splitSwatch(tile.key, fact.display);
-    return [{ key: tile.key, label: tile.label, text, swatch, isPrivate: fact.visibility === "private", prose: Boolean(swatch) || tile.key === "style.architecture" || tile.key === "exterior.color" || tile.key === "exterior.trim" }];
+    return [{ key: tile.key, label: tile.label, text, swatch, isPrivate: fact.visibility === "private" }];
   }).slice(0, STRIP_MAX);
   if (tiles.length === 0) return null;
   return (
     <div className={`stat-strip${tiles.length % 2 ? " odd" : ""}`} data-testid="stat-strip">
       {tiles.map((tile) => (
-        <div key={tile.key} className={`stat${tile.prose ? " text" : ""}${tile.isPrivate ? " is-private" : ""}`} data-field={tile.key}>
+        <div key={tile.key} className={`stat${tile.isPrivate ? " is-private" : ""}`} data-field={tile.key}>
           <span>{tile.label}{tile.isPrivate ? " · private" : ""}</span>
           <strong>
             {tile.swatch && <i className="swatch" style={{ background: tile.swatch }} aria-hidden="true" />}
