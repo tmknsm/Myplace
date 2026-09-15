@@ -98,7 +98,6 @@ function BrowseScene() {
       <div className="home-float home-float-history">
         <span className="home-float-title">History</span>
         <ul className="timeline home-timeline">
-          <li><strong>Owner joined the record</strong><small>2024</small></li>
           <li><strong>Repainted, trim in Wimborne White</strong><small>2019</small></li>
           <li><strong>Porch enclosed</strong><small>1974</small></li>
           <li><strong>Built</strong><small>1889</small></li>
@@ -121,9 +120,7 @@ function ClaimScene() {
           <span className="owner-chip"><i aria-hidden="true" />Claimed</span>
         </div>
         <dl className="home-facts">
-          <div><dt>Finished</dt><dd>Oct 2023</dd></div>
           <div><dt>Cabinetry</dt><dd>Hudson Valley Cabinetry</dd></div>
-          <div><dt>Counters</dt><dd>Honed Vermont soapstone</dd></div>
           <div><dt>Wall color</dt><dd>Farrow &amp; Ball, Shaded White</dd></div>
         </dl>
         <div className="home-strip">
@@ -131,7 +128,6 @@ function ClaimScene() {
           <Photo id={PHOTOS.kitchenCounter} width={320} alt="" />
           <Photo id={PHOTOS.kitchen} width={320} alt="" />
         </div>
-        <span className="vis-chip"><i aria-hidden="true" />31 photos · Public</span>
       </div>
     </div>
   );
@@ -147,8 +143,6 @@ function PrivateScene() {
           <li><span>Deed</span><small>2019</small></li>
           <li><span>Survey</span><small>PDF</small></li>
           <li><span>Boiler manual</span><small>PDF</small></li>
-          <li><span>Roof warranty</span><small>to 2041</small></li>
-          <li><span>Furnace receipt</span><small>Jan 2022</small></li>
         </ul>
         <span className="vis-chip is-private"><i aria-hidden="true" />Only you</span>
       </div>
@@ -166,10 +160,8 @@ function HandoffScene() {
         <ul className="home-transfer-list">
           <li><span>Deed and survey</span><em>Transfers</em><Toggle on /></li>
           <li><span>Roof warranty</span><em>Transfers</em><Toggle on /></li>
-          <li><span>Contractor contacts</span><em>Transfers</em><Toggle on /></li>
           <li><span>Insurance claims</span><em>Stays with you</em><Toggle on={false} /></li>
         </ul>
-        <span className="btn home-static-btn" aria-hidden="true">Invite the new owner</span>
       </div>
     </div>
   );
@@ -180,17 +172,10 @@ function OfferScene() {
     <div className="home-scene-inner home-scene-offer">
       <Photo id={PHOTOS.farmhouse} width={1400} alt="A white farmhouse with a metal roof under a blue sky" className="home-scene-photo" />
       <div className="home-float home-float-facts">
-        <div className="home-float-head">
-          <div>
-            <div className="kicker">Catskill · Greene County</div>
-            <h4>12 Maple Lane</h4>
-          </div>
-          <span className="owner-chip"><i aria-hidden="true" />Owner-maintained</span>
-        </div>
+        <div className="kicker">Catskill · Greene County</div>
+        <h4>12 Maple Lane</h4>
         <dl className="home-facts">
           <div><dt>Flood zone</dt><dd>Zone X · minimal <span className="badge">FEMA</span></dd></div>
-          <div><dt>Historic district</dt><dd>Not in a listed district</dd></div>
-          <div><dt>Lot lines</dt><dd>Official <span className="badge">Greene County</span></dd></div>
           <div><dt>Assessed</dt><dd>$412,000 <span className="badge">2025 roll</span></dd></div>
           <div><dt>Roof</dt><dd>Standing-seam metal, 2021 <span className="badge owner_reported">owner-reported</span></dd></div>
         </dl>
