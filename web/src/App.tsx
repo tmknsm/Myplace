@@ -75,7 +75,7 @@ function Layout({ children }: { children: React.ReactNode }) {
           )}
           <div className="topbar-end">
             <nav className="top-links">
-              <Link to="/map">Map</Link>
+              {!onAuth && <Link to="/map">Map</Link>}
               {user?.is_admin && <Link to="/admin" className="wide-only">Admin</Link>}
               {meta?.debug && (
                 <button type="button" className="text-btn debug-link" data-testid="debug-link" onClick={() => setDebugOpen(true)}>Debug</button>
