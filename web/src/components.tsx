@@ -37,7 +37,7 @@ export function SearchBox({ compact = false, autoFocus = false }: { compact?: bo
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
-        placeholder="Find a property"
+        placeholder="Enter an address"
         onChange={(e) => setQ(e.target.value)}
         onFocus={() => hits.length && setOpen(true)}
         onKeyDown={(e) => {

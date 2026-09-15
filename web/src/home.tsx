@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ParcelMap, SearchBox } from "./components";
 import { useMeta } from "./meta";
-import { SectionNav } from "./section-nav";
 
 // ---------------------------------------------------------------------------
 // Photography (Unsplash, free to use under the Unsplash License)
@@ -29,84 +28,55 @@ const PHOTOS = {
 };
 
 // ---------------------------------------------------------------------------
-// Chapters: one record, read four ways
+// Chapters: one narrative, from looking to claiming to handing over
 // ---------------------------------------------------------------------------
 
-type ChapterId = "owners" | "buyers" | "sellers" | "curious";
+type ChapterId = "browse" | "claim" | "private" | "handoff" | "offer";
 
 interface Chapter {
   id: ChapterId;
-  audience: string;
+  eyebrow: string;
   title: string;
   body: string;
-  points: string[];
 }
 
 const CHAPTERS: Chapter[] = [
   {
-    id: "curious",
-    audience: "For the curious",
-    title: "Every house has a story. Some owners tell it.",
+    id: "browse",
+    eyebrow: "Start nosy",
+    title: "Look up your neighbors. Everyone does.",
     body:
-      "Wander the map. See the paint color a neighbor chose, the year a porch was enclosed, the garden in July. Owners decide what to share, and anyone can look.",
-    points: [
-      "Browse what owners share: photos, colors, materials",
-      "Read the public history: sales, assessments, changes",
-      "Open the map and click any lot",
-    ],
+      "A blue Victorian on Warren Street. Built 1889, porch enclosed sometime in the seventies, exterior in Hague Blue because the owner said so. Most pages are still just the county record. The good ones have been claimed.",
   },
   {
-    id: "owners",
-    audience: "For homeowners",
-    title: "A journal for the house.",
+    id: "claim",
+    eyebrow: "Claim your address",
+    title: "The paint color, the millwork, the guy who did the stairs.",
     body:
-      "Keep the deed, the survey, the boiler manual and the roof warranty in one vault. Log every renovation with the contractor, the cost and the photos. Years from now, when someone asks what is behind that wall, you will know.",
-    points: [
-      "Every document in one place, private by default",
-      "Each improvement: who did it, when, what it cost, and the pictures",
-      "The official record of your property, with its sources",
-    ],
+      "You answer these questions in DMs anyway. Put them on the page once, with finishes, sources and before-and-afters, and send one link instead. Credit the contractors while you're at it; they'll send people back.",
   },
   {
-    id: "buyers",
-    audience: "For buyers and movers",
-    title: "Know the house before you make an offer.",
+    id: "private",
+    eyebrow: "The private half",
+    title: "And the boiler manual nobody wants to see.",
     body:
-      "Type in the address from any listing. See the county's record beside whatever the owner has chosen to share: flood zone, lot lines, historic status, the story of the renovations. When you close, the record comes with the keys.",
-    points: [
-      "Flood, wetland, historic and zoning layers on one page",
-      "Official and owner-reported facts, always labeled as such",
-      "Receive the previous owner's package at closing",
-    ],
+      "Deed, survey, permits, warranties, the furnace receipt. Private by default, on the same page as the pretty stuff. Ten years from now, when someone asks what's behind that wall, you'll actually know.",
   },
   {
-    id: "sellers",
-    audience: "For sellers",
-    title: "Hand over the house, not a shoebox.",
+    id: "handoff",
+    eyebrow: "At closing",
+    title: "Sell the house. Send the record.",
     body:
-      "Decide, field by field, what travels with the sale. The warranties and the permits, yes. The insurance claims, no. Then pass the record to the new owner with a single invitation. Your private documents stay yours.",
-    points: [
-      "Choose what transfers and what stays with you",
-      "One invitation moves the record to the new owner",
-      "Nothing marked private ever leaves your account",
-    ],
+      "Pick, field by field, what travels. One invitation moves it to the new owner, and anything you keep, you keep. The buyer gets a house with its own history instead of a shoebox of receipts and a seller who's already in Florida.",
+  },
+  {
+    id: "offer",
+    eyebrow: "Before you make an offer",
+    title: "Two kinds of fact, never mixed.",
+    body:
+      "Type the address off any listing. What the county knows and what the owner claims sit side by side, each one labeled, so you can tell the difference without calling anybody.",
   },
 ];
-
-/** Chip labels for the section bar, one per chapter, in reading order. */
-const CHAPTER_CHIP: Record<ChapterId, string> = {
-  curious: "Curious",
-  owners: "Homeowners",
-  buyers: "Buyers",
-  sellers: "Sellers",
-};
-
-const SECTION_NAV = CHAPTERS.map((chapter) => ({
-  id: `chapter-${chapter.id}`,
-  label: CHAPTER_CHIP[chapter.id],
-  // Curious is the first chapter; its chip returns to the moment the bar docks.
-  ...(chapter.id === "curious" ? { href: "home-story" } : {}),
-}));
 
 // ---------------------------------------------------------------------------
 // Scenes: the product, staged over a photograph
@@ -120,87 +90,7 @@ function Toggle({ on }: { on: boolean }) {
   return <i className={`home-toggle ${on ? "on" : ""}`} aria-hidden="true" />;
 }
 
-function OwnersScene() {
-  return (
-    <div className="home-scene-inner home-scene-owners">
-      <Photo id={PHOTOS.kitchen} width={1400} alt="A farmhouse kitchen with white cabinets and wooden counters" className="home-scene-photo" />
-      <div className="home-float home-float-improvement">
-        <span className="chip">Kitchen</span>
-        <h4>Kitchen renovation</h4>
-        <ul className="improvement-meta">
-          <li>Oct 2023</li>
-          <li className="cost">$48,500</li>
-          <li>Hudson Valley Cabinetry</li>
-        </ul>
-        <div className="home-strip">
-          <Photo id={PHOTOS.kitchenDetail} width={320} alt="" />
-          <Photo id={PHOTOS.kitchenCounter} width={320} alt="" />
-          <Photo id={PHOTOS.kitchen} width={320} alt="" />
-        </div>
-      </div>
-      <div className="home-float home-float-vault">
-        <span className="home-float-title">Documents</span>
-        <ul className="home-doc-list">
-          <li><span>Deed</span><small>2019</small></li>
-          <li><span>Survey</span><small>PDF</small></li>
-          <li><span>Boiler manual</span><small>PDF</small></li>
-          <li><span>Roof warranty</span><small>to 2041</small></li>
-        </ul>
-        <span className="vis-chip is-private"><i aria-hidden="true" />Only you</span>
-      </div>
-    </div>
-  );
-}
-
-function BuyersScene() {
-  return (
-    <div className="home-scene-inner home-scene-buyers">
-      <Photo id={PHOTOS.farmhouse} width={1400} alt="A white farmhouse with a metal roof under a blue sky" className="home-scene-photo" />
-      <div className="home-float home-float-facts">
-        <div className="home-float-head">
-          <div>
-            <div className="kicker">Catskill · Greene County</div>
-            <h4>12 Maple Lane</h4>
-          </div>
-          <span className="owner-chip"><i aria-hidden="true" />Owner-maintained</span>
-        </div>
-        <dl className="home-facts">
-          <div><dt>Flood zone</dt><dd>Zone X · minimal <span className="badge">FEMA</span></dd></div>
-          <div><dt>Historic district</dt><dd>Not in a listed district</dd></div>
-          <div><dt>Lot lines</dt><dd>Official <span className="badge">Greene County</span></dd></div>
-          <div><dt>Assessed</dt><dd>$412,000 <span className="badge">2025 roll</span></dd></div>
-          <div><dt>Roof</dt><dd>Standing-seam metal, 2021 <span className="badge owner_reported">owner-reported</span></dd></div>
-        </dl>
-      </div>
-      <div className="home-float home-float-package">
-        <span className="home-float-title">Handoff received</span>
-        <strong>14 documents · 6 improvements · 31 photos</strong>
-        <small className="meta-line">From the previous owner, at closing</small>
-      </div>
-    </div>
-  );
-}
-
-function SellersScene() {
-  return (
-    <div className="home-scene-inner home-scene-sellers">
-      <Photo id={PHOTOS.blueDoor} width={1400} alt="A townhouse with a bright blue front door and a checkered garden path" className="home-scene-photo" />
-      <div className="home-float home-float-handoff">
-        <div className="kicker">Handoff</div>
-        <h4>What travels with the sale</h4>
-        <ul className="home-transfer-list">
-          <li><span>Deed and survey</span><em>Transfers</em><Toggle on /></li>
-          <li><span>Roof warranty</span><em>Transfers</em><Toggle on /></li>
-          <li><span>Contractor contacts</span><em>Transfers</em><Toggle on /></li>
-          <li><span>Insurance claims</span><em>Stays with you</em><Toggle on={false} /></li>
-        </ul>
-        <span className="btn home-static-btn" aria-hidden="true">Invite the new owner</span>
-      </div>
-    </div>
-  );
-}
-
-function CuriousScene() {
+function BrowseScene() {
   return (
     <div className="home-scene-inner">
       <Photo id={PHOTOS.victorian} width={1400} alt="A blue Victorian house with white trim and a stair to the front door" className="home-scene-photo" />
@@ -218,11 +108,103 @@ function CuriousScene() {
   );
 }
 
+function ClaimScene() {
+  return (
+    <div className="home-scene-inner home-scene-claim">
+      <Photo id={PHOTOS.kitchen} width={1400} alt="A farmhouse kitchen with white cabinets and wooden counters" className="home-scene-photo" />
+      <div className="home-float home-float-claim">
+        <div className="home-float-head">
+          <div>
+            <div className="kicker">12 Maple Lane</div>
+            <h4>Kitchen renovation</h4>
+          </div>
+          <span className="owner-chip"><i aria-hidden="true" />Claimed</span>
+        </div>
+        <dl className="home-facts">
+          <div><dt>Finished</dt><dd>Oct 2023</dd></div>
+          <div><dt>Cabinetry</dt><dd>Hudson Valley Cabinetry</dd></div>
+          <div><dt>Counters</dt><dd>Honed Vermont soapstone</dd></div>
+          <div><dt>Wall color</dt><dd>Farrow &amp; Ball, Shaded White</dd></div>
+        </dl>
+        <div className="home-strip">
+          <Photo id={PHOTOS.kitchenDetail} width={320} alt="" />
+          <Photo id={PHOTOS.kitchenCounter} width={320} alt="" />
+          <Photo id={PHOTOS.kitchen} width={320} alt="" />
+        </div>
+        <span className="vis-chip"><i aria-hidden="true" />31 photos · Public</span>
+      </div>
+    </div>
+  );
+}
+
+function PrivateScene() {
+  return (
+    <div className="home-scene-inner home-scene-private">
+      <Photo id={PHOTOS.kitchenDetail} width={1400} alt="A kettle on the range in a farmhouse kitchen" className="home-scene-photo" />
+      <div className="home-float home-float-docs">
+        <span className="home-float-title">Documents</span>
+        <ul className="home-doc-list">
+          <li><span>Deed</span><small>2019</small></li>
+          <li><span>Survey</span><small>PDF</small></li>
+          <li><span>Boiler manual</span><small>PDF</small></li>
+          <li><span>Roof warranty</span><small>to 2041</small></li>
+          <li><span>Furnace receipt</span><small>Jan 2022</small></li>
+        </ul>
+        <span className="vis-chip is-private"><i aria-hidden="true" />Only you</span>
+      </div>
+    </div>
+  );
+}
+
+function HandoffScene() {
+  return (
+    <div className="home-scene-inner home-scene-handoff">
+      <Photo id={PHOTOS.blueDoor} width={1400} alt="A townhouse with a bright blue front door and a checkered garden path" className="home-scene-photo" />
+      <div className="home-float home-float-handoff">
+        <div className="kicker">Handoff</div>
+        <h4>What travels with the sale</h4>
+        <ul className="home-transfer-list">
+          <li><span>Deed and survey</span><em>Transfers</em><Toggle on /></li>
+          <li><span>Roof warranty</span><em>Transfers</em><Toggle on /></li>
+          <li><span>Contractor contacts</span><em>Transfers</em><Toggle on /></li>
+          <li><span>Insurance claims</span><em>Stays with you</em><Toggle on={false} /></li>
+        </ul>
+        <span className="btn home-static-btn" aria-hidden="true">Invite the new owner</span>
+      </div>
+    </div>
+  );
+}
+
+function OfferScene() {
+  return (
+    <div className="home-scene-inner home-scene-offer">
+      <Photo id={PHOTOS.farmhouse} width={1400} alt="A white farmhouse with a metal roof under a blue sky" className="home-scene-photo" />
+      <div className="home-float home-float-facts">
+        <div className="home-float-head">
+          <div>
+            <div className="kicker">Catskill · Greene County</div>
+            <h4>12 Maple Lane</h4>
+          </div>
+          <span className="owner-chip"><i aria-hidden="true" />Owner-maintained</span>
+        </div>
+        <dl className="home-facts">
+          <div><dt>Flood zone</dt><dd>Zone X · minimal <span className="badge">FEMA</span></dd></div>
+          <div><dt>Historic district</dt><dd>Not in a listed district</dd></div>
+          <div><dt>Lot lines</dt><dd>Official <span className="badge">Greene County</span></dd></div>
+          <div><dt>Assessed</dt><dd>$412,000 <span className="badge">2025 roll</span></dd></div>
+          <div><dt>Roof</dt><dd>Standing-seam metal, 2021 <span className="badge owner_reported">owner-reported</span></dd></div>
+        </dl>
+      </div>
+    </div>
+  );
+}
+
 const SCENES: Record<ChapterId, () => React.JSX.Element> = {
-  owners: OwnersScene,
-  buyers: BuyersScene,
-  sellers: SellersScene,
-  curious: CuriousScene,
+  browse: BrowseScene,
+  claim: ClaimScene,
+  private: PrivateScene,
+  handoff: HandoffScene,
+  offer: OfferScene,
 };
 
 // ---------------------------------------------------------------------------
@@ -284,10 +266,10 @@ export function HomePage() {
       <section className="home-hero" aria-labelledby="home-title">
         <div className="home-hero-copy">
           <div className="kicker">Columbia &amp; Greene counties, New York</div>
-          <h1 id="home-title">A living record for every home.</h1>
+          <h1 id="home-title">Every house here already has a page.</h1>
           <p className="home-lede">
-            The official facts, the history of what changed, and what only you know.
-            For every property in two Hudson Valley counties, and soon the rest of New York.
+            We built one for {count === null ? "every parcel" : `all ${count.toLocaleString()} of them`} out of public records.
+            Claim yours, add what the county doesn't know, and it stays with the house after you sell.
           </p>
           <div className="home-search-anchor" ref={searchAnchor}>
             <div className="home-search">
@@ -295,7 +277,7 @@ export function HomePage() {
             </div>
           </div>
           <p className="meta-line home-hero-meta">
-            {countLabel ? `Search ${countLabel}` : "Search"} by address or tax map number.
+            {countLabel ? `Search ${countLabel}` : "Search"} by address or tax map number, or <Link to="/map">wander the map</Link>.
           </p>
         </div>
 
@@ -328,42 +310,35 @@ export function HomePage() {
         <p className="meta-line home-map-caption">
           {selected
             ? `${selected.id} County: ${selected.parcelCount.toLocaleString()} parcels. ${selected.short}`
-            : "Greene publishes its official lot lines. Columbia does not, so its shapes are approximate and labeled that way."}
+            : "Greene publishes its official lot lines. Columbia doesn't, so ours are approximate and labeled that way."}
         </p>
       </section>
 
-      <section className="home-story" id="home-story" aria-labelledby="home-story-title">
-        {/* No view timeline here, so docking always runs through the class-based path. */}
-        <SectionNav items={SECTION_NAV} className="home-nav" dockClass="home-nav-docked" scrollDriven={false} />
-        <div className="home-chapters">
-          {CHAPTERS.map((chapter) => {
-            const Scene = SCENES[chapter.id];
-            return (
-              <article key={chapter.id} id={`chapter-${chapter.id}`} className="home-chapter">
-                <header className="home-section-head">
-                  <div className="kicker">{chapter.audience}</div>
-                  <h2 id={chapter.id === "curious" ? "home-story-title" : undefined}>{chapter.title}</h2>
-                </header>
-                <div className="home-scene home-scene-inline is-on">
-                  <Scene />
-                </div>
-                <div className="home-chapter-copy">
-                  <p>{chapter.body}</p>
-                  <ul className="home-points">
-                    {chapter.points.map((point) => <li key={point}>{point}</li>)}
-                  </ul>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
+      <div className="home-chapters">
+        {CHAPTERS.map((chapter) => {
+          const Scene = SCENES[chapter.id];
+          return (
+            <section key={chapter.id} id={`chapter-${chapter.id}`} className="home-chapter" aria-labelledby={`chapter-${chapter.id}-title`}>
+              <header className="home-section-head">
+                <div className="kicker">{chapter.eyebrow}</div>
+                <h2 id={`chapter-${chapter.id}-title`}>{chapter.title}</h2>
+              </header>
+              <div className="home-scene is-on">
+                <Scene />
+              </div>
+              <div className="home-chapter-copy">
+                <p>{chapter.body}</p>
+              </div>
+            </section>
+          );
+        })}
+      </div>
 
       <section className="home-pillars" aria-labelledby="home-pillars-title">
         <header className="home-section-head">
-          <div className="kicker">How it is built</div>
+          <div className="kicker">How it's built</div>
           <h2 id="home-pillars-title">Official. Changed. Yours.</h2>
-          <p className="home-section-lede">What is official, what changed, and what only you know, each kept apart and labeled.</p>
+          <p className="home-section-lede">Three kinds of information, kept apart and labeled.</p>
         </header>
         <div className="home-pillar-grid">
           <article className="home-pillar">
@@ -373,7 +348,7 @@ export function HomePage() {
               <div className="home-pillar-fact"><span>Zoning</span><strong className="is-unknown">Unknown <em className="badge unknown">no source yet</em></strong></div>
             </div>
             <h3>Official</h3>
-            <p>Every fact from the county or the state carries its source. Where a record does not exist, the page says unknown instead of guessing.</p>
+            <p>Every fact carries its source. Where the record doesn't exist, the page says unknown instead of guessing.</p>
           </article>
           <article className="home-pillar">
             <div className="home-pillar-art">
@@ -384,7 +359,7 @@ export function HomePage() {
               </ul>
             </div>
             <h3>Changed</h3>
-            <p>Sales, assessments, claims and edits, oldest to newest. The history of a property is written once and never rewritten.</p>
+            <p>Sales, assessments and edits, oldest to newest. Written once, never rewritten.</p>
           </article>
           <article className="home-pillar">
             <div className="home-pillar-art home-pillar-vis">
@@ -393,9 +368,20 @@ export function HomePage() {
               <span className="vis-chip"><i aria-hidden="true" />Boiler manual · Transfers</span>
             </div>
             <h3>Yours</h3>
-            <p>Photos, improvements, systems and documents. Public where it helps, private where it matters, and yours to hand to the next owner.</p>
+            <p>Photos, improvements, systems, documents. You set each one public, private, or transfers.</p>
           </article>
         </div>
+      </section>
+
+      <section className="home-agents" aria-labelledby="home-agents-title">
+        <div className="home-agents-head">
+          <div className="kicker">For agents</div>
+          <h2 id="home-agents-title">Walk into the listing appointment already knowing the house.</h2>
+        </div>
+        <p>
+          Flood, lot lines, historic status and the current assessment on one page before you knock.
+          If the seller has claimed it, the documents are there too.
+        </p>
       </section>
 
       <section className="home-coverage" aria-labelledby="home-coverage-title">
@@ -403,8 +389,8 @@ export function HomePage() {
           <div className="kicker">Coverage</div>
           <h2 id="home-coverage-title">Two counties. Every lot.</h2>
           <p>
-            Columbia and Greene today, imported from public New York sources and refreshed as the counties publish.
-            Adding a county means adding one adapter, so the rest of the state can follow.
+            Columbia and Greene today, pulled from public New York sources and refreshed as the counties publish.
+            Each new county is one adapter, so the rest of the state can follow.
           </p>
           <dl className="home-coverage-stats">
             <div>
@@ -434,8 +420,7 @@ export function HomePage() {
       <section className="home-cta" aria-labelledby="home-cta-title">
         <h2 id="home-cta-title">Start with your address.</h2>
         <p>
-          Look up any property in Columbia or Greene. If it is yours, claim it and add what only you know.
-          Verification takes a day or two.
+          Look it up. If it's yours, claim it. Verification takes a day or two.
         </p>
         <div className="home-search">
           <SearchBox />
