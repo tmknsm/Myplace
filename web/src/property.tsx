@@ -1315,7 +1315,7 @@ function VisibilityChoice({ value, onChange }: { value: FieldVisibility; onChang
   );
 }
 
-/** Amount paid, plus an independent toggle for showing it on the public page. Off = only you. */
+/** Amount paid, plus an independent toggle for showing it on the public page. Off = private. */
 function PriceField({
   cost,
   onCost,
@@ -1341,7 +1341,7 @@ function PriceField({
           onClick={() => onShowPublic(!showPublic)}
         >
           <i aria-hidden="true" />
-          <span>{showPublic ? "Public" : "Only you"}</span>
+          <span>{showPublic ? "Public" : "Private"}</span>
         </button>
       </div>
     </div>
@@ -1681,7 +1681,7 @@ function RoomCard({
           {paidLabel && (
             <div className="topic-row">
               <dt>Amount paid</dt>
-              <dd>{paidLabel}{owner && !roomPaidPublic(room.details) ? <em className="badge private">only you</em> : null}</dd>
+              <dd>{paidLabel}{owner && !roomPaidPublic(room.details) ? <em className="badge private">private</em> : null}</dd>
             </div>
           )}
         </dl>
@@ -2720,7 +2720,7 @@ function ImprovementCard({
             {meta.map((entry) => (
               <li key={entry.key} className={entry.key}>
                 {entry.value}
-                {entry.private ? <em className="badge private">only you</em> : null}
+                {entry.private ? <em className="badge private">private</em> : null}
               </li>
             ))}
           </ul>
