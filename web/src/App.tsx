@@ -391,6 +391,10 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
                 <EyeIcon />
                 <span>Choose what stays private and what the neighborhood sees.</span>
               </li>
+              <li>
+                <VaultIcon />
+                <span>Keep receipts, permits, and paperwork in a private vault.</span>
+              </li>
             </ul>
           )}
 
@@ -499,6 +503,17 @@ function PinIcon() {
     <svg className="auth-perk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 21s6.5-5.4 6.5-10.2A6.5 6.5 0 0 0 5.5 10.8C5.5 15.6 12 21 12 21Z" />
       <circle cx="12" cy="10.6" r="2.1" />
+    </svg>
+  );
+}
+
+function VaultIcon() {
+  return (
+    <svg className="auth-perk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="4.5" width="16" height="15" rx="2.4" />
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M12 10.6v1.4l1 .8" />
+      <path d="M7 19.5v1.5M17 19.5v1.5" />
     </svg>
   );
 }
