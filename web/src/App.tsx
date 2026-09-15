@@ -64,7 +64,6 @@ function Layout({ children }: { children: React.ReactNode }) {
           {headerSearch && (
             <div className="header-search wide-only">
               <SearchBox compact />
-              {share}
             </div>
           )}
           {isHome && (
@@ -73,21 +72,25 @@ function Layout({ children }: { children: React.ReactNode }) {
               <SearchBox compact />
             </div>
           )}
-          <nav className="top-links">
-            <Link to="/map">Map</Link>
-            {user?.is_admin && <Link to="/admin" className="wide-only">Admin</Link>}
-            {meta?.debug && (
-              <button type="button" className="text-btn debug-link" data-testid="debug-link" onClick={() => setDebugOpen(true)}>Debug</button>
-            )}
-            {user ? (
-              <>
-                <Link to="/account">{user.display_name ? user.display_name.split(" ")[0] : "Account"}</Link>
-                <button className="text-btn wide-only" onClick={() => signOut()}>Sign out</button>
-              </>
-            ) : (
-              <Link to="/signin">Sign in</Link>
-            )}
-          </nav>
+          <div className="topbar-end">
+            <nav className="top-links">
+              <Link to="/map">Map</Link>
+              {user?.is_admin && <Link to="/admin" className="wide-only">Admin</Link>}
+              {meta?.debug && (
+                <button type="button" className="text-btn debug-link" data-testid="debug-link" onClick={() => setDebugOpen(true)}>Debug</button>
+              )}
+              {user ? (
+                <>
+                  <Link to="/account">{user.display_name ? user.display_name.split(" ")[0] : "Account"}</Link>
+                  <button className="text-btn wide-only" onClick={() => signOut()}>Sign out</button>
+                </>
+              ) : (
+                <Link to="/signin">Sign in</Link>
+              )}
+            </nav>
+            {/* Desktop: share and quick add sit at the right edge, after the links. */}
+            {share && <div className="header-actions wide-only">{share}</div>}
+          </div>
         </div>
         {headerSearch && (
           <div className="header-search narrow-only">
