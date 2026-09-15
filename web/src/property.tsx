@@ -450,16 +450,6 @@ export function PropertyPageView() {
     { id: "history", label: "History" },
   ];
 
-  const copyLink = async () => {
-    const url = `${window.location.origin}/property/${id}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      showToast("Link copied. Send it instead of answering the DM.");
-    } catch {
-      window.prompt("Copy this link", url);
-    }
-  };
-
   const sectionProps = { owner, propertyId: id, onChange: refresh, toast: showToast };
   const factSheetProps = {
     onEdit: (fact: Fact) => openField(fact.fieldKey),
@@ -542,7 +532,6 @@ export function PropertyPageView() {
                 Add photos
               </PhotoFileButton>
               <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
-              <button type="button" className="btn secondary" data-testid="copy-link" onClick={() => void copyLink()}>Copy link</button>
             </div>
           ) : (
             <>

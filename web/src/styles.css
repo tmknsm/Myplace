@@ -131,7 +131,82 @@ img, svg { max-width: 100%; }
 }
 .brand span { display: none; }
 .search-wrap, .header-search, .hero-search { position: relative; overflow: visible; }
-.header-search { flex: 1; max-width: 420px; }
+.header-search {
+  flex: 1;
+  max-width: 420px;
+  display: flex;
+  align-items: center;
+}
+.header-search .search-wrap { flex: 1 1 auto; min-width: 0; }
+
+/*
+ * Share, beside the search on the property page. The slot opens from zero
+ * width so the field contracts to make room, and the button pops in just as
+ * the space appears. Both replay on every property load (the slot is keyed).
+ */
+.header-share {
+  --share-slot: var(--tap);
+  --share-gap: 16px;
+  --share-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --share-pop: cubic-bezier(0.2, 1.35, 0.4, 1);
+  flex: 0 0 auto;
+  width: var(--share-slot);
+  margin-left: var(--share-gap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: share-slot-open 320ms var(--share-ease) both;
+}
+.share-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--share-slot, var(--tap));
+  height: var(--share-slot, var(--tap));
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--ink);
+  -webkit-tap-highlight-color: transparent;
+  transform-origin: 50% 50%;
+  transition: background 160ms ease, box-shadow 160ms ease, transform 160ms var(--share-ease, ease);
+  animation: share-pop 300ms var(--share-pop, ease) 100ms both;
+}
+.share-btn:hover { background: var(--surface); box-shadow: inset 0 0 0 1px var(--hairline); }
+.share-btn:active { transform: scale(0.94); transition-duration: 80ms; }
+.share-btn:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 38%, transparent); }
+.share-btn svg {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  transition: opacity 160ms ease, transform 220ms var(--share-pop, ease);
+}
+.share-btn .share-check { opacity: 0; transform: scale(0.6); color: var(--ok); }
+.share-btn.is-copied .share-glyph { opacity: 0; transform: scale(0.6); }
+.share-btn.is-copied .share-check { opacity: 1; transform: none; }
+@keyframes share-slot-open {
+  from { width: 0; margin-left: 0; }
+  to { width: var(--share-slot); margin-left: var(--share-gap); }
+}
+@keyframes share-pop {
+  from { opacity: 0; transform: scale(0.5); }
+  55% { opacity: 1; }
+  to { opacity: 1; transform: none; }
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 .top-links {
   margin-left: auto;
   display: flex;
@@ -2328,8 +2403,8 @@ html.dialog-open body {
 
   .wide-only { display: none !important; }
   .narrow-only { display: initial; }
-  .mail-back.narrow-only,
-  .header-search.narrow-only { display: block; }
+  .mail-back.narrow-only { display: block; }
+  .header-search.narrow-only { display: flex; max-width: none; }
   .action-row.narrow-only { display: flex; }
 
   .topbar-main { gap: 10px; padding: 10px var(--pad); min-width: 0; }
@@ -3213,6 +3288,7 @@ html.home-search-docked .topbar .home-handoff {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .header-share, .share-btn { animation: none; }
   .home-hero-copy > * { animation: none; }
   .home-chapter,
   .home-scene,
