@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
-import { actorLabel, eventLabel, ParcelMap, STATUS_LABEL, unknownHint } from "./components";
+import { actorLabel, eventLabel, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
 import { useMeta } from "./meta";
 import { DisputesSection } from "./property-owner";
@@ -309,7 +309,7 @@ export function PropertyPageView() {
   const closeSheet = useCallback(() => setSheet(null), []);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!data || !id) return <div className="page">Loading record…</div>;
+  if (!data || !id) return <PageSpinner label="Loading record" />;
 
   const { property, viewer } = data;
   const owner = Boolean(viewer.maintainer && !viewer.openClaim);
@@ -2893,10 +2893,6 @@ function ImprovementPhotos({
   );
 }
 
-function Spinner() {
-  return <span className="spinner" aria-hidden="true" />;
-}
-
 function PhotoFileButton({
   className,
   busy,
@@ -3218,7 +3214,7 @@ export function PropertyPhotosPage() {
   }, [data, title]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!data || !id) return <div className="page">Loading record…</div>;
+  if (!data || !id) return <PageSpinner label="Loading record" />;
 
   const { property, viewer } = data;
   const owner = Boolean(viewer.maintainer && !viewer.openClaim);

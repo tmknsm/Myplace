@@ -5,6 +5,20 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { api, type Fact, type SearchHit } from "./api";
 import { useMeta } from "./meta";
 
+/** The same ring used in busy buttons, photo tiles, and full-page waits. */
+export function Spinner() {
+  return <span className="spinner" aria-hidden="true" />;
+}
+
+/** A page-filling wait: the spinner, centered, and nothing else. */
+export function PageSpinner({ label = "Loading" }: { label?: string }) {
+  return (
+    <div className="page page-spinner" role="status" aria-label={label}>
+      <Spinner />
+    </div>
+  );
+}
+
 export function SearchBox({ compact = false, autoFocus = false }: { compact?: boolean; autoFocus?: boolean }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);

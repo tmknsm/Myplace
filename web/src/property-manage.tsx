@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { api, type InboxItem, type PageRefresh, type PropertyPage, type Viewer } from "./api";
 import { useAuth } from "./auth";
+import { PageSpinner, Spinner } from "./components";
 import { useMeta } from "./meta";
 import { DocumentsSection, HandoffSection, MaintainersSection, NotificationsSection } from "./property-owner";
 import { DOCUMENT_TYPE_LABEL, dateLabel, useToast, type Toast } from "./property-shared";
@@ -91,10 +92,10 @@ function OwnerPage({
   const title = useOwnerTitle(data, suffix);
 
   if (!id) return <Navigate to="/account" replace />;
-  if (!ready) return <div className="page">Loading…</div>;
+  if (!ready) return <PageSpinner />;
   if (!user) return <Navigate to={`/signin?next=${encodeURIComponent(location.pathname)}`} replace />;
   if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!data) return <div className="page">Loading record…</div>;
+  if (!data) return <PageSpinner label="Loading record" />;
 
   const { property, viewer } = data;
   const owner = Boolean(viewer.maintainer && !viewer.openClaim);
@@ -257,7 +258,11 @@ function InboxList({ propertyId, onChange, toast }: { propertyId: string; onChan
         Requests to change this page, disputes you've filed, and notices from official sources. Accepting a request writes it to the owner layer.
       </p>
       {error && <p className="error">{error}</p>}
-      {items === null && !error && <div className="group empty-card">Loading messages…</div>}
+      {items === null && !error && (
+        <div className="group empty-card" role="status" aria-label="Loading messages">
+          <Spinner />
+        </div>
+      )}
       {items && items.length === 0 && (
         <div className="group empty-card" data-testid="inbox-empty">
           Nothing waiting. Requests, disputes and county updates land here.
