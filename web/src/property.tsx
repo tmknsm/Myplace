@@ -341,7 +341,6 @@ export function PropertyPageView() {
   const showImprovements = owner || property.improvements.length > 0;
   const showSystems = systemsTopics.length > 0;
   const showCharacter = characterTopics.length > 0;
-  const showOwnerHalf = showAbout || showPhotos || showImprovements || showSystems || showCharacter;
   const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id).length;
 
   const nav: Array<{ id: string; label: string }> = [
@@ -530,15 +529,6 @@ export function PropertyPageView() {
             />
           )}
 
-          {showOwnerHalf && (
-            <HalfHead
-              kicker={owner ? "Your half" : "From the owner"}
-              note={owner
-                ? "What only you know. Public unless you mark it private, and it stays with the house after you sell."
-                : "What the owner has chosen to share. Labeled owner-reported, never mixed with the county's facts."}
-            />
-          )}
-
           {showAbout && summary && (
             <AboutSection
               fact={summary}
@@ -600,13 +590,6 @@ export function PropertyPageView() {
           )}
 
           {owner && <VaultCard propertyId={id} count={vaultCount} maintainers={property.maintainers.length} />}
-
-          <HalfHead
-            kicker="The county's half"
-            note={owner
-              ? "Official facts with their sources. You can't overwrite these, but you can dispute one and fill any blank the county left; those are labeled owner-reported."
-              : "Official facts with their sources. Where the county has no record, the page says unknown instead of guessing."}
-          />
 
           <FactSection
             id="location"
@@ -692,18 +675,8 @@ export function PropertyPageView() {
 }
 
 // ---------------------------------------------------------------------------
-// Page structure: the two halves, and the owner's pointer to the vault
+// The owner's pointer to the vault
 // ---------------------------------------------------------------------------
-
-/** A divider between the owner's half of the page and the county's. */
-function HalfHead({ kicker, note }: { kicker: string; note: string }) {
-  return (
-    <div className="half-head">
-      <div className="kicker">{kicker}</div>
-      <p className="meta-line">{note}</p>
-    </div>
-  );
-}
 
 /** The private half lives on the owner tools page; this is the door to it. */
 function VaultCard({ propertyId, count, maintainers }: { propertyId: string; count: number; maintainers: number }) {
