@@ -357,10 +357,10 @@ export function PropertyPageView() {
   const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id && !doc.room_id).length;
 
   const nav: Array<{ id: string; label: string }> = [
+    ...(showPhotos ? [{ id: "photos", label: "Photos" }] : []),
     ...(showAbout ? [{ id: "about", label: "About" }] : []),
     ...(showCharacter ? [{ id: "character", label: "Style" }] : []),
     ...(showRooms ? [{ id: "rooms", label: "Rooms" }] : []),
-    ...(showPhotos ? [{ id: "photos", label: "Photos" }] : []),
     ...(showImprovements ? [{ id: "improvements", label: "Improvements" }] : []),
     ...(showSystems ? [{ id: "systems", label: "Systems" }] : []),
     ...(owner ? [{ id: "vault", label: "Vault" }] : []),
@@ -544,6 +544,20 @@ export function PropertyPageView() {
             />
           )}
 
+          {showPhotos && (
+            <PhotosSection
+              photos={photos}
+              cover={cover}
+              pendingCount={photoUploads}
+              uploading={uploading}
+              uploadError={photoError}
+              onUpload={(files) => uploadPhotos(files)}
+              onUploadError={reportPhotoError}
+              onOpen={(index) => setLightbox(index)}
+              {...sectionProps}
+            />
+          )}
+
           {showAbout && summary && (
             <AboutSection
               fact={summary}
@@ -573,20 +587,6 @@ export function PropertyPageView() {
               propertyId={id}
               onChange={refresh}
               toast={showToast}
-            />
-          )}
-
-          {showPhotos && (
-            <PhotosSection
-              photos={photos}
-              cover={cover}
-              pendingCount={photoUploads}
-              uploading={uploading}
-              uploadError={photoError}
-              onUpload={(files) => uploadPhotos(files)}
-              onUploadError={reportPhotoError}
-              onOpen={(index) => setLightbox(index)}
-              {...sectionProps}
             />
           )}
 
