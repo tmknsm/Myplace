@@ -1226,7 +1226,7 @@ function AboutSection({
   return (
     <section className="section about" id="about">
       <div className="section-head">
-        <h2>About this place</h2>
+        <h2>About</h2>
       </div>
       {text ? (
         <div className={`group about-card${fact.visibility === "private" ? " is-private" : ""}`}>
