@@ -128,6 +128,30 @@ const STRIP_KEYS: Array<{ key: string; label: string; asYear?: boolean }> = [
 ];
 const STRIP_MAX = 6;
 
+/**
+ * The character tiles an unclaimed page is missing, shown as quiet outlines so
+ * a prospective owner sees what the strip becomes once it's theirs. Real facts
+ * always come first; these only fill the slots left over.
+ */
+const GHOST_TILES: Array<{ key: string; label: string; text: string; swatch: boolean }> = [
+  { key: "exterior.color", label: "Exterior paint", text: "Name & swatch", swatch: true },
+  { key: "style.architecture", label: "Style", text: "Period & details", swatch: false },
+  { key: "exterior.trim", label: "Trim color", text: "Name & swatch", swatch: true },
+];
+
+/**
+ * The owner's half of the page, as it reads before anyone has claimed it. One
+ * card per section a claimed page would have, each a door to the claim flow.
+ * Ids match the section chips so the nav works the same on both pages.
+ */
+const PREVIEW_CARDS: Array<{ id: string; label: string; title: string; body: string }> = [
+  { id: "photos", label: "Photos", title: "Photos", body: "A cover photo, the kitchen, the before-and-afters. Public by default; the owner picks what stays private." },
+  { id: "character", label: "Style", title: "Style & finishes", body: "The paint, named, with a swatch. The style, and what's still original." },
+  { id: "rooms", label: "Rooms", title: "Rooms", body: "Kitchen, baths, bedrooms: the flooring, the fixtures, the color on the walls." },
+  { id: "improvements", label: "Improvements", title: "Improvements", body: "What was done, who did it, what it cost. Receipts stay private and travel with the house." },
+  { id: "systems", label: "Systems", title: "Systems", body: "Roof, heat, water, wiring, septic, and the year each went in." },
+];
+
 function organizeFacts(facts: Fact[]): Map<string, Fact[]> {
   const placed = new Set<string>([SUMMARY_KEY]);
   const sections = new Map<string, Fact[]>();
@@ -334,6 +358,14 @@ export function PropertyPageView() {
     }
     navigate(user ? `/property/${id}/claim` : `/signin?next=/property/${id}/claim`);
   };
+  /** Where the preview's doors lead: into the claim flow, or to the claim already under review. */
+  const goClaim = () => {
+    if (viewer.openClaim) {
+      navigate(`/property/${id}/claim/${viewer.openClaim.claim_id}`);
+      return;
+    }
+    startClaim();
+  };
 
   const uploadPhotos = async (files: File[], options: { cover?: boolean } = {}) => {
     if (!files.length) return;
@@ -379,13 +411,21 @@ export function PropertyPageView() {
   const showCharacter = characterTopics.length > 0;
   const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id && !doc.room_id && !doc.topic_id).length;
 
+  // Nobody has claimed this page yet: show the owner's half as outlines so a
+  // prospective owner can see what it becomes. Pages someone else maintains
+  // stay as they are; a visitor there isn't the one who'd fill them in.
+  const prospect = !owner && !maintained;
+  const shown: Record<string, boolean> = { photos: showPhotos, character: showCharacter, rooms: showRooms, improvements: showImprovements, systems: showSystems };
+  const previewCards = prospect ? PREVIEW_CARDS.filter((card) => !shown[card.id]) : [];
+  const previews = (sectionId: string) => previewCards.some((card) => card.id === sectionId);
+
   const nav: Array<{ id: string; label: string }> = [
-    ...(showPhotos ? [{ id: "photos", label: "Photos" }] : []),
+    ...(showPhotos || previews("photos") ? [{ id: "photos", label: "Photos" }] : []),
     ...(showAbout ? [{ id: "about", label: "About" }] : []),
-    ...(showCharacter ? [{ id: "character", label: "Style" }] : []),
-    ...(showRooms ? [{ id: "rooms", label: "Rooms" }] : []),
-    ...(showImprovements ? [{ id: "improvements", label: "Improvements" }] : []),
-    ...(showSystems ? [{ id: "systems", label: "Systems" }] : []),
+    ...(showCharacter || previews("character") ? [{ id: "character", label: "Style" }] : []),
+    ...(showRooms || previews("rooms") ? [{ id: "rooms", label: "Rooms" }] : []),
+    ...(showImprovements || previews("improvements") ? [{ id: "improvements", label: "Improvements" }] : []),
+    ...(showSystems || previews("systems") ? [{ id: "systems", label: "Systems" }] : []),
     ...(owner ? [{ id: "vault", label: "Vault" }] : []),
     { id: "location", label: "Location" },
     { id: "rules", label: "Flood & zoning" },
@@ -507,7 +547,7 @@ export function PropertyPageView() {
         </div>
       </header>
 
-      <StatStrip facts={property.facts} />
+      <StatStrip facts={property.facts} onClaim={prospect ? goClaim : undefined} />
 
       <div className="profile-grid">
         <SectionNav items={nav} />
@@ -647,6 +687,14 @@ export function PropertyPageView() {
 
           {owner && <VaultCard propertyId={id} count={vaultCount} maintainers={property.maintainers.length} />}
 
+          {previewCards.length > 0 && (
+            <ClaimPreview
+              cards={previewCards}
+              openClaim={viewer.openClaim ? `/property/${id}/claim/${viewer.openClaim.claim_id}` : null}
+              onClaim={goClaim}
+            />
+          )}
+
           <FactSection
             id="location"
             title="Location & utilities"
@@ -754,6 +802,59 @@ function VaultCard({ propertyId, count, maintainers }: { propertyId: string; cou
 }
 
 // ---------------------------------------------------------------------------
+// The owner's half, before anyone has claimed it
+// ---------------------------------------------------------------------------
+
+/**
+ * Outlines of the sections a claimed page carries. Each card is a door into
+ * the claim flow, and the section ends on the claim button again so a reader
+ * who scrolled past the header doesn't have to go back up for it.
+ */
+function ClaimPreview({
+  cards,
+  openClaim,
+  onClaim,
+}: {
+  cards: typeof PREVIEW_CARDS;
+  /** Link to the claim under review, when the viewer already has one open. */
+  openClaim: string | null;
+  onClaim: () => void;
+}) {
+  return (
+    <section className="section claim-preview" data-testid="claim-preview">
+      <h2>The owner's half</h2>
+      <p className="meta-line section-note">
+        Empty until someone claims the page. This is what they'd fill in; the county record picks up at Location.
+      </p>
+      <div className="topic-list">
+        {cards.map((card) => (
+          <button
+            key={card.id}
+            type="button"
+            id={card.id}
+            className="group topic-card topic-empty preview-card"
+            onClick={onClaim}
+            data-testid={`preview-${card.id}`}
+          >
+            <span className="preview-card-title">{card.title}</span>
+            <span className="meta-line">{card.body}</span>
+            <span className="preview-card-cta">{openClaim ? "Claim under review" : "Claim to add"}</span>
+          </button>
+        ))}
+      </div>
+      <div className="claim-preview-foot">
+        {openClaim ? (
+          <Link className="btn secondary" to={openClaim}>Claim under review</Link>
+        ) : (
+          <button type="button" className="btn" data-testid="claim-preview-button" onClick={onClaim}>Claim this address</button>
+        )}
+        <span className="meta-line">Verification takes a day or two. There's a private vault too, for the deed, the survey, the manuals.</span>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Hero support: stat strip, in-page nav, lightbox
 // ---------------------------------------------------------------------------
 
@@ -776,8 +877,10 @@ function factYear(fact: Fact): string | null {
  * The tiles under the hero. Only facts that already have a value. Character
  * first (paint, style, trim color), then the public ones that are actually
  * worth glancing at (beds, baths, the year it last sold, the year it was built).
+ * With `onClaim`, the character slots still empty are drawn as outlines that
+ * lead into the claim flow.
  */
-function StatStrip({ facts }: { facts: Fact[] }) {
+function StatStrip({ facts, onClaim }: { facts: Fact[]; onClaim?: () => void }) {
   const tiles = STRIP_KEYS.flatMap((tile) => {
     const fact = facts.find((item) => item.fieldKey === tile.key);
     if (!fact || fact.status === "unknown") return [];
@@ -790,9 +893,13 @@ function StatStrip({ facts }: { facts: Fact[] }) {
     const { text, swatch } = splitSwatch(tile.key, fact.display, factHex(tile.key, facts));
     return [{ key: tile.key, label: tile.label, text, swatch, isPrivate: fact.visibility === "private" }];
   }).slice(0, STRIP_MAX);
-  if (tiles.length === 0) return null;
+  const ghosts = onClaim
+    ? GHOST_TILES.filter((ghost) => !tiles.some((tile) => tile.key === ghost.key)).slice(0, Math.max(0, STRIP_MAX - tiles.length))
+    : [];
+  const count = tiles.length + ghosts.length;
+  if (count === 0) return null;
   return (
-    <div className={`stat-strip${tiles.length % 2 ? " odd" : ""}`} data-testid="stat-strip">
+    <div className={`stat-strip${count % 2 ? " odd" : ""}`} data-testid="stat-strip">
       {tiles.map((tile) => (
         <div key={tile.key} className={`stat${tile.isPrivate ? " is-private" : ""}`} data-field={tile.key}>
           <span>{tile.label}{tile.isPrivate ? " · private" : ""}</span>
@@ -801,6 +908,23 @@ function StatStrip({ facts }: { facts: Fact[] }) {
             {tile.text}
           </strong>
         </div>
+      ))}
+      {ghosts.map((ghost) => (
+        <button
+          key={ghost.key}
+          type="button"
+          className="stat stat-ghost"
+          data-field={ghost.key}
+          data-testid={`stat-ghost-${ghost.key}`}
+          aria-label={`${ghost.label}: the owner adds this after claiming`}
+          onClick={onClaim}
+        >
+          <span>{ghost.label}</span>
+          <strong>
+            {ghost.swatch && <i className="swatch swatch-empty" aria-hidden="true" />}
+            {ghost.text}
+          </strong>
+        </button>
       ))}
     </div>
   );
