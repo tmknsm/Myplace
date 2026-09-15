@@ -84,6 +84,9 @@ img, svg { max-width: 100%; }
   left: 0;
   right: 0;
   height: var(--topbar-height, 0px);
+  /* After iOS keyboard or pull-to-refresh, --topbar-height can briefly be 0.
+     Keep a brand-row-sized sheet so content never paints through the header. */
+  min-height: calc(env(safe-area-inset-top) + 52px);
   background: var(--chrome-fill);
   backdrop-filter: var(--chrome-blur);
   -webkit-backdrop-filter: var(--chrome-blur);
@@ -101,6 +104,15 @@ img, svg { max-width: 100%; }
 .topbar-main,
 .header-search {
   pointer-events: auto;
+}
+/* Hide auth-page chrome without collapsing the bar. The links are 44px
+   tall and the search row is a second line on narrow screens; removing
+   them from the box is what made the header jump. */
+.topbar.is-auth .header-search,
+.topbar.is-auth .header-actions,
+.topbar.is-auth .top-links {
+  visibility: hidden;
+  pointer-events: none;
 }
 .topbar {
   --share-slot: var(--tap);
@@ -673,6 +685,109 @@ input[type="file"] {
 .choice p, .card p { margin: 0; color: var(--muted); font-size: 14px; }
 
 .wizard { max-width: 420px; margin-left: auto; margin-right: auto; padding-top: 48px; }
+
+/* ---- Sign in / sign up ------------------------------------------------- */
+.page.wizard.auth-page {
+  display: flex;
+  flex-direction: column;
+  max-width: none;
+  min-height: calc(100svh - var(--topbar-height, 84px));
+  padding-bottom: 0;
+}
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.auth-body {
+  flex: 1 0 auto;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  padding-bottom: calc(28px + 76px + env(safe-area-inset-bottom));
+}
+.auth-page .manage-cta {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+}
+.auth-page .display {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: clamp(34px, 6vw, 42px);
+  letter-spacing: -0.025em;
+  line-height: 1.04;
+  margin-bottom: 10px;
+}
+.auth-lede { margin: 0; max-width: 36ch; }
+.auth-page .auth-switch {
+  margin: 10px 0 28px;
+  padding: 0;
+  border: 0;
+}
+/* Four value props in a 2x2 grid. The 1px gap over a hairline background
+   draws the dividers between cells only, never around the outside. */
+.auth-perks {
+  list-style: none;
+  margin: 0 0 28px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--hairline);
+}
+.auth-perks li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 16px 16px 0;
+  background: var(--canvas);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+.auth-perks li:nth-child(even) { padding-left: 16px; padding-right: 0; }
+.auth-perk-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--accent);
+}
+.auth-form .stack { margin: 6px 0 14px; }
+.auth-names {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+.auth-names .stack { min-width: 0; }
+.auth-sent {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 6px 0 2px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  font-size: 14px;
+  color: var(--muted);
+}
+.auth-sent strong { color: var(--ink); font-weight: 560; overflow-wrap: anywhere; }
+.auth-resend { display: inline-flex; font-size: 14px; color: var(--muted); min-height: 40px; }
+.auth-switch {
+  margin: 28px 0 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--hairline);
+  font-size: 14px;
+  color: var(--muted);
+}
+.auth-switch a { color: var(--ink); font-weight: 500; text-decoration: none; border-bottom: 1px solid var(--hairline); }
+.auth-switch a:hover { border-bottom-color: var(--ink); }
+
 label.stack { display: block; margin: 14px 0; }
 label.stack span { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); font-weight: 500; }
 
@@ -1007,6 +1122,7 @@ tr:last-child td { border-bottom: 0; }
   gap: 8px;
   flex: 0 1 auto;
 }
+.profile-actions:empty { display: none; }
 .profile-actions .action-row.compact { margin-top: 0; }
 .profile-nudge { max-width: 34ch; margin: 0; font-size: 13px; }
 
@@ -2332,6 +2448,14 @@ html.dialog-open body {
   width: 100%;
 }
 
+/* Claimed-page gate: clip downward scroll but leave overscroll so pull-to-refresh still works. */
+html.peek-gated,
+html.peek-gated body {
+  overflow: hidden;
+  height: 100%;
+  overscroll-behavior-y: auto;
+}
+
 /* ---- Sheets ------------------------------------------------------------ */
 /* Every owner edit happens in one of these. Wide screens get a centered card;
    phones get a bottom sheet that rises with a little spring over a plain
@@ -2470,11 +2594,11 @@ html.dialog-open body {
   --page-inline-end: max(var(--page-margin), env(safe-area-inset-right));
   padding: calc(var(--page-margin) - 8px) var(--page-inline-end) max(var(--page-margin), env(safe-area-inset-bottom)) var(--page-inline-start);
 }
-/* Hero is full-bleed horizontally; page top padding clears the header chrome. */
+/* Hero is full-bleed on narrow screens; page top padding clears the header chrome. */
 .property-page .profile-hero-band {
   width: 100vw;
   max-width: 100vw;
-  margin: 0 0 var(--gutter);
+  margin: 0 0 24px;
   margin-left: calc(50% - 50vw);
   margin-right: calc(50% - 50vw);
   background: none;
@@ -2483,11 +2607,24 @@ html.dialog-open body {
 .property-page .profile-hero {
   border-radius: var(--radius) var(--radius) 0 0;
 }
+/* Desktop: keep the hero inside the same column as the page content. */
+@media (min-width: 881px) {
+  .property-page .profile-hero-band {
+    width: auto;
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+    border-radius: var(--radius);
+  }
+  .property-page .profile-hero {
+    border-radius: var(--radius);
+  }
+}
 /* The address card reads as type on the canvas: no fill, flush with the page. */
 .property-page .profile-head,
 .property-page .profile-head.group {
-  padding: 10px 0 12px;
-  margin-bottom: var(--gutter);
+  padding: 0;
+  margin-bottom: 24px;
   background: none;
   box-shadow: none;
   border-radius: 0;
@@ -2512,6 +2649,114 @@ html.dialog-open body {
 .property-page .map-card { margin-bottom: var(--gutter); }
 .property-page .banner { padding: var(--card-pad) var(--card-pad-x); margin-bottom: var(--gutter); }
 .property-page .toast { margin-bottom: var(--gutter); }
+
+/*
+ * Signed-out visitors on a claimed page. A 40% black scrim covers the whole
+ * hero. Heading + button sit on that photo; the gray note lives in the
+ * covered area. The canvas gradient veils chip labels and goes solid on the
+ * values. The scrim and lockup catch pointer events so the carousel
+ * cannot be swiped.
+ */
+.peek-gate {
+  position: fixed;
+  inset: var(--topbar-height, 0px) 0 0 0;
+  z-index: 19;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--gate-hero-top, 0px) + var(--gate-hero-height, 42%)),
+    color-mix(in srgb, var(--canvas) 22%, transparent) var(--gate-labels, 55%),
+    color-mix(in srgb, var(--canvas) 70%, transparent) calc(var(--gate-solid, 62%) - 4px),
+    var(--canvas) var(--gate-solid, 62%)
+  );
+}
+.peek-gate-scrim {
+  position: absolute;
+  top: var(--gate-hero-top, 0px);
+  left: var(--gate-hero-left, 0px);
+  width: var(--gate-hero-width, 100%);
+  height: var(--gate-hero-height, 42%);
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius) var(--radius) 0 0;
+  pointer-events: auto;
+  touch-action: none;
+}
+@media (min-width: 881px) {
+  .peek-gate-scrim { border-radius: var(--radius); }
+}
+/*
+ * Editorial lockup in the hero's bottom-left corner. It shares the hero's
+ * control inset (--hero-pad / --hero-pad-bottom), so it lines up with the
+ * pills and dots that normally live there and with the address below.
+ */
+.peek-gate-lockup {
+  --lockup-inset: 16px;
+  --lockup-inset-bottom: 24px;
+  position: absolute;
+  left: calc(var(--gate-hero-left, 0px) + var(--lockup-inset));
+  top: calc(var(--gate-hero-top, 0px) + var(--gate-hero-height, 42%));
+  transform: translateY(-100%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  width: calc(var(--gate-hero-width, 100%) - var(--lockup-inset) * 2);
+  max-width: 560px;
+  padding: 0 0 var(--lockup-inset-bottom);
+  text-align: left;
+  color: #fff;
+  pointer-events: auto;
+}
+.peek-gate-lockup h2 {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: clamp(30px, 6.4vw, 46px);
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  margin: 0 0 20px;
+  color: #fff;
+  text-wrap: balance;
+}
+.peek-gate-lockup .btn { min-width: 132px; }
+@media (min-width: 881px) {
+  .peek-gate-lockup {
+    --lockup-inset: 32px;
+    --lockup-inset-bottom: 32px;
+  }
+  .peek-gate-lockup h2 { margin-bottom: 24px; }
+}
+.peek-gate-note {
+  position: absolute;
+  left: 50%;
+  top: var(--gate-solid, 62%);
+  bottom: 0;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  width: min(420px, calc(100% - 48px));
+  padding: 16px 0 max(24px, env(safe-area-inset-bottom));
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.45;
+  text-align: center;
+}
+.property-page.is-gated {
+  max-height: 100dvh;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.property-page.is-gated .stat strong {
+  visibility: hidden;
+}
+.property-page.is-gated .hero-dots { display: none; }
+.property-page.is-gated .hero-track {
+  overflow: hidden;
+  pointer-events: none;
+  touch-action: none;
+}
 
 /* Section titles sit flush with the cards, not inset to the card padding. */
 .property-page .section > h2,
@@ -2617,9 +2862,9 @@ html.dialog-open body {
     padding: 20px var(--page-inline-end) 96px var(--page-inline-start);
   }
   .profile-hero-band { margin-bottom: 16px; }
-  .property-page .profile-hero-band { margin-bottom: var(--gutter); }
+  .property-page .profile-hero-band { margin-bottom: 24px; }
   .profile-head { gap: 14px; margin-bottom: 14px; align-items: flex-start; }
-  .property-page .profile-head { margin-bottom: var(--gutter); }
+  .property-page .profile-head { margin-bottom: 24px; }
   .property-page .stat-strip { margin-top: 0; margin-bottom: var(--gutter); }
   .profile-head h1 { font-size: clamp(30px, 9vw, 40px); margin: 4px 0 6px; }
   .profile-title .profile-chips { margin-bottom: 8px; }
@@ -2832,6 +3077,7 @@ html.dialog-open body {
 }
 
 @media (max-width: 420px) {
+  .auth-names { grid-template-columns: 1fr; }
   .top-links a { font-size: 14px; }
 }
 

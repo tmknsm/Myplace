@@ -15,7 +15,13 @@ function Layout({ children }: { children: React.ReactNode }) {
   const meta = useMeta();
   const [debugOpen, setDebugOpen] = useState(false);
   const isHome = location.pathname === "/";
-  const headerSearch = !isHome && !/^\/(signin|dev|admin)/.test(location.pathname);
+  const onAuth = /^\/(signin|signup)/.test(location.pathname);
+  const searchOnThisPage = !isHome && !onAuth && !/^\/(dev|admin)/.test(location.pathname);
+  // Keep the search row in the layout on auth if the page you left had one,
+  // so the bar does not shrink. Hidden visually, still occupies its height.
+  const searchOnArrival = useRef(false);
+  if (!onAuth) searchOnArrival.current = searchOnThisPage;
+  const headerSearch = onAuth ? searchOnArrival.current : searchOnThisPage;
   // The share button rides beside the search on the property page itself, in
   // every state. Keyed on the id so the slot re-opens for each page load.
   // The empty slot after it is where the property page mounts its quick-add
@@ -47,15 +53,23 @@ function Layout({ children }: { children: React.ReactNode }) {
     const observer = new ResizeObserver(sync);
     observer.observe(node);
     window.addEventListener("resize", sync);
+    // iOS: pull-to-refresh, bfcache, and backing out of the email keyboard
+    // all leave sticky chrome and --topbar-height stale unless we remasure.
+    window.addEventListener("pageshow", sync);
+    window.visualViewport?.addEventListener("resize", sync);
+    window.visualViewport?.addEventListener("scroll", sync);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", sync);
+      window.removeEventListener("pageshow", sync);
+      window.visualViewport?.removeEventListener("resize", sync);
+      window.visualViewport?.removeEventListener("scroll", sync);
     };
-  }, [headerSearch, user, meta?.debug]);
+  }, [headerSearch, user, meta?.debug, onAuth]);
   return (
     <>
       <div className="chrome-glass" aria-hidden="true" />
-      <header className="topbar" ref={topbarRef}>
+      <header className={`topbar${onAuth ? " is-auth" : ""}`} ref={topbarRef}>
         <div className="topbar-main">
           <Link to="/" className="brand">
             <i className="mark" aria-hidden="true" />
@@ -74,19 +88,19 @@ function Layout({ children }: { children: React.ReactNode }) {
           )}
           <div className="topbar-end">
             <nav className="top-links">
-              <Link to="/map">Map</Link>
+              {!onAuth && <Link to="/map">Map</Link>}
               {user?.is_admin && <Link to="/admin" className="wide-only">Admin</Link>}
               {meta?.debug && (
                 <button type="button" className="text-btn debug-link" data-testid="debug-link" onClick={() => setDebugOpen(true)}>Debug</button>
               )}
               {user ? (
                 <>
-                  <Link to="/account">{user.display_name ? user.display_name.split(" ")[0] : "Account"}</Link>
+                  <Link to="/account">{user.first_name || user.display_name?.split(" ")[0] || "Account"}</Link>
                   <button className="text-btn wide-only" onClick={() => signOut()}>Sign out</button>
                 </>
-              ) : (
-                <Link to="/signin">Sign in</Link>
-              )}
+              ) : !onAuth ? (
+                <Link to="/signup">Sign up</Link>
+              ) : null}
             </nav>
             {/* Desktop: share and quick add sit at the right edge, after the links. */}
             {share && <div className="header-actions wide-only">{share}</div>}
@@ -294,77 +308,235 @@ function ClaimStatusPage() {
   );
 }
 
-function SignInPage() {
+/**
+ * One email-code flow, two doors. Sign up says what the account is for and
+ * frames the same steps as creating one; sign in stays brief. Each links to
+ * the other and carries the return path along.
+ */
+function AuthPage({ mode }: { mode: "signin" | "signup" }) {
   const { refresh, user } = useAuth();
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const [firstName, setFirstName] = useState(params.get("first") ?? "");
+  const [lastName, setLastName] = useState(params.get("last") ?? "");
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const next = params.get("next") || "/account";
+  const signup = mode === "signup";
+  const codeRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (user) navigate(next, { replace: true });
   }, [user, next, navigate]);
+  useEffect(() => {
+    if (sent) codeRef.current?.focus();
+  }, [sent]);
+
+  const otherHref = (path: string) => {
+    const query = new URLSearchParams();
+    if (params.get("next")) query.set("next", params.get("next")!);
+    if (email) query.set("email", email);
+    const search = query.toString();
+    return search ? `${path}?${search}` : path;
+  };
+
+  const readyToSend = Boolean(email.trim() && (!signup || firstName.trim()));
+  const sendCode = async () => {
+    if (!readyToSend || busy) return;
+    setBusy(true);
+    try {
+      await api.requestCode(email.trim());
+      setSent(true);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send code");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const verify = async () => {
+    if (code.length < 6 || busy) return;
+    if (signup && !firstName.trim()) {
+      setError("Enter your first name.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.verify(email.trim(), code, signup ? { firstName: firstName.trim(), lastName: lastName.trim() } : undefined);
+      await refresh();
+      navigate(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not verify");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="page wizard">
-      <div className="kicker">Welcome</div>
-      <h1 className="display">Sign in</h1>
-      <p className="meta-line">A six-digit code. No password.</p>
-      <label className="stack">
-        <span>Email</span>
-        <input
-          className="field"
-          type="email"
-          inputMode="email"
-          autoComplete="email"
-          autoCapitalize="none"
-          autoCorrect="off"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-      </label>
-      {sent && (
-        <label className="stack">
-          <span>Code</span>
-          <input
-            className="field otp"
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]*"
-            maxLength={6}
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-            placeholder="000000"
-          />
-        </label>
-      )}
-      {error && <p className="error">{error}</p>}
-      {!sent ? (
-        <button className="btn" onClick={async () => {
-          try {
-            await api.requestCode(email);
-            setSent(true);
-            setError(null);
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Could not send code");
-          }
-        }}>Send code</button>
-      ) : (
-        <button className="btn" onClick={async () => {
-          try {
-            await api.verify(email, code);
-            await refresh();
-            navigate(next);
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Could not verify");
-          }
-        }}>Verify and continue</button>
-      )}
+    <div className="page wizard auth-page" data-testid={signup ? "signup-page" : "signin-page"}>
+      <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void (sent ? verify() : sendCode()); }}>
+        <div className="auth-body">
+          <div className="kicker">{signup ? "Free account" : "Welcome back"}</div>
+          <h1 className="display">{signup ? "Create your account" : "Sign in"}</h1>
+          <p className="meta-line auth-lede">We'll send you a six-digit code to your email.</p>
+          <p className="auth-switch">
+            {signup ? (
+              <>Already have an account? <Link to={otherHref("/signin")}>Sign in</Link></>
+            ) : (
+              <>Don't have an account? <Link to={otherHref("/signup")}>Sign up</Link></>
+            )}
+          </p>
+
+          {signup && !sent && (
+            <ul className="auth-perks">
+              <li>
+                <HouseIcon />
+                <span>See what owners have added to claimed homes: paint, rooms, improvements.</span>
+              </li>
+              <li>
+                <PinIcon />
+                <span>Claim your own address and keep its record.</span>
+              </li>
+              <li>
+                <EyeIcon />
+                <span>Choose what stays private and what the neighborhood sees.</span>
+              </li>
+              <li>
+                <VaultIcon />
+                <span>Keep receipts, permits, and paperwork in a private vault.</span>
+              </li>
+            </ul>
+          )}
+
+          {!sent ? (
+            <>
+              {signup && (
+                <div className="auth-names">
+                  <label className="stack">
+                    <span>First name</span>
+                    <input
+                      className="field"
+                      type="text"
+                      autoComplete="given-name"
+                      autoCapitalize="words"
+                      autoCorrect="off"
+                      autoFocus
+                      required
+                      maxLength={80}
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                    />
+                  </label>
+                  <label className="stack">
+                    <span>Last name</span>
+                    <input
+                      className="field"
+                      type="text"
+                      autoComplete="family-name"
+                      autoCapitalize="words"
+                      autoCorrect="off"
+                      maxLength={80}
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                    />
+                  </label>
+                </div>
+              )}
+              <label className="stack">
+                <span>Email</span>
+                <input
+                  className="field"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoFocus={!signup}
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <div className="auth-sent">
+                <span>Code sent to <strong>{email.trim()}</strong></span>
+                <button type="button" className="text-link" onClick={() => { setSent(false); setCode(""); setError(null); }}>Change</button>
+              </div>
+              <label className="stack">
+                <span>Six-digit code</span>
+                <input
+                  ref={codeRef}
+                  className="field otp"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="000000"
+                />
+              </label>
+            </>
+          )}
+          {error && <p className="error">{error}</p>}
+          {sent && (
+            <button type="button" className="text-btn auth-resend" disabled={busy} onClick={() => void sendCode()}>Send a new code</button>
+          )}
+        </div>
+        <div className="manage-cta">
+          <button type="submit" className="btn" disabled={busy || (sent ? code.length < 6 : !readyToSend)}>
+            {sent
+              ? (signup ? "Create account" : "Verify and continue")
+              : "Continue with email"}
+          </button>
+        </div>
+      </form>
     </div>
+  );
+}
+
+function HouseIcon() {
+  return (
+    <svg className="auth-perk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 11.2 12 4l8 7.2" />
+      <path d="M6.5 10.2V20h11V10.2" />
+      <path d="M10 20v-6h4v6" />
+    </svg>
+  );
+}
+
+function PinIcon() {
+  return (
+    <svg className="auth-perk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 21s6.5-5.4 6.5-10.2A6.5 6.5 0 0 0 5.5 10.8C5.5 15.6 12 21 12 21Z" />
+      <circle cx="12" cy="10.6" r="2.1" />
+    </svg>
+  );
+}
+
+function VaultIcon() {
+  return (
+    <svg className="auth-perk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="4.5" width="16" height="15" rx="2.4" />
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M12 10.6v1.4l1 .8" />
+      <path d="M7 19.5v1.5M17 19.5v1.5" />
+    </svg>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg className="auth-perk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.8 12s3.3-6 9.2-6 9.2 6 9.2 6-3.3 6-9.2 6-9.2-6-9.2-6Z" />
+      <circle cx="12" cy="12" r="2.3" />
+    </svg>
   );
 }
 
@@ -543,7 +715,8 @@ export function App() {
         <Route path="/property/:id/manage" element={<PropertyManagePage />} />
         <Route path="/property/:id/manage/inbox" element={<PropertyInboxPage />} />
         <Route path="/property/:id/manage/notifications" element={<NotificationsRedirect />} />
-        <Route path="/signin" element={<SignInPage />} />
+        <Route path="/signin" element={<AuthPage mode="signin" />} />
+        <Route path="/signup" element={<AuthPage mode="signup" />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/claims/:claimId" element={<AdminClaimPage />} />

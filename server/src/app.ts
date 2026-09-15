@@ -187,10 +187,13 @@ app.post("/api/auth/request-code", async (c) => {
 });
 
 app.post("/api/auth/verify", async (c) => {
-  const body = await c.req.json<{ email?: string; code?: string }>();
+  const body = await c.req.json<{ email?: string; code?: string; firstName?: string; lastName?: string }>();
   const email = body.email?.trim().toLowerCase() ?? "";
   const code = (body.code ?? "").replace(/\s/g, "");
+  const firstName = body.firstName?.replace(/\s+/g, " ").trim() ?? "";
+  const lastName = body.lastName?.replace(/\s+/g, " ").trim() ?? "";
   if (!email || !code) return c.json({ error: "Email and code are required." }, 400);
+  if (firstName.length > 80 || lastName.length > 80) return c.json({ error: "That name is too long." }, 400);
 
   const sql = getSql();
   const debugBypass = isFixedSignin(email, code);
@@ -207,7 +210,7 @@ app.post("/api/auth/verify", async (c) => {
     }
     await sql`UPDATE auth_codes SET consumed_at = now() WHERE code_id = ${match.code_id}`;
   }
-  const user = await upsertUser(email);
+  const user = await upsertUser(email, { firstName, lastName });
   const sessionId = await createSession(user.user_id);
   attachSessionCookie(c, sessionId);
   return c.json({ user });

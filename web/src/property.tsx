@@ -249,10 +249,13 @@ function ownerCanWrite(fact: Fact): boolean {
 
 export function PropertyPageView() {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
   const meta = useMeta();
   const navigate = useNavigate();
   const [data, setData] = useState<PageData | null>(null);
+  // Signed-out visitors on a claimed page see only what is above the fold.
+  const gated = ready && !user && Boolean(data?.property.maintainers.length);
+  const [gateMetrics, setGateMetrics] = useState<{ heroTop: number; heroLeft: number; heroWidth: number; heroHeight: number; heroMid: number; labels: number; solid: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [toast, showToast] = useToast();
@@ -316,6 +319,60 @@ export function PropertyPageView() {
   useEffect(() => { setData(null); }, [id]);
   useEffect(() => { void load({ allowDowngrade: !user }); }, [load, user?.user_id]);
   useOwnershipChanges(id, () => { void load({ allowDowngrade: true }); });
+
+  // Clip the gated page to the viewport without position:fixed, so a pull
+  // at the top can still refresh. Snap back if anything scrolls down.
+  useEffect(() => {
+    if (!gated) return;
+    const html = document.documentElement;
+    html.classList.add("peek-gated");
+    window.scrollTo(0, 0);
+    const pin = () => {
+      if (window.scrollY > 0) window.scrollTo(0, 0);
+    };
+    window.addEventListener("scroll", pin, { passive: true });
+    return () => {
+      html.classList.remove("peek-gated");
+      window.removeEventListener("scroll", pin);
+    };
+  }, [gated]);
+  useEffect(() => {
+    if (!gated) {
+      setGateMetrics(null);
+      return;
+    }
+    const measure = () => {
+      const header = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar-height")) || 0;
+      const rel = (top: number) => Math.max(0, top - header);
+      const hero = document.querySelector<HTMLElement>(".property-page .profile-hero");
+      const heroBox = hero?.getBoundingClientRect();
+      const label = document.querySelector<HTMLElement>('[data-testid="stat-strip"] .stat span');
+      const value = document.querySelector<HTMLElement>('[data-testid="stat-strip"] .stat strong');
+      const strip = document.querySelector<HTMLElement>('[data-testid="stat-strip"]');
+      const head = document.querySelector<HTMLElement>(".property-page .profile-head");
+      const heroTop = heroBox ? rel(heroBox.top) : 0;
+      const heroHeight = heroBox?.height ?? window.innerHeight * 0.42;
+      const heroMid = heroBox ? rel(heroBox.top + heroBox.height / 2) : window.innerHeight * 0.28;
+      const labels = rel((label ?? strip)?.getBoundingClientRect().top ?? head?.getBoundingClientRect().bottom ?? window.innerHeight * 0.55);
+      const solid = rel((value ?? strip)?.getBoundingClientRect().top ?? labels + 28);
+      setGateMetrics({
+        heroTop,
+        heroLeft: heroBox?.left ?? 0,
+        heroWidth: heroBox?.width ?? window.innerWidth,
+        heroHeight,
+        heroMid,
+        labels,
+        solid: Math.max(solid, labels + 12),
+      });
+    };
+    measure();
+    const frame = requestAnimationFrame(measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", measure);
+    };
+  }, [gated, data]);
 
   const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
   useEffect(() => {
@@ -541,7 +598,7 @@ export function PropertyPageView() {
   );
 
   return (
-    <div className="page wide profile property-page" data-testid="property-profile">
+    <div className={`page wide profile property-page${gated ? " is-gated" : ""}`} data-testid="property-profile">
       <div className="profile-hero-band">{hero}</div>
 
       <header className="profile-head group">
@@ -566,33 +623,35 @@ export function PropertyPageView() {
               : [locality, property.sbl ? `SBL ${property.sbl}` : null].filter(Boolean).join(" · ")
           }</p>
         </div>
-        <div className="profile-actions">
-          {owner ? (
-            <div className="action-row compact" ref={actionsRef}>
-              <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
-                Add photos
-              </PhotoFileButton>
-              <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
-            </div>
-          ) : (
-            <>
-              {(!maintained || viewer.openClaim || viewer.invitation?.role === "owner") && (
-                <div className="action-row compact">
-                  {viewer.openClaim ? (
-                    <Link className="btn secondary" to={`/property/${id}/claim/${viewer.openClaim.claim_id}`}>Claim under review</Link>
-                  ) : (
-                    <button type="button" className="btn" data-testid="claim-button" onClick={startClaim}>
-                      {viewer.invitation?.role === "owner" ? "Continue handoff" : "Claim this address"}
-                    </button>
-                  )}
-                </div>
-              )}
-              {!maintained && !viewer.openClaim && (
-                <p className="meta-line profile-nudge">Still just the county record. If it's yours, claim it and add what the county doesn't know.</p>
-              )}
-            </>
-          )}
-        </div>
+        {(owner || (!maintained || viewer.openClaim || viewer.invitation?.role === "owner")) && (
+          <div className="profile-actions">
+            {owner ? (
+              <div className="action-row compact" ref={actionsRef}>
+                <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
+                  Add photos
+                </PhotoFileButton>
+                <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
+              </div>
+            ) : (
+              <>
+                {(!maintained || viewer.openClaim || viewer.invitation?.role === "owner") && (
+                  <div className="action-row compact">
+                    {viewer.openClaim ? (
+                      <Link className="btn secondary" to={`/property/${id}/claim/${viewer.openClaim.claim_id}`}>Claim under review</Link>
+                    ) : (
+                      <button type="button" className="btn" data-testid="claim-button" onClick={startClaim}>
+                        {viewer.invitation?.role === "owner" ? "Continue handoff" : "Claim this address"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {!maintained && !viewer.openClaim && (
+                  <p className="meta-line profile-nudge">Still just the county record. If it's yours, claim it and add what the county doesn't know.</p>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </header>
 
       {owner && quickAddSlots.map((slot, index) => createPortal(
@@ -610,6 +669,30 @@ export function PropertyPageView() {
 
       <StatStrip facts={property.facts} onClaim={prospect ? goClaim : undefined} />
 
+      {gated && (
+        <div
+          className="peek-gate"
+          style={{
+            "--gate-hero-top": gateMetrics ? `${gateMetrics.heroTop}px` : "0px",
+            "--gate-hero-left": gateMetrics ? `${gateMetrics.heroLeft}px` : "0px",
+            "--gate-hero-width": gateMetrics ? `${gateMetrics.heroWidth}px` : "100%",
+            "--gate-hero-height": gateMetrics ? `${gateMetrics.heroHeight}px` : "42%",
+            "--gate-hero-mid": gateMetrics ? `${gateMetrics.heroMid}px` : "28%",
+            "--gate-labels": gateMetrics ? `${gateMetrics.labels}px` : "55%",
+            "--gate-solid": gateMetrics ? `${gateMetrics.solid}px` : "62%",
+          } as React.CSSProperties}
+          data-testid="peek-gate"
+        >
+          <div className="peek-gate-scrim" aria-hidden="true" />
+          <div className="peek-gate-lockup">
+            <h2>Join Myplace to see<br />claimed properties</h2>
+            <Link className="btn" to={`/signup?next=/property/${id}`} data-testid="peek-gate-signup">Sign up</Link>
+          </div>
+          <p className="peek-gate-note">The owner keeps this page. Create a free account to see everything they've added.</p>
+        </div>
+      )}
+
+      {!gated && (
       <div className="profile-grid">
         <SectionNav items={nav} />
 
@@ -807,6 +890,7 @@ export function PropertyPageView() {
           )}
         </div>
       </div>
+      )}
 
       {owner && (
         <OwnerSheet
