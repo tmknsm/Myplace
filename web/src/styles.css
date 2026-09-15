@@ -105,10 +105,14 @@ img, svg { max-width: 100%; }
 .header-search {
   pointer-events: auto;
 }
+/* Hide auth-page chrome without collapsing the bar. The links are 44px
+   tall and the search row is a second line on narrow screens; removing
+   them from the box is what made the header jump. */
 .topbar.is-auth .header-search,
 .topbar.is-auth .header-actions,
 .topbar.is-auth .top-links {
-  display: none;
+  visibility: hidden;
+  pointer-events: none;
 }
 .topbar {
   --share-slot: var(--tap);

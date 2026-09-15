@@ -16,7 +16,12 @@ function Layout({ children }: { children: React.ReactNode }) {
   const [debugOpen, setDebugOpen] = useState(false);
   const isHome = location.pathname === "/";
   const onAuth = /^\/(signin|signup)/.test(location.pathname);
-  const headerSearch = !isHome && !onAuth && !/^\/(dev|admin)/.test(location.pathname);
+  const searchOnThisPage = !isHome && !onAuth && !/^\/(dev|admin)/.test(location.pathname);
+  // Keep the search row in the layout on auth if the page you left had one,
+  // so the bar does not shrink. Hidden visually, still occupies its height.
+  const searchOnArrival = useRef(false);
+  if (!onAuth) searchOnArrival.current = searchOnThisPage;
+  const headerSearch = onAuth ? searchOnArrival.current : searchOnThisPage;
   // The share button rides beside the search on the property page itself, in
   // every state. Keyed on the id so the slot re-opens for each page load.
   // The empty slot after it is where the property page mounts its quick-add
