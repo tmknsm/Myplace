@@ -1495,7 +1495,8 @@ tr:last-child td { border-bottom: 0; }
 .photo-thumb {
   position: relative;
   width: 112px;
-  height: 84px;
+  aspect-ratio: 1 / 1;
+  height: auto;
   border: 0;
   padding: 0;
   border-radius: 10px;
