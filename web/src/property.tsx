@@ -9,6 +9,19 @@ import { useMeta } from "./meta";
 import { DisputesSection } from "./property-owner";
 import { snapshotPhotoFile } from "./optimize-photo";
 import { SectionNav } from "./section-nav";
+import { Sheet, useLockPageScroll, useSheet } from "./sheet";
+import {
+  filledTopicFacts,
+  linkLabel,
+  normalizeLink,
+  TOPIC_BY_ID,
+  topicFacts,
+  topicForField,
+  topicsIn,
+  type Topic,
+  type TopicField,
+  type TopicFieldKind,
+} from "./property-topics";
 import {
   CATEGORY_LABEL,
   dateLabel,
@@ -27,6 +40,14 @@ import {
 } from "./property-shared";
 
 type PageData = { property: PropertyPage; viewer: Viewer };
+
+/** Which sheet is up. Every owner input on the page goes through one of these. */
+type SheetState =
+  | { kind: "topic"; id: string }
+  | { kind: "field"; key: string }
+  | { kind: "dispute"; key: string }
+  | { kind: "about" }
+  | null;
 
 const SUMMARY_KEY = "profile.summary";
 
@@ -94,9 +115,6 @@ const STRIP_KEYS: Array<{ key: string; label: string; asYear?: boolean }> = [
   { key: "year_built", label: "Built", asYear: true },
 ];
 const STRIP_MAX = 6;
-
-/** A request to open one fact's editor; a fresh object each time so repeat taps still fire. */
-type FieldFocus = { key: string; at: number } | null;
 
 function organizeFacts(facts: Fact[]): Map<string, Fact[]> {
   const placed = new Set<string>([SUMMARY_KEY]);
@@ -179,8 +197,11 @@ export function PropertyPageView() {
   const [pinOpen, setPinOpen] = useState(false);
   const [toast, showToast] = useToast();
   const [improvementFormOpen, setImprovementFormOpen] = useState(false);
-  const [aboutEditing, setAboutEditing] = useState(false);
-  const [fieldFocus, setFieldFocus] = useState<FieldFocus>(null);
+  const [sheet, setSheet] = useState<SheetState>(null);
+  const [sheetSeq, setSheetSeq] = useState(0);
+  // Keep the last sheet's content mounted while it animates out.
+  const lastSheet = useRef<SheetState>(null);
+  if (sheet) lastSheet.current = sheet;
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [heroIndex, setHeroIndex] = useState(0);
   const [photoUploads, setPhotoUploads] = useState(0);
@@ -255,15 +276,21 @@ export function PropertyPageView() {
   const activePhoto = !onMapSlide ? photoSlides[heroSlide] ?? null : null;
   const summary = property.facts.find((fact) => fact.fieldKey === SUMMARY_KEY) ?? null;
   const hasSummary = Boolean(summary?.display);
-  const systemsFacts = sections.get("systems") ?? [];
-  const publicSystems = systemsFacts.filter((fact) => fact.status !== "unknown");
-  const characterFacts = sections.get("character") ?? [];
-  const publicCharacter = characterFacts.filter((fact) => fact.status !== "unknown");
   const maintained = property.maintainers.length > 0;
+  // Visitors only see topics with something public in them; the owner sees every card.
+  const visibleTopics = (list: Topic[]) => owner ? list : list.filter((topic) => filledTopicFacts(topic, property.facts).length > 0);
+  const characterTopics = visibleTopics(topicsIn("character"));
+  const systemsTopics = visibleTopics(topicsIn("systems"));
 
-  const focusField = (key: string) => {
-    setFieldFocus({ key, at: Date.now() });
-    scrollToId("character");
+  const openSheet = (next: NonNullable<SheetState>) => {
+    setSheetSeq((n) => n + 1);
+    setSheet(next);
+  };
+  const closeSheet = useCallback(() => setSheet(null), []);
+  /** Open whichever sheet edits this field: its topic, or a one-field sheet. */
+  const openField = (key: string) => {
+    const topic = topicForField(key);
+    openSheet(topic ? { kind: "topic", id: topic.id } : { kind: "field", key });
   };
 
   const startClaim = () => {
@@ -312,8 +339,8 @@ export function PropertyPageView() {
   const showAbout = owner || hasSummary;
   const showPhotos = owner || available.length > 0;
   const showImprovements = owner || property.improvements.length > 0;
-  const showSystems = owner || publicSystems.length > 0;
-  const showCharacter = owner || publicCharacter.length > 0;
+  const showSystems = systemsTopics.length > 0;
+  const showCharacter = characterTopics.length > 0;
   const showOwnerHalf = showAbout || showPhotos || showImprovements || showSystems || showCharacter;
   const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id).length;
 
@@ -343,6 +370,10 @@ export function PropertyPageView() {
   };
 
   const sectionProps = { owner, propertyId: id, onChange: refresh, toast: showToast };
+  const factSheetProps = {
+    onEdit: (fact: Fact) => openField(fact.fieldKey),
+    onDispute: (fact: Fact) => openSheet({ kind: "dispute", key: fact.fieldKey }),
+  };
 
   const heroMap = (
     <ParcelMap
@@ -482,10 +513,16 @@ export function PropertyPageView() {
                   navigate(`/property/${id}/manage`);
                   return;
                 }
-                if (target === "about") setAboutEditing(true);
-                if (target === "improvements") setImprovementFormOpen(true);
+                if (target === "about") {
+                  openSheet({ kind: "about" });
+                  return;
+                }
+                if (target === "improvements") {
+                  setImprovementFormOpen(true);
+                  return;
+                }
                 if (target.startsWith("field:")) {
-                  focusField(target.slice("field:".length));
+                  openField(target.slice("field:".length));
                   return;
                 }
                 scrollToId(target);
@@ -505,22 +542,22 @@ export function PropertyPageView() {
           {showAbout && summary && (
             <AboutSection
               fact={summary}
-              editing={aboutEditing}
-              setEditing={setAboutEditing}
+              onEdit={() => openSheet({ kind: "about" })}
               {...sectionProps}
             />
           )}
 
           {showCharacter && (
-            <FactSection
+            <TopicSection
               id="character"
               title="Style & finishes"
               description={owner
-                ? "What people actually ask about when they slow down out front: the paint, the style, the trim color. Public unless you mark it private."
+                ? "What people actually ask about when they slow down out front: the paint, the style, what's still original. Public unless you mark it private."
                 : "How the owner describes the place. Their words, not the county's."}
-              facts={owner ? characterFacts : publicCharacter}
-              focus={fieldFocus}
-              {...sectionProps}
+              topics={characterTopics}
+              facts={property.facts}
+              owner={owner}
+              onOpen={(topic) => openSheet({ kind: "topic", id: topic.id })}
             />
           )}
 
@@ -549,14 +586,16 @@ export function PropertyPageView() {
           )}
 
           {showSystems && (
-            <FactSection
+            <TopicSection
               id="systems"
               title="Systems"
               description={owner
                 ? "Roof, heat, water, wiring, septic: what's in the walls and when it went in. Public unless you mark it private."
                 : "Reported by the owner. Not part of the county record."}
-              facts={owner ? systemsFacts : publicSystems}
-              {...sectionProps}
+              topics={systemsTopics}
+              facts={property.facts}
+              owner={owner}
+              onOpen={(topic) => openSheet({ kind: "topic", id: topic.id })}
             />
           )}
 
@@ -579,12 +618,13 @@ export function PropertyPageView() {
               </div>
             )}
             {...sectionProps}
+            {...factSheetProps}
           />
 
-          <FactSection id="rules" title="Flood, zoning & historic" facts={sections.get("rules") ?? []} {...sectionProps} />
-          <FactSection id="assessment" title="Assessment & taxes" facts={sections.get("assessment") ?? []} {...sectionProps} />
-          <FactSection id="building" title="Building & lot" facts={sections.get("building") ?? []} {...sectionProps} />
-          <FactSection id="records" title="County record" facts={sections.get("records") ?? []} {...sectionProps}>
+          <FactSection id="rules" title="Flood, zoning & historic" facts={sections.get("rules") ?? []} {...sectionProps} {...factSheetProps} />
+          <FactSection id="assessment" title="Assessment & taxes" facts={sections.get("assessment") ?? []} {...sectionProps} {...factSheetProps} />
+          <FactSection id="building" title="Building & lot" facts={sections.get("building") ?? []} {...sectionProps} {...factSheetProps} />
+          <FactSection id="records" title="County record" facts={sections.get("records") ?? []} {...sectionProps} {...factSheetProps}>
             <h3 className="subhead">Sources connected</h3>
             <div className="group coverage">
               {Object.entries(property.coverage).map(([key, value]) => (
@@ -616,6 +656,19 @@ export function PropertyPageView() {
           )}
         </div>
       </div>
+
+      {owner && (
+        <OwnerSheet
+          state={sheet ?? lastSheet.current}
+          open={sheet !== null}
+          seq={sheetSeq}
+          facts={property.facts}
+          propertyId={id}
+          onClose={closeSheet}
+          onChange={refresh}
+          toast={showToast}
+        />
+      )}
 
       {lightbox !== null && photos[lightbox] && (
         <PhotoLightbox photos={photos} index={lightbox} owner={owner} onIndex={setLightbox} onClose={() => setLightbox(null)} onChange={refresh} toast={showToast} />
@@ -685,7 +738,7 @@ function factYear(fact: Fact): string | null {
     const parsed = new Date(fact.value);
     if (!Number.isNaN(parsed.getTime())) return String(parsed.getFullYear());
     const match = fact.value.match(/\b(1[6-9]\d{2}|20\d{2})\b/);
-    if (match) return match[1];
+    if (match?.[1]) return match[1];
   }
   return null;
 }
@@ -901,45 +954,23 @@ function AboutSection({
   fact,
   owner,
   propertyId,
-  editing,
-  setEditing,
+  onEdit,
   onChange,
   toast,
 }: {
   fact: Fact;
   owner: boolean;
   propertyId: string;
-  editing: boolean;
-  setEditing: (open: boolean) => void;
+  onEdit: () => void;
   onChange: PageRefresh;
   toast: Toast;
 }) {
   const text = typeof fact.value === "string" ? fact.value : "";
-  const [draft, setDraft] = useState(text);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => { if (!editing) setDraft(text); }, [text, editing]);
-
-  const save = async (next: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await api.saveOwnerFields(propertyId, { [SUMMARY_KEY]: next });
-      toast(result.updated ? "About this place saved." : "About this place cleared.");
-      setEditing(false);
-      await onChange();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <section className="section about" id="about">
       <div className="section-head">
         <h2>About this place</h2>
-        {owner && fact.visibility && !editing && (
+        {owner && fact.visibility && text && (
           <VisibilityChip visibility={fact.visibility} onToggle={async () => {
             const next = fact.visibility === "private" ? "public" : "private";
             await api.setFieldVisibility(propertyId, SUMMARY_KEY, next);
@@ -948,31 +979,12 @@ function AboutSection({
           }} />
         )}
       </div>
-      {owner && editing ? (
-        <form className="group form-card about-editor" onSubmit={(event) => { event.preventDefault(); void save(draft); }}>
-          <textarea
-            className="field"
-            rows={6}
-            autoFocus
-            value={draft}
-            placeholder="When it was built and by whom, what's changed, the thing a neighbor would point out. Written for whoever cares about this place next."
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Escape") setEditing(false); }}
-            data-testid="about-input"
-          />
-          {error && <p className="error">{error}</p>}
-          <div className="action-row compact">
-            <button type="submit" className="btn small" disabled={busy || !draft.trim()} data-testid="about-save">{busy ? "Saving…" : "Save"}</button>
-            <button type="button" className="btn secondary small" disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
-            {text && <button type="button" className="text-link danger" disabled={busy} onClick={() => void save("")}>Clear</button>}
-          </div>
-        </form>
-      ) : text ? (
+      {text ? (
         <div className="group about-card">
           <p className="about-text">{text}</p>
           {owner && (
             <div className="about-foot">
-              <button type="button" className="text-link" onClick={() => setEditing(true)} data-testid="about-edit">Edit</button>
+              <button type="button" className="text-link" onClick={onEdit} data-testid="about-edit">Edit</button>
             </div>
           )}
         </div>
@@ -980,11 +992,392 @@ function AboutSection({
         <div className="group empty-card about-empty">
           <p>Every house has a story. This is where you tell it: when it was built, what's been done, the thing a neighbor would point out.</p>
           {owner && (
-            <button type="button" className="btn secondary small" onClick={() => setEditing(true)} data-testid="about-start">Tell the story</button>
+            <button type="button" className="btn secondary small" onClick={onEdit} data-testid="about-start">Tell the story</button>
           )}
         </div>
       )}
     </section>
+  );
+}
+
+/** The story, written in a sheet. */
+function AboutForm({ fact, propertyId, onSaved, onCancel }: { fact: Fact; propertyId: string; onSaved: (message: string) => Promise<void> | void; onCancel: () => void }) {
+  const text = typeof fact.value === "string" ? fact.value : "";
+  const [draft, setDraft] = useState(text);
+  const [visibility, setVisibility] = useState<FieldVisibility>(fact.visibility ?? "public");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async (next: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.saveOwnerFields(propertyId, { [SUMMARY_KEY]: next }, visibility);
+      await onSaved(result.updated ? "About this place saved." : "About this place cleared.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="sheet-form about-editor" onSubmit={(event) => { event.preventDefault(); void save(draft); }}>
+      <textarea
+        className="field"
+        rows={9}
+        autoFocus
+        value={draft}
+        placeholder="When it was built and by whom, what's changed, the thing a neighbor would point out. Written for whoever cares about this place next."
+        onChange={(event) => setDraft(event.target.value)}
+        data-testid="about-input"
+      />
+      <VisibilityChoice value={visibility} onChange={setVisibility} />
+      {error && <p className="error">{error}</p>}
+      <div className="action-row compact sheet-actions">
+        <button type="submit" className="btn" disabled={busy || !draft.trim()} data-testid="about-save">{busy ? "Saving…" : "Save"}</button>
+        <button type="button" className="btn secondary" disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+      {text && (
+        <div className="form-danger">
+          <button type="button" className="text-link danger" disabled={busy} onClick={() => void save("")}>Clear the story</button>
+        </div>
+      )}
+    </form>
+  );
+}
+
+function VisibilityChoice({ value, onChange }: { value: FieldVisibility; onChange: (next: FieldVisibility) => void }) {
+  return (
+    <label className="stack inline-choice">
+      <span>Visibility</span>
+      <div className="segmented">
+        <button type="button" className={value === "public" ? "on" : ""} onClick={() => onChange("public")}>Public</button>
+        <button type="button" className={value === "private" ? "on" : ""} onClick={() => onChange("private")}>Private</button>
+      </div>
+    </label>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Topics: the owner's half, one card and one sheet per subject
+// ---------------------------------------------------------------------------
+
+function TopicSection({
+  id,
+  title,
+  description,
+  topics,
+  facts,
+  owner,
+  onOpen,
+}: {
+  id: string;
+  title: string;
+  description: string;
+  topics: Topic[];
+  facts: Fact[];
+  owner: boolean;
+  onOpen: (topic: Topic) => void;
+}) {
+  if (topics.length === 0) return null;
+  return (
+    <section className="section" id={id}>
+      <h2>{title}</h2>
+      <p className="meta-line section-note">{description}</p>
+      <div className="topic-list">
+        {topics.map((topic) => (
+          <TopicCard key={topic.id} topic={topic} facts={facts} owner={owner} onOpen={() => onOpen(topic)} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TopicCard({ topic, facts, owner, onOpen }: { topic: Topic; facts: Fact[]; owner: boolean; onOpen: () => void }) {
+  const filled = filledTopicFacts(topic, facts);
+  const privateCount = filled.filter(({ fact }) => fact.visibility === "private").length;
+  const allPrivate = filled.length > 0 && privateCount === filled.length;
+  if (filled.length === 0) {
+    if (!owner) return null;
+    return (
+      <button type="button" className="group topic-card topic-empty" onClick={onOpen} data-testid={`topic-${topic.id}`}>
+        <span className="topic-empty-title">{topic.cta}</span>
+        <span className="meta-line">{topic.lede}</span>
+      </button>
+    );
+  }
+  return (
+    <article className={`group topic-card${allPrivate ? " is-private" : ""}`} data-testid={`topic-${topic.id}`}>
+      <header className="topic-head">
+        <h3>{topic.title}</h3>
+        {privateCount > 0 && <span className="badge private">{allPrivate ? "private" : "partly private"}</span>}
+        {owner && <button type="button" className="text-btn accent" onClick={onOpen} data-testid={`edit-topic-${topic.id}`}>Edit</button>}
+      </header>
+      <dl className="topic-rows">
+        {filled.map(({ field, fact }) => (
+          <div key={fact.fieldKey} className="topic-row" data-field={fact.fieldKey}>
+            <dt>{field.label ?? fact.label}</dt>
+            <dd><TopicValue field={field} fact={fact} /></dd>
+          </div>
+        ))}
+      </dl>
+    </article>
+  );
+}
+
+function TopicValue({ field, fact }: { field: TopicField; fact: Fact }) {
+  if (field.kind === "link" && typeof fact.value === "string") {
+    return <a href={fact.value} target="_blank" rel="noopener noreferrer" className="topic-link">{linkLabel(fact.value)}</a>;
+  }
+  if (field.kind === "date" && typeof fact.value === "string") {
+    return <>{dateLabel(fact.value) ?? fact.display}</>;
+  }
+  const { text, swatch } = splitSwatch(fact.fieldKey, fact.display);
+  return (
+    <>
+      {swatch && <i className="swatch" style={{ background: swatch }} aria-hidden="true" />}
+      {text}
+    </>
+  );
+}
+
+/** Whichever sheet the page has asked for, with the form for it. */
+function OwnerSheet({
+  state,
+  open,
+  seq,
+  facts,
+  propertyId,
+  onClose,
+  onChange,
+  toast,
+}: {
+  state: SheetState;
+  open: boolean;
+  seq: number;
+  facts: Fact[];
+  propertyId: string;
+  onClose: () => void;
+  onChange: PageRefresh;
+  toast: Toast;
+}) {
+  const byKey = useMemo(() => new Map(facts.map((fact) => [fact.fieldKey, fact])), [facts]);
+  const done = async (message: string | null) => {
+    onClose();
+    if (message) toast(message);
+    await onChange();
+  };
+  if (!state) return null;
+
+  if (state.kind === "about") {
+    const fact = byKey.get(SUMMARY_KEY);
+    return (
+      <Sheet open={open} title="About this place" lede="The story of the house, in your words. Public unless you keep it private." onClose={onClose} testId="about-sheet">
+        {fact && <AboutForm key={seq} fact={fact} propertyId={propertyId} onSaved={done} onCancel={onClose} />}
+      </Sheet>
+    );
+  }
+
+  if (state.kind === "dispute") {
+    const fact = byKey.get(state.key);
+    return (
+      <Sheet open={open} title={`Dispute ${fact?.label.toLowerCase() ?? "this fact"}`} lede="The county's value stays put. Your dispute sits next to it and goes to review." onClose={onClose} testId="dispute-sheet">
+        {fact && (
+          <DisputeForm
+            key={seq}
+            fact={fact}
+            propertyId={propertyId}
+            onDone={() => done("Dispute recorded. It stays on the record until a reviewer resolves it.")}
+            onCancel={onClose}
+          />
+        )}
+      </Sheet>
+    );
+  }
+
+  const topic = state.kind === "topic" ? TOPIC_BY_ID.get(state.id) : singleFieldTopic(byKey.get(state.key));
+  if (!topic) return null;
+  const filled = filledTopicFacts(topic, facts).length;
+  return (
+    <Sheet open={open} title={topic.title} lede={topic.lede} onClose={onClose} testId={`topic-sheet-${topic.id}`}>
+      <TopicForm
+        key={`${topic.id}:${seq}`}
+        topic={topic}
+        facts={facts}
+        propertyId={propertyId}
+        onSaved={(changed) => done(changed ? `${topic.title} saved.` : null)}
+        onCancel={onClose}
+        submitLabel={filled ? "Save changes" : "Save"}
+      />
+    </Sheet>
+  );
+}
+
+/** A one-field sheet for anything outside a topic: filling a blank the county left. */
+function singleFieldTopic(fact: Fact | undefined): Topic | null {
+  if (!fact) return null;
+  // Leave kind open for county fields so the vocabulary's value type decides the input.
+  const kind: TopicFieldKind | undefined = fact.fieldKey === "year_built"
+    ? "year"
+    : MULTILINE_FIELDS.has(fact.fieldKey)
+      ? "multiline"
+      : undefined;
+  const official = fact.layer !== "owner";
+  return {
+    id: `field-${fact.fieldKey}`,
+    section: "location",
+    title: fact.label,
+    lede: official
+      ? "The county has no value here. Yours is labeled owner-reported until an official source shows up."
+      : "Public unless you mark it private.",
+    cta: `Add ${fact.label.toLowerCase()}`,
+    fields: [{ key: fact.fieldKey, kind, hint: FIELD_HINTS[fact.fieldKey] }],
+  };
+}
+
+function inputKind(field: TopicField, valueType: string | undefined): TopicFieldKind {
+  if (field.kind) return field.kind;
+  if (valueType === "date") return "date";
+  if (valueType === "number" || valueType === "money" || valueType === "acres" || valueType === "area") return "number";
+  return "text";
+}
+
+function initialInput(fact: Fact, kind: TopicFieldKind): string {
+  const ownerAssertion = fact.assertions.find((assertion) => assertion.sourceType === "verified_owner");
+  const raw = ownerAssertion?.value ?? (fact.layer === "owner" || fact.status === "owner_reported" ? fact.value : null);
+  if (raw === null || raw === undefined) return "";
+  if (kind === "date") return dateInputValue(String(raw));
+  return String(raw);
+}
+
+/**
+ * The form inside a topic sheet: every field in the topic, saved together.
+ * Only fields that changed are written, so untouched values keep their
+ * history; the visibility choice applies to the whole topic.
+ */
+function TopicForm({
+  topic,
+  facts,
+  propertyId,
+  onSaved,
+  onCancel,
+  submitLabel = "Save",
+}: {
+  topic: Topic;
+  facts: Fact[];
+  propertyId: string;
+  onSaved: (changed: boolean) => Promise<void> | void;
+  onCancel: () => void;
+  submitLabel?: string;
+}) {
+  const meta = useMeta();
+  const rows = useMemo(() => topicFacts(topic, facts).map(({ field, fact }) => {
+    const def = meta?.vocab.find((entry) => entry.key === fact.fieldKey);
+    const kind = inputKind(field, def?.valueType);
+    return { field, fact, kind, writable: ownerCanWrite(fact), initial: initialInput(fact, kind), unit: def?.unit };
+  }), [topic, facts, meta]);
+  const filledRows = rows.filter(({ fact }) => fact.status !== "unknown" && fact.display);
+  const initialVisibility: FieldVisibility = filledRows.length > 0 && filledRows.every(({ fact }) => fact.visibility === "private") ? "private" : "public";
+
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(rows.map((row) => [row.fact.fieldKey, row.initial])));
+  const [visibility, setVisibility] = useState<FieldVisibility>(initialVisibility);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const firstWritable = rows.find((row) => row.writable)?.fact.fieldKey;
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const payload: Record<string, unknown> = {};
+      for (const row of rows) {
+        if (!row.writable) continue;
+        const next = (values[row.fact.fieldKey] ?? "").trim();
+        if (next === row.initial.trim()) continue;
+        if (!next) {
+          payload[row.fact.fieldKey] = "";
+          continue;
+        }
+        if (row.kind === "link") {
+          const url = normalizeLink(next);
+          if (!url) throw new Error(`${row.field.label ?? row.fact.label} needs to be a web address, like hudsonpaint.com.`);
+          payload[row.fact.fieldKey] = url;
+          continue;
+        }
+        if (row.kind === "year") {
+          const year = Number(next);
+          if (!/^\d{4}$/.test(next) || year < 1600 || year > new Date().getFullYear() + 1) {
+            throw new Error(`${row.field.label ?? row.fact.label} should be a four-digit year.`);
+          }
+          payload[row.fact.fieldKey] = year;
+          continue;
+        }
+        payload[row.fact.fieldKey] = next;
+      }
+      const changedKeys = Object.keys(payload);
+      const visibilityChanged = visibility !== initialVisibility;
+      if (changedKeys.length) await api.saveOwnerFields(propertyId, payload, visibility);
+      if (visibilityChanged) {
+        for (const row of filledRows) {
+          if (!row.writable || changedKeys.includes(row.fact.fieldKey)) continue;
+          await api.setFieldVisibility(propertyId, row.fact.fieldKey, visibility);
+        }
+      }
+      await onSaved(changedKeys.length > 0 || visibilityChanged);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="sheet-form" data-testid="topic-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+      <div className="form-grid">
+        {rows.map(({ field, fact, kind, writable, unit }) => {
+          const label = field.label ?? fact.label;
+          const half = field.half && kind !== "multiline";
+          if (!writable) {
+            return (
+              <div key={fact.fieldKey} className={`stack topic-readonly${half ? "" : " span-2"}`}>
+                <span>{label}</span>
+                <strong>{fact.display ?? "—"}</strong>
+                <small className="meta-line">County record. Dispute it from the page if it's wrong.</small>
+              </div>
+            );
+          }
+          const value = values[fact.fieldKey] ?? "";
+          const set = (next: string) => setValues((current) => ({ ...current, [fact.fieldKey]: next }));
+          const placeholder = field.hint ?? FIELD_HINTS[fact.fieldKey] ?? (unit ? `In ${unit}` : undefined);
+          return (
+            <label key={fact.fieldKey} className={`stack${half ? "" : " span-2"}`}>
+              <span>{label}</span>
+              {kind === "multiline" ? (
+                <textarea className="field" rows={3} value={value} placeholder={placeholder} autoFocus={fact.fieldKey === firstWritable} onChange={(event) => set(event.target.value)} data-testid={`input-${fact.fieldKey}`} />
+              ) : (
+                <input
+                  className="field"
+                  type={kind === "date" ? "date" : "text"}
+                  inputMode={kind === "year" || kind === "number" ? "decimal" : kind === "link" ? "url" : undefined}
+                  autoComplete={kind === "link" ? "url" : "off"}
+                  autoCapitalize={kind === "link" ? "off" : undefined}
+                  value={value}
+                  placeholder={placeholder}
+                  autoFocus={fact.fieldKey === firstWritable}
+                  onChange={(event) => set(event.target.value)}
+                  data-testid={`input-${fact.fieldKey}`}
+                />
+              )}
+            </label>
+          );
+        })}
+      </div>
+      <VisibilityChoice value={visibility} onChange={setVisibility} />
+      {error && <p className="error">{error}</p>}
+      <div className="action-row compact sheet-actions">
+        <button type="submit" className="btn" disabled={busy} data-testid="topic-save">{busy ? "Saving…" : submitLabel}</button>
+        <button type="button" className="btn secondary" disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
   );
 }
 
@@ -1002,7 +1395,8 @@ function FactSection({
   onChange,
   toast,
   before,
-  focus,
+  onEdit,
+  onDispute,
   children,
 }: {
   id: string;
@@ -1014,7 +1408,8 @@ function FactSection({
   onChange: PageRefresh;
   toast: Toast;
   before?: React.ReactNode;
-  focus?: FieldFocus;
+  onEdit?: (fact: Fact) => void;
+  onDispute?: (fact: Fact) => void;
   children?: React.ReactNode;
 }) {
   if (facts.length === 0 && !children && !before) return null;
@@ -1033,7 +1428,8 @@ function FactSection({
               propertyId={propertyId}
               onChange={onChange}
               toast={toast}
-              focus={focus && focus.key === fact.fieldKey ? focus : null}
+              onEdit={onEdit ? () => onEdit(fact) : undefined}
+              onDispute={onDispute ? () => onDispute(fact) : undefined}
             />
           ))}
         </div>
@@ -1049,53 +1445,33 @@ export function FactRow({
   propertyId,
   onChange,
   toast,
-  focus,
+  onEdit,
+  onDispute,
 }: {
   fact: Fact;
   owner?: boolean;
   propertyId?: string;
   onChange?: () => Promise<void> | void;
   toast?: Toast;
-  /** Set by the page (the strip's prompt tiles, the checklist) to open this row's editor. */
-  focus?: FieldFocus;
+  /** Opens the sheet that edits this fact. Without it the row is read-only. */
+  onEdit?: () => void;
+  /** Opens the dispute sheet for an official value. */
+  onDispute?: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [disputing, setDisputing] = useState(false);
   const [visBusy, setVisBusy] = useState(false);
-  const editable = owner && propertyId && ownerCanWrite(fact);
-  const rowRef = useRef<HTMLDivElement>(null);
-  const focusAt = focus?.at ?? 0;
-  useEffect(() => {
-    if (!focusAt || !editable) return;
-    setEditing(true);
-    // The section scroll lands first; then bring this row into view.
-    const timer = window.setTimeout(() => rowRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }), 350);
-    return () => window.clearTimeout(timer);
-  }, [focusAt, editable]);
-  const disputable = owner && propertyId && !ownerCanWrite(fact) && fact.status !== "unknown";
+  const editable = Boolean(owner && propertyId && onEdit && ownerCanWrite(fact));
+  const disputable = Boolean(owner && propertyId && onDispute && !ownerCanWrite(fact) && fact.status !== "unknown");
   const ownerAssertion = fact.assertions.find((assertion) => assertion.sourceType === "verified_owner");
   const showBadge = fact.status !== "available" && !(fact.status === "unknown" && editable);
   const canToggle = editable && ownerAssertion && fact.visibility;
   const { text, swatch } = splitSwatch(fact.fieldKey, fact.display);
 
   return (
-    <div ref={rowRef} className={`fact ${editable ? "is-editable" : ""} ${fact.dispute ? "is-disputed" : ""} ${fact.visibility === "private" ? "is-private" : ""}`} data-field={fact.fieldKey}>
+    <div className={`fact ${editable ? "is-editable" : ""} ${fact.dispute ? "is-disputed" : ""} ${fact.visibility === "private" ? "is-private" : ""}`} data-field={fact.fieldKey}>
       <div className="fact-label">{fact.label}</div>
       <div className="fact-value">
-        {editable && editing && propertyId ? (
-          <FieldEditor
-            fact={fact}
-            propertyId={propertyId}
-            initial={ownerAssertion?.value ?? (fact.layer === "owner" ? fact.value : null)}
-            onDone={async (message) => {
-              setEditing(false);
-              if (message && toast) toast(message);
-              await onChange?.();
-            }}
-            onCancel={() => setEditing(false)}
-          />
-        ) : editable && fact.status === "unknown" ? (
-          <button type="button" className="add-value" data-testid={`add-${fact.fieldKey}`} onClick={() => setEditing(true)}>
+        {editable && fact.status === "unknown" ? (
+          <button type="button" className="add-value" data-testid={`add-${fact.fieldKey}`} onClick={onEdit}>
             Add {fact.label.toLowerCase()}
           </button>
         ) : (
@@ -1107,7 +1483,7 @@ export function FactRow({
             {showBadge && <span className={`badge ${fact.status}`}>{STATUS_LABEL[fact.status]}</span>}
             {fact.dispute && <span className="badge disputed">disputed by owner</span>}
             {editable && (
-              <button type="button" className="inline-edit" data-testid={`edit-${fact.fieldKey}`} onClick={() => setEditing(true)}>Edit</button>
+              <button type="button" className="inline-edit" data-testid={`edit-${fact.fieldKey}`} onClick={onEdit}>Edit</button>
             )}
             {canToggle && propertyId && (
               <VisibilityChip
@@ -1149,89 +1525,12 @@ export function FactRow({
               )}
             </div>
           )}
-          {disputable && !fact.dispute && !disputing && (
-            <button type="button" className="text-link" onClick={() => setDisputing(true)}>Dispute this fact</button>
+          {disputable && !fact.dispute && (
+            <button type="button" className="text-link" onClick={onDispute}>Dispute this fact</button>
           )}
         </div>
-        {disputable && disputing && propertyId && (
-          <DisputeForm
-            fact={fact}
-            propertyId={propertyId}
-            onDone={async () => {
-              setDisputing(false);
-              toast?.("Dispute recorded. It stays on the record until a reviewer resolves it.");
-              await onChange?.();
-            }}
-            onCancel={() => setDisputing(false)}
-          />
-        )}
       </div>
     </div>
-  );
-}
-
-function FieldEditor({
-  fact,
-  propertyId,
-  initial,
-  onDone,
-  onCancel,
-}: {
-  fact: Fact;
-  propertyId: string;
-  initial: unknown;
-  onDone: (message: string | null) => Promise<void> | void;
-  onCancel: () => void;
-}) {
-  const meta = useMeta();
-  const def = meta?.vocab.find((field) => field.key === fact.fieldKey);
-  const valueType = def?.valueType ?? "string";
-  const [value, setValue] = useState(initial === null || initial === undefined ? "" : String(initial));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const multiline = MULTILINE_FIELDS.has(fact.fieldKey);
-  const hasExisting = initial !== null && initial !== undefined && initial !== "";
-  const hint = FIELD_HINTS[fact.fieldKey] ?? (def?.unit ? `In ${def.unit}` : multiline ? `Describe ${fact.label.toLowerCase()}` : undefined);
-
-  const save = async (next: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await api.saveOwnerFields(propertyId, { [fact.fieldKey]: next });
-      await onDone(result.updated ? `${fact.label} saved to the owner record.` : result.removed ? `${fact.label} cleared.` : null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save");
-      setBusy(false);
-    }
-  };
-
-  const inputType = valueType === "date" ? "date" : valueType === "string" ? "text" : "number";
-  return (
-    <form className="field-editor" onSubmit={(event) => { event.preventDefault(); void save(value); }}>
-      {multiline ? (
-        <textarea className="field" rows={3} autoFocus value={value} onChange={(event) => setValue(event.target.value)} placeholder={hint} onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }} />
-      ) : (
-        <input
-          className="field"
-          autoFocus
-          type={inputType}
-          inputMode={inputType === "number" ? "decimal" : undefined}
-          step={inputType === "number" ? "any" : undefined}
-          value={value}
-          placeholder={hint}
-          onChange={(event) => setValue(event.target.value)}
-          onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }}
-        />
-      )}
-      {error && <p className="error">{error}</p>}
-      <div className="action-row compact">
-        <button type="submit" className="btn small" disabled={busy || value.trim() === ""} data-testid={`save-${fact.fieldKey}`}>{busy ? "Saving…" : "Save"}</button>
-        <button type="button" className="btn secondary small" onClick={onCancel}>Cancel</button>
-        {hasExisting && (
-          <button type="button" className="text-link danger" disabled={busy} onClick={() => void save("")}>Clear</button>
-        )}
-      </div>
-    </form>
   );
 }
 
@@ -1240,8 +1539,9 @@ function DisputeForm({ fact, propertyId, onDone, onCancel }: { fact: Fact; prope
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const source = fact.assertions.find((assertion) => assertion.sourceType !== "verified_owner");
   return (
-    <form className="field-editor" onSubmit={async (event) => {
+    <form className="sheet-form" data-testid="dispute-form" onSubmit={async (event) => {
       event.preventDefault();
       setBusy(true);
       setError(null);
@@ -1253,13 +1553,23 @@ function DisputeForm({ fact, propertyId, onDone, onCancel }: { fact: Fact; prope
         setBusy(false);
       }
     }}>
-      <p className="meta-line">The county's value stays put. Your dispute sits next to it and goes to review.</p>
-      <input className="field" autoFocus placeholder={`What you believe the ${fact.label.toLowerCase()} is`} value={proposed} onChange={(event) => setProposed(event.target.value)} />
-      <textarea className="field" rows={2} placeholder="Why, or what evidence you have" value={note} onChange={(event) => setNote(event.target.value)} />
+      <div className="stack topic-readonly span-2">
+        <span>County says</span>
+        <strong>{fact.display ?? "—"}</strong>
+        {source && <small className="meta-line">{source.sourceName}{source.effectiveAt ? ` · ${new Date(source.effectiveAt).getFullYear()}` : ""}</small>}
+      </div>
+      <label className="stack">
+        <span>What you believe it is</span>
+        <input className="field" autoFocus placeholder={fact.display ? `Instead of ${fact.display}` : undefined} value={proposed} onChange={(event) => setProposed(event.target.value)} data-testid="dispute-value" />
+      </label>
+      <label className="stack">
+        <span>Why, or what you have to show for it</span>
+        <textarea className="field" rows={3} placeholder="The lintel says 1850. The survey in the vault shows 2.1 acres." value={note} onChange={(event) => setNote(event.target.value)} />
+      </label>
       {error && <p className="error">{error}</p>}
-      <div className="action-row compact">
-        <button type="submit" className="btn small" disabled={busy}>{busy ? "Recording…" : "Record dispute"}</button>
-        <button type="button" className="btn secondary small" onClick={onCancel}>Cancel</button>
+      <div className="action-row compact sheet-actions">
+        <button type="submit" className="btn" disabled={busy || (!proposed.trim() && !note.trim())} data-testid="dispute-save">{busy ? "Recording…" : "Record dispute"}</button>
+        <button type="button" className="btn secondary" disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
     </form>
   );
@@ -1293,13 +1603,13 @@ function ProfileChecklist({
     { label: "Photos", ok: documents.some(isImage), target: "photos" },
     { label: "Still original", ok: has("original_details"), target: "field:original_details", cta: "List what's original" },
     { label: "Work done", ok: improvements.length > 0, target: "improvements", cta: "Log the last big job" },
-    { label: "Roof", ok: has("roof.type") || has("roof.year") || improvements.some((item) => item.category === "roof"), target: "systems" },
-    { label: "Heating", ok: has("heating") || improvements.some((item) => item.category === "hvac"), target: "systems" },
-    { label: "Cooling", ok: has("cooling"), target: "systems" },
-    { label: "Water heater", ok: has("water_heater"), target: "systems" },
-    { label: "Electrical", ok: has("electrical") || improvements.some((item) => item.category === "electrical"), target: "systems" },
-    { label: "Septic / well", ok: has("septic_or_well") || improvements.some((item) => item.category === "septic_well"), target: "systems" },
-    { label: "Utilities", ok: has("utility.electric") && has("utility.water") && has("utility.sewer"), target: "location" },
+    { label: "Roof", ok: has("roof.type") || has("roof.year") || improvements.some((item) => item.category === "roof"), target: "field:roof.type" },
+    { label: "Heating", ok: has("heating") || improvements.some((item) => item.category === "hvac"), target: "field:heating" },
+    { label: "Cooling", ok: has("cooling"), target: "field:cooling" },
+    { label: "Water heater", ok: has("water_heater"), target: "field:water_heater" },
+    { label: "Electrical", ok: has("electrical") || improvements.some((item) => item.category === "electrical"), target: "field:electrical" },
+    { label: "Septic / well", ok: has("septic_or_well") || improvements.some((item) => item.category === "septic_well"), target: "field:septic_or_well" },
+    { label: "Utilities", ok: has("utility.electric") && has("utility.water") && has("utility.sewer"), target: "field:utility.electric" },
     { label: "Survey", ok: doc("survey"), target: "documents" },
     { label: "Deed", ok: doc("deed") || has("deed.book"), target: "documents" },
     { label: "Permits", ok: doc("permit") || doc("certificate_of_occupancy"), target: "documents" },
@@ -1362,6 +1672,10 @@ function ImprovementsSection({
   toast: Toast;
 }) {
   const total = improvements.reduce((sum, item) => sum + (item.cost_cents ?? 0), 0);
+  // A fresh form each time the sheet opens; the sheet itself stays mounted to animate out.
+  const [formSeq, setFormSeq] = useState(0);
+  useEffect(() => { if (formOpen) setFormSeq((n) => n + 1); }, [formOpen]);
+  const closeForm = useCallback(() => setFormOpen(false), [setFormOpen]);
   return (
     <section className="section" id="improvements">
       <div className="section-head">
@@ -1376,12 +1690,19 @@ function ImprovementsSection({
           : "Work the owner has chosen to share, with the people who did it."}
         {owner && total > 0 ? ` Logged so far: ${money(total)}.` : ""}
       </p>
-      {owner && formOpen && (
-        <ImprovementDialog title="Add improvement" onClose={() => setFormOpen(false)}>
+      {owner && (
+        <Sheet
+          open={formOpen}
+          title="Add improvement"
+          lede="What was done, who did it, what it cost. Photos and receipts can ride along."
+          onClose={closeForm}
+          testId="improvement-dialog"
+        >
           <ImprovementForm
+            key={formSeq}
             propertyId={propertyId}
             categories={categories}
-            onCancel={() => setFormOpen(false)}
+            onCancel={closeForm}
             onSaved={async (count, improvement) => {
               setFormOpen(false);
               toast(count ? `Improvement recorded with ${count} attachment${count === 1 ? "" : "s"}.` : "Improvement recorded.");
@@ -1391,7 +1712,7 @@ function ImprovementsSection({
               }) : undefined);
             }}
           />
-        </ImprovementDialog>
+        </Sheet>
       )}
       {improvements.length === 0 && (
         <div className="group empty-card">
@@ -1420,52 +1741,6 @@ function dateInputValue(value: string | null | undefined): string {
 function costInputValue(cents: number | null | undefined): string {
   if (cents === null || cents === undefined) return "";
   return String(cents / 100);
-}
-
-/** html is the viewport scroller; locking body overflow alone does nothing. */
-function useLockPageScroll() {
-  useEffect(() => {
-    const html = document.documentElement;
-    const body = document.body;
-    const scrollY = window.scrollY;
-    html.classList.add("dialog-open");
-    body.style.top = `-${scrollY}px`;
-    return () => {
-      html.classList.remove("dialog-open");
-      body.style.top = "";
-      window.scrollTo(0, scrollY);
-    };
-  }, []);
-}
-
-/**
- * Hosts the improvement form as a full-height sheet on phones and a centered
- * modal on wider screens, so editing never reflows the page underneath.
- */
-function ImprovementDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  useLockPageScroll();
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      className="modal-backdrop improvement-dialog-backdrop"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
-      onWheel={(event) => { if (event.target === event.currentTarget) event.preventDefault(); }}
-    >
-      <div className="improvement-dialog" role="dialog" aria-modal="true" aria-labelledby="improvement-dialog-title" data-testid="improvement-dialog">
-        <header className="improvement-dialog-head">
-          <h2 id="improvement-dialog-title">{title}</h2>
-          <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>×</button>
-        </header>
-        <div className="improvement-dialog-body">{children}</div>
-      </div>
-    </div>,
-    document.body,
-  );
 }
 
 function ImprovementForm({
@@ -1611,7 +1886,7 @@ function ImprovementCard({
   toast: Toast;
 }) {
   const [busy, setBusy] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const editor = useSheet();
   const images = item.documents.filter(isImage);
   const files = item.documents.filter((doc) => !isImage(doc));
   const meta = [
@@ -1636,15 +1911,16 @@ function ImprovementCard({
 
   return (
     <article className={`group improvement-card ${item.visibility === "private" ? "is-private" : ""}`} data-testid="improvement-card">
-      {editing && (
-        <ImprovementDialog title="Edit improvement" onClose={() => setEditing(false)}>
+      {owner && (
+        <Sheet open={editor.open} title="Edit improvement" onClose={editor.hide} testId="improvement-dialog">
           <ImprovementForm
+            key={editor.seq}
             propertyId={propertyId}
             categories={categories}
             item={item}
-            onCancel={() => setEditing(false)}
+            onCancel={editor.hide}
             onSaved={async (count, improvement) => {
-              setEditing(false);
+              editor.hide();
               toast(count ? `Improvement updated with ${count} new attachment${count === 1 ? "" : "s"}.` : "Improvement updated.");
               await onChange(improvement ? (page) => ({
                 ...page,
@@ -1652,12 +1928,12 @@ function ImprovementCard({
               }) : undefined);
             }}
             onDeleted={async () => {
-              setEditing(false);
+              editor.hide();
               toast("Improvement removed.");
               await onChange();
             }}
           />
-        </ImprovementDialog>
+        </Sheet>
       )}
       <header className="improvement-head">
         <span className="chip">{CATEGORY_LABEL[item.category] ?? item.category}</span>
@@ -1727,7 +2003,7 @@ function ImprovementCard({
               }));
             }}>Private</button>
           </div>
-          <button type="button" className="text-link" data-testid="improvement-edit" onClick={() => setEditing(true)}>Edit</button>
+          <button type="button" className="text-link" data-testid="improvement-edit" onClick={editor.show}>Edit</button>
         </div>
       )}
     </article>
@@ -1802,7 +2078,7 @@ function PhotoLightbox({
     setConfirm(false);
   }, [index, onIndex, photos.length]);
 
-  useLockPageScroll();
+  useLockPageScroll(true, false);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();

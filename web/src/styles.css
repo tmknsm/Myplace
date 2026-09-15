@@ -983,6 +983,47 @@ tr:last-child td { border-bottom: 0; }
 .stat strong small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
 .stat .badge { margin: 4px 0 0; font-style: normal; }
 .stat.is-private { box-shadow: var(--shadow), inset 0 0 0 1.5px #f1dfc2; }
+
+/* Topic cards: one subject each (Paint colors, Roof), edited in a sheet. */
+.topic-list { display: grid; gap: 6px; }
+.topic-card { padding: 14px 16px 6px; }
+.topic-card.is-private { box-shadow: var(--shadow), inset 0 0 0 1.5px #f1dfc2; }
+.topic-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.topic-head h3 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; flex: 1 1 auto; min-width: 0; }
+.topic-head .badge { margin-left: 0; }
+.topic-head .text-btn { flex-shrink: 0; }
+.badge.private { color: var(--warn); background: #f8efe0; }
+.topic-rows { margin: 0; }
+.topic-row {
+  display: grid;
+  grid-template-columns: 152px minmax(0, 1fr);
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--hairline);
+}
+.topic-row:first-child { border-top: 0; }
+.topic-row dt { color: var(--muted); font-size: 14px; padding-top: 1px; }
+.topic-row dd { margin: 0; font-size: 16px; font-weight: 590; overflow-wrap: anywhere; white-space: pre-line; }
+.topic-link { color: var(--accent); text-decoration: none; font-weight: 560; }
+.topic-link:hover { text-decoration: underline; }
+.topic-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 16px;
+  text-align: left;
+  background: none;
+  box-shadow: none;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.topic-empty:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); border-color: color-mix(in srgb, var(--accent) 70%, transparent); }
+.topic-empty:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.topic-empty-title { color: var(--accent); font-weight: 600; font-size: 15px; }
+.topic-empty-title::before { content: "+ "; }
+.topic-empty .meta-line { margin: 0; max-width: 52ch; }
 /* A paint chip pulled from a hex code the owner typed next to the color name. */
 .swatch {
   display: inline-block;
@@ -1334,8 +1375,6 @@ tr:last-child td { border-bottom: 0; }
   min-height: 32px;
 }
 .add-value:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-.field-editor { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
-.field-editor .field { padding: 9px 12px; font-size: 15px; }
 .dispute-note { color: var(--warn); margin-top: 4px; }
 .fact.is-disputed .fact-value > strong { text-decoration: underline dotted var(--warn); text-underline-offset: 3px; }
 
@@ -1822,10 +1861,38 @@ html.dialog-open body {
   width: 100%;
 }
 
-/* Improvement editor: centered modal on wide screens, full-height sheet on
-   phones. The page underneath never reflows. */
-.improvement-dialog-backdrop { z-index: 70; overscroll-behavior: none; }
-.improvement-dialog {
+/* ---- Sheets ------------------------------------------------------------ */
+/* Every owner edit happens in one of these. Wide screens get a centered card;
+   phones get a bottom sheet that rises with a little spring while the page
+   behind settles back, rounds off, and dims, the way iOS stacks a sheet on
+   the view beneath it. The spring is ours: iOS eases in flat, we land with
+   a breath of overshoot. */
+:root {
+  --sheet-rise: cubic-bezier(0.34, 1.28, 0.64, 1);
+  --sheet-settle: cubic-bezier(0.32, 0.72, 0, 1);
+  --sheet-in: 480ms;
+  --sheet-out: 260ms;
+}
+.sheet-backdrop-v2 {
+  --sheet-dim: 1;
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(24, 22, 19, calc(0.42 * var(--sheet-dim)));
+  backdrop-filter: blur(calc(6px * var(--sheet-dim)));
+  -webkit-backdrop-filter: blur(calc(6px * var(--sheet-dim)));
+  animation: fade-in 220ms ease-out;
+  overscroll-behavior: none;
+  touch-action: none;
+  transition: background var(--sheet-out) ease;
+}
+.sheet-backdrop-v2.is-closing { animation: fade-out var(--sheet-out) ease-in forwards; }
+@keyframes fade-out { to { opacity: 0; } }
+.sheet-panel {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -1833,31 +1900,73 @@ html.dialog-open body {
   max-height: min(90dvh, 820px);
   background: var(--canvas);
   border-radius: 24px;
-  box-shadow: 0 24px 64px rgba(20, 18, 14, 0.25);
+  box-shadow: 0 24px 64px rgba(20, 18, 14, 0.28);
   overflow: hidden;
-  animation: pop-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: pop-in 220ms var(--sheet-settle);
+  will-change: transform;
+  touch-action: pan-y;
 }
-.improvement-dialog-head {
+.sheet-panel.is-wide { width: min(100%, 720px); }
+.sheet-panel.is-closing { animation: pop-out var(--sheet-out) ease-in forwards; }
+@keyframes pop-out { to { opacity: 0; transform: translateY(8px) scale(0.98); } }
+.sheet-panel-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding: 20px 24px 12px;
   flex-shrink: 0;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
-.improvement-dialog-head h2 { margin: 0; font-size: 24px; letter-spacing: -0.02em; font-weight: 650; }
-.improvement-dialog-head .modal-close { position: static; flex-shrink: 0; }
-.improvement-dialog-body {
+.sheet-panel-head:active { cursor: grabbing; }
+.sheet-panel-title { min-width: 0; flex: 1 1 auto; }
+.sheet-panel-title h2 { margin: 0; font-size: 24px; letter-spacing: -0.02em; font-weight: 650; }
+.sheet-panel-title .meta-line { margin: 4px 0 0; max-width: 52ch; }
+.sheet-panel-head .modal-close { position: static; flex-shrink: 0; }
+.sheet-grabber { display: none; }
+.sheet-panel-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: 0 24px 24px;
+  touch-action: pan-y;
 }
+/* The title and body arrive a beat after the panel so the sheet reads as a
+   surface first and a form second. */
+.sheet-panel-title,
+.sheet-panel-body { animation: sheet-content-in 320ms 90ms var(--sheet-settle) both; }
+@keyframes sheet-content-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.sheet-panel.is-closing .sheet-panel-title,
+.sheet-panel.is-closing .sheet-panel-body { animation: none; }
+
+.sheet-form .form-grid { grid-template-columns: 1fr 1fr; }
+.sheet-form .form-grid .stack { margin: 8px 0; }
+.sheet-form > .stack { margin: 8px 0; }
+.sheet-form textarea.field { line-height: 1.5; }
+.sheet-form .inline-choice { margin-top: 14px; }
+.sheet-actions { margin-top: 18px; }
+.sheet-actions .btn { flex: 1 1 auto; }
 .improvement-form .form-grid { grid-template-columns: 1fr 1fr; }
 .improvement-form .action-row { margin-top: 18px; }
 .improvement-form .action-row .btn { flex: 1 1 auto; }
+.topic-readonly strong { display: block; font-size: 16px; font-weight: 590; }
+.topic-readonly small { display: block; margin-top: 2px; }
+
+/* The page recedes behind a phone sheet: pinned at its scroll offset, scaled
+   down around the visible region, clipped to it with rounded corners. */
+#root { transform-origin: 50% calc(var(--sheet-scroll, 0px) + 50dvh); }
+html.dialog-open #root {
+  transition: transform var(--sheet-out) var(--sheet-settle), clip-path var(--sheet-out) var(--sheet-settle);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet-backdrop-v2, .sheet-panel, .sheet-panel-title, .sheet-panel-body { animation-duration: 1ms !important; }
+  html.dialog-open #root { transition: none; }
+}
 
 /* ---- Property page: card system --------------------------------------- */
 /* Cards: 24px corners, 16px inner padding. Framed elements on card edges
@@ -2166,17 +2275,52 @@ html.dialog-open body {
   .toast { top: 64px; }
   .sheet { width: 100%; }
   .modal { padding: 22px 18px 18px; }
-  .improvement-dialog-backdrop { padding: 0; align-items: stretch; }
-  .improvement-dialog {
+  /* Bottom sheet. Sits just under the status bar like an iOS page sheet,
+     top corners rounded to match our cards, grabber in the accent. */
+  .sheet-backdrop-v2 { padding: 0; align-items: flex-end; }
+  /* The panel bleeds below the viewport so the spring's overshoot never shows
+     the backdrop under its bottom edge. */
+  .sheet-panel,
+  .sheet-panel.is-wide {
+    --sheet-bleed: 56px;
     width: 100%;
     max-height: none;
-    height: 100dvh;
-    border-radius: 0;
-    animation: sheet-up 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    height: calc(100dvh - env(safe-area-inset-top) - 10px + var(--sheet-bleed));
+    margin-bottom: calc(-1 * var(--sheet-bleed));
+    border-radius: 24px 24px 0 0;
+    box-shadow: 0 -12px 48px rgba(20, 18, 14, 0.3);
+    animation: sheet-rise var(--sheet-in) var(--sheet-rise);
   }
-  .improvement-dialog-head { padding: calc(16px + env(safe-area-inset-top)) 16px 10px; }
-  .improvement-dialog-body { padding: 0 16px calc(24px + env(safe-area-inset-bottom)); }
-  .improvement-form .form-grid { grid-template-columns: 1fr; }
+  .sheet-panel.is-closing { animation: sheet-sink var(--sheet-out) var(--sheet-settle) forwards; }
+  @keyframes sheet-rise { from { transform: translate3d(0, 100%, 0); } to { transform: none; } }
+  @keyframes sheet-sink { to { transform: translate3d(0, 110%, 0); } }
+  .sheet-panel-head { padding: 22px 16px 10px; }
+  html.dialog-open body { background: #17150f; }
+  .sheet-grabber {
+    display: block;
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    margin-left: -18px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--accent) 70%, var(--canvas));
+  }
+  .sheet-panel-body { padding: 0 16px calc(24px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px)); }
+  .sheet-form .form-grid,
+  .improvement-form .form-grid { grid-template-columns: 1fr 1fr; }
+  .sheet-form .form-grid .span-2,
+  .improvement-form .form-grid .span-2 { grid-column: 1 / -1; }
+  html.sheet-lift #root {
+    transform: scale(0.93);
+    clip-path: inset(var(--sheet-scroll, 0px) 0 calc(100% - var(--sheet-scroll, 0px) - 100dvh) 0 round 24px);
+    transition: transform var(--sheet-in) var(--sheet-rise), clip-path var(--sheet-in) var(--sheet-rise);
+  }
+  html.dialog-open #root { clip-path: inset(var(--sheet-scroll, 0px) 0 calc(100% - var(--sheet-scroll, 0px) - 100dvh) 0 round 0px); }
+  @media (prefers-reduced-motion: reduce) {
+    html.sheet-lift #root { transform: none; clip-path: none; transition: none; }
+  }
   .pin-cell { height: 56px; font-size: 26px; }
   .upload-card .file-btn { width: 100%; }
   .lightbox { gap: 8px; padding: 12px; }
