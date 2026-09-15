@@ -2264,6 +2264,7 @@ html.dialog-open body {
 }
 .home-search .search-results { border-radius: 16px; }
 .home-hero-meta { margin: 12px 0 0; }
+.home-hero-meta a { color: var(--ink-soft); font-weight: 500; }
 
 .home-map {
   position: relative;
@@ -2308,87 +2309,13 @@ html.dialog-open body {
 }
 
 /* Chapters */
-.home-story {
-  margin-top: var(--home-gap);
-  /* Curious scrolls here: the bar's top meets the header and docks. */
-  scroll-margin-top: var(--topbar-height, 84px);
-}
-
-/*
- * Section bar. The property page's chip bar, brought to the landing page at
- * every width: inline above the chapters, then stuck beneath the brand row as
- * the reader scrolls into them. Full-bleed so the docked bar and the header's
- * glass read as one sheet.
- */
-.home-nav {
-  position: sticky;
-  top: var(--topbar-height, 84px);
-  z-index: 21;
-  margin: 0 calc(50% - 50vw);
-  min-width: 0;
-}
-/* Until the dock class lands (at most a frame late), the bar frosts itself. */
-.home-nav::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: var(--chrome-fill);
-  backdrop-filter: var(--chrome-blur);
-  -webkit-backdrop-filter: var(--chrome-blur);
-  pointer-events: none;
-}
-/* Once docked, the header's glass sheet grows to cover the bar: one blur, no seam. */
-html.home-nav-docked .home-nav::before { display: none; }
-html.home-nav-docked .chrome-glass::before {
-  /* Overlap shrinks as the bar is consumed by the section's trailing edge. */
-  height: calc(var(--topbar-height, 0px) + var(--nav-dock-overlap, var(--profile-nav-height, 0px)));
-}
-.home-nav .profile-nav {
-  flex-direction: row;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  position: static;
-  top: auto;
-  gap: 6px;
-  margin: 0;
-  /* Chips line up with the page column, and scroll off the viewport's edge. */
-  padding:
-    var(--profile-nav-pad-top)
-    calc(max((100% - var(--home-max)) / 2, 0px) + var(--home-inline-end))
-    var(--profile-nav-pad-y)
-    calc(max((100% - var(--home-max)) / 2, 0px) + var(--home-inline-start));
-  min-width: 0;
-  background: none;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  scroll-padding-inline: var(--home-inline-start);
-}
-.home-nav .profile-nav::-webkit-scrollbar { display: none; }
-.home-nav .profile-nav a {
-  padding: 8px 14px;
-  white-space: nowrap;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  min-height: 38px;
-  font-size: 14px;
-}
-.home-nav .profile-nav a.on { color: #fff; background: var(--ink); box-shadow: none; }
-@media (min-width: 881px) {
-  /* Four chips never overflow here; sit them under the centered headline. */
-  .home-nav .profile-nav { justify-content: center; }
-}
-
 .home-chapters {
   display: flex;
   flex-direction: column;
   gap: var(--home-gap);
-  margin-top: 44px;
+  margin-top: var(--home-gap);
 }
-.home-chapter {
-  min-width: 0;
-  scroll-margin-top: calc(var(--topbar-height, 84px) + var(--profile-nav-height, 0px) + 12px);
-}
+.home-chapter { min-width: 0; }
 .home-chapter-copy {
   max-width: 54ch;
   margin: 28px auto 0;
@@ -2399,36 +2326,11 @@ html.home-nav-docked .chrome-glass::before {
   line-height: 1.5;
   color: var(--ink-soft);
 }
-.home-points {
-  list-style: none;
-  margin: 22px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  font-size: 15px;
-  color: var(--ink);
-}
-.home-points li {
-  position: relative;
-  padding-left: 22px;
-  line-height: 1.4;
-}
-.home-points li::before {
-  content: "";
-  position: absolute;
-  left: 1px;
-  top: 6px;
-  width: 8px;
-  height: 8px;
-  border: 1.6px solid var(--accent);
-  border-radius: 50%;
-}
 
 .home-scene {
   position: relative;
-  /* Tall enough to hold the staged cards; short enough to sit under the docked bar. */
-  height: min(calc(100dvh - var(--topbar-height, 84px) - var(--profile-nav-height, 0px) - 48px), 680px);
+  /* Tall enough to hold the staged cards; short enough to fit under the header. */
+  height: min(calc(100dvh - var(--topbar-height, 84px) - 48px), 680px);
   min-height: 420px;
   margin-top: 36px;
 }
@@ -2500,8 +2402,9 @@ html.home-nav-docked .chrome-glass::before {
   background: var(--surface-2);
 }
 
-.home-float-improvement { left: 5%; bottom: 7%; width: min(64%, 370px); }
-.home-float-vault { right: 5%; top: 8%; width: 208px; padding-bottom: 14px; }
+.home-float-claim { left: 5%; bottom: 7%; width: min(66%, 400px); }
+.home-float-claim .home-strip { margin: 12px 0; }
+.home-float-docs { right: 6%; bottom: 8%; width: min(60%, 300px); padding-bottom: 14px; }
 .home-doc-list { list-style: none; margin: 0 0 10px; padding: 0; font-size: 13px; }
 .home-doc-list li {
   display: flex;
@@ -2515,9 +2418,10 @@ html.home-nav-docked .chrome-glass::before {
 .home-doc-list small { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
 .home-float .vis-chip { margin-left: 0; cursor: default; }
 
-.home-scene-owners .home-scene-photo { object-position: 50% 68%; }
-.home-scene-buyers .home-scene-photo { object-position: 22% 50%; }
-.home-scene-sellers .home-scene-photo { object-position: 50% 60%; }
+.home-scene-claim .home-scene-photo { object-position: 50% 68%; }
+.home-scene-private .home-scene-photo { object-position: 40% 50%; }
+.home-scene-offer .home-scene-photo { object-position: 22% 50%; }
+.home-scene-handoff .home-scene-photo { object-position: 50% 60%; }
 .home-float-facts { right: 5%; top: 9%; width: min(66%, 400px); padding-bottom: 8px; }
 .home-float-head {
   display: flex;
@@ -2540,9 +2444,6 @@ html.home-nav-docked .chrome-glass::before {
 .home-facts dt { color: var(--muted); font-size: 13px; padding-top: 1px; }
 .home-facts dd { margin: 0; font-size: 14px; font-weight: 520; }
 .home-facts .badge { margin-left: 6px; }
-.home-float-package { left: 5%; bottom: 8%; width: 300px; }
-.home-float-package strong { display: block; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
-.home-float-package small { display: block; margin-top: 4px; font-size: 12px; }
 
 .home-float-handoff { left: 6%; bottom: 8%; width: min(70%, 400px); }
 .home-transfer-list { list-style: none; margin: 10px 0 0; padding: 0; }
@@ -2655,6 +2556,27 @@ html.home-nav-docked .chrome-glass::before {
 .home-pillar-fact .badge { font-style: normal; margin-left: 6px; }
 .home-pillar-vis { gap: 8px; align-items: flex-start; }
 .home-pillar-vis .vis-chip { margin-left: 0; cursor: default; font-size: 12px; min-height: 26px; padding: 3px 10px 3px 8px; }
+
+/* Agents: a short band, not a full chapter. */
+.home-agents {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 24px 56px;
+  align-items: end;
+  margin-top: var(--home-gap);
+  padding: 36px 0 40px;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+}
+.home-agents-head { min-width: 0; }
+.home-agents .kicker { font-size: 14px; }
+.home-agents h2 { font-size: clamp(26px, 3vw, 36px); margin-top: 8px; }
+.home-agents > p {
+  margin: 0 0 4px;
+  font-size: 17px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
 
 /* Coverage */
 .home-coverage {
@@ -2844,9 +2766,7 @@ html.home-search-docked .topbar .home-handoff {
   .home-map-open { display: none; }
   .home-map-caption { text-align: left; margin: 12px 0 0; }
   .home-section-head { text-align: left; max-width: none; }
-  .home-chapters { margin-top: 28px; }
-  .home-scene,
-  .home-scene-inline {
+  .home-scene {
     height: auto;
     min-height: 0;
     aspect-ratio: 5 / 6;
@@ -2857,9 +2777,9 @@ html.home-search-docked .topbar .home-handoff {
   .home-chapter-copy p { font-size: 16px; }
   .home-float { padding: 14px 15px; font-size: 13px; }
   .home-float h4 { font-size: 17px; }
-  .home-float-vault,
-  .home-float-package { display: none; }
-  .home-float-improvement { width: min(78%, 340px); }
+  .home-float-claim { width: min(88%, 380px); left: 6%; }
+  .home-float-claim .home-strip { display: none; }
+  .home-float-docs { width: min(78%, 320px); right: 6%; }
   .home-float-facts { width: min(88%, 380px); top: 7%; }
   .home-facts > div { grid-template-columns: 96px 1fr; }
   .home-float-head { flex-direction: column-reverse; align-items: flex-start; gap: 10px; }
@@ -2870,6 +2790,9 @@ html.home-search-docked .topbar .home-handoff {
   .home-pillar-grid { grid-template-columns: 1fr; gap: 8px; margin-top: 24px; }
   .home-pillar { padding: 10px 10px 22px; }
   .home-pillar-art { height: auto; min-height: 0; padding: 16px 18px; }
+  .home-agents { grid-template-columns: 1fr; gap: 14px; padding: 30px 0 32px; }
+  .home-agents h2 { font-size: clamp(26px, 7vw, 32px); }
+  .home-agents > p { font-size: 16px; }
   .home-coverage { grid-template-columns: 1fr; gap: 22px; }
   .home-coverage-photo { order: -1; height: clamp(240px, 42dvh, 360px); }
   .home-coverage-copy > p { font-size: 16px; }
