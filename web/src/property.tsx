@@ -2635,7 +2635,40 @@ function PhotoLightbox({
 
   return (
     <div className="modal-backdrop lightbox" role="dialog" aria-modal="true" aria-label="Photo">
-      <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>×</button>
+      <header className="lightbox-head">
+        <div className="lightbox-tools">
+          {owner && (confirm ? (
+            <span className="lightbox-confirm">
+              Delete this photo?
+              <button type="button" className="text-link danger" disabled={busy} onClick={() => void remove()}>{busy ? "Deleting…" : "Delete"}</button>
+              <button type="button" className="text-link" disabled={busy} onClick={() => setConfirm(false)}>Keep</button>
+            </span>
+          ) : (
+            <>
+              <label className={`text-link file-btn ${busy ? "is-busy" : ""}`}>
+                {busy ? "Saving…" : missing ? "Restore" : "Change"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={busy}
+                  data-testid="photo-replace"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    void replace(file);
+                  }}
+                />
+              </label>
+              <button type="button" className="text-link danger" disabled={busy} data-testid="photo-delete" onClick={() => setConfirm(true)}>Delete</button>
+            </>
+          ))}
+        </div>
+        <button type="button" className="lightbox-close" aria-label="Close" onClick={onClose}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </header>
       <div ref={trackRef} className="lightbox-track" data-testid="lightbox-track">
         {photos.map((doc, i) => (
           <div
@@ -2674,36 +2707,7 @@ function PhotoLightbox({
             ))}
           </div>
         )}
-        <div className="lightbox-caption">
-          {photo.caption && <span className="meta-line">{photo.caption}</span>}
-          {owner && (
-            <div className="lightbox-actions">
-              <label className={`btn secondary file-btn ${busy ? "is-busy" : ""}`}>
-                {busy ? "Saving…" : missing ? "Restore" : "Change"}
-                <input
-                  type="file"
-                  accept="image/*"
-                  disabled={busy}
-                  data-testid="photo-replace"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = "";
-                    void replace(file);
-                  }}
-                />
-              </label>
-              {confirm ? (
-                <span className="confirm-inline lightbox-confirm">
-                  Delete this photo?
-                  <button type="button" className="btn danger" disabled={busy} onClick={() => void remove()}>Delete</button>
-                  <button type="button" className="btn secondary" disabled={busy} onClick={() => setConfirm(false)}>Keep</button>
-                </span>
-              ) : (
-                <button type="button" className="btn danger" disabled={busy} data-testid="photo-delete" onClick={() => setConfirm(true)}>Delete</button>
-              )}
-            </div>
-          )}
-        </div>
+        {photo.caption && <p className="lightbox-caption">{photo.caption}</p>}
       </div>
     </div>
   );
