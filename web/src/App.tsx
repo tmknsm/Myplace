@@ -15,7 +15,8 @@ function Layout({ children }: { children: React.ReactNode }) {
   const meta = useMeta();
   const [debugOpen, setDebugOpen] = useState(false);
   const isHome = location.pathname === "/";
-  const headerSearch = !isHome && !/^\/(signin|signup|dev|admin)/.test(location.pathname);
+  const onAuth = /^\/(signin|signup)/.test(location.pathname);
+  const headerSearch = !isHome && !onAuth && !/^\/(dev|admin)/.test(location.pathname);
   // The share button rides beside the search on the property page itself, in
   // every state. Keyed on the id so the slot re-opens for each page load.
   // The empty slot after it is where the property page mounts its quick-add
@@ -84,9 +85,9 @@ function Layout({ children }: { children: React.ReactNode }) {
                   <Link to="/account">{user.first_name || user.display_name?.split(" ")[0] || "Account"}</Link>
                   <button className="text-btn wide-only" onClick={() => signOut()}>Sign out</button>
                 </>
-              ) : (
-                <Link to="/signin">Sign in</Link>
-              )}
+              ) : !onAuth ? (
+                <Link to="/signup">Sign up</Link>
+              ) : null}
             </nav>
             {/* Desktop: share and quick add sit at the right edge, after the links. */}
             {share && <div className="header-actions wide-only">{share}</div>}
@@ -362,20 +363,32 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
   };
 
   return (
-    <div className={`page wizard auth-page${signup ? " is-signup" : ""}`} data-testid={signup ? "signup-page" : "signin-page"}>
+    <div className="page wizard auth-page" data-testid={signup ? "signup-page" : "signin-page"}>
       <div className="kicker">{signup ? "Free account" : "Welcome back"}</div>
       <h1 className="display">{signup ? "Create your account" : "Sign in"}</h1>
-      <p className="meta-line auth-lede">
-        {signup
-          ? "Your name, then a six-digit code to your email. No password to remember."
-          : "A six-digit code. No password."}
+      <p className="meta-line auth-lede">We'll send you a six-digit code to your email. No password to remember.</p>
+      <p className="auth-switch">
+        {signup ? (
+          <>Already have an account? <Link to={otherHref("/signin")}>Sign in</Link></>
+        ) : (
+          <>Don't have an account? <Link to={otherHref("/signup")}>Create an account</Link></>
+        )}
       </p>
 
       {signup && !sent && (
         <ul className="auth-perks">
-          <li>See what owners have added to claimed homes: paint, rooms, improvements.</li>
-          <li>Claim your own address and keep its record.</li>
-          <li>Choose what stays private and what the neighborhood sees.</li>
+          <li>
+            <HouseIcon />
+            <span>See what owners have added to claimed homes: paint, rooms, improvements.</span>
+          </li>
+          <li>
+            <PinIcon />
+            <span>Claim your own address and keep its record.</span>
+          </li>
+          <li>
+            <EyeIcon />
+            <span>Choose what stays private and what the neighborhood sees.</span>
+          </li>
         </ul>
       )}
 
@@ -457,21 +470,41 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
         <button type="submit" className="btn auth-submit" disabled={busy || (sent ? code.length < 6 : !readyToSend)}>
           {sent
             ? (signup ? "Create account" : "Verify and continue")
-            : (signup ? "Continue with email" : "Send code")}
+            : "Continue with email"}
         </button>
         {sent && (
           <button type="button" className="text-btn auth-resend" disabled={busy} onClick={() => void sendCode()}>Send a new code</button>
         )}
       </form>
-
-      <p className="auth-switch">
-        {signup ? (
-          <>Already have an account? <Link to={otherHref("/signin")}>Sign in</Link></>
-        ) : (
-          <>New to Myplace? <Link to={otherHref("/signup")}>Create an account</Link></>
-        )}
-      </p>
     </div>
+  );
+}
+
+function HouseIcon() {
+  return (
+    <svg className="auth-perk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 11.2 12 4l8 7.2" />
+      <path d="M6.5 10.2V20h11V10.2" />
+      <path d="M10 20v-6h4v6" />
+    </svg>
+  );
+}
+
+function PinIcon() {
+  return (
+    <svg className="auth-perk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 21s6.5-5.4 6.5-10.2A6.5 6.5 0 0 0 5.5 10.8C5.5 15.6 12 21 12 21Z" />
+      <circle cx="12" cy="10.6" r="2.1" />
+    </svg>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg className="auth-perk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.8 12s3.3-6 9.2-6 9.2 6 9.2 6-3.3 6-9.2 6-9.2-6-9.2-6Z" />
+      <circle cx="12" cy="12" r="2.3" />
+    </svg>
   );
 }
 
