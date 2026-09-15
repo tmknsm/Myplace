@@ -2770,7 +2770,7 @@ html.dialog-open body {
   background: var(--surface);
   border-radius: 24px;
   box-shadow: var(--shadow);
-  padding: 14px 14px 26px;
+  padding: 16px;
   min-width: 0;
 }
 .home-pillar-art {
@@ -2784,13 +2784,13 @@ html.dialog-open body {
   overflow: hidden;
 }
 .home-pillar h3 {
-  margin: 22px 12px 6px;
+  margin: 16px 0 6px;
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
 .home-pillar p {
-  margin: 0 12px;
+  margin: 0;
   font-size: 15px;
   line-height: 1.5;
   color: var(--ink-soft);
@@ -3027,8 +3027,8 @@ html.home-search-docked .topbar .home-handoff {
   .home-float-handoff { width: min(88%, 380px); }
   .home-float-history { width: min(80%, 320px); }
   .home-pillar-grid { grid-template-columns: 1fr; gap: 8px; margin-top: 24px; }
-  .home-pillar { padding: 10px 10px 22px; }
-  .home-pillar-art { height: auto; min-height: 0; padding: 16px 18px; }
+  .home-pillar { padding: 16px; }
+  .home-pillar-art { height: auto; min-height: 0; padding: 16px; }
   .home-agents { grid-template-columns: 1fr; gap: 14px; padding: 0; }
   .home-agents h2 { font-size: clamp(26px, 7vw, 32px); }
   .home-agents > p { font-size: 16px; }
