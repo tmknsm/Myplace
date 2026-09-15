@@ -284,9 +284,9 @@ export function PropertyPageView() {
     : null;
   const address = property.formatted ?? "this property";
   const photos = property.documents.filter(isImage);
-  // Paint and style attachments live on those cards, not in the Photos gallery.
+  // Paint and style attachments live on those cards, not in the hero or Photos gallery.
   const galleryPhotos = photos.filter((doc) => doc.topic_id !== "paint" && doc.topic_id !== "style");
-  const available = photos.filter(hasFile);
+  const available = galleryPhotos.filter(hasFile);
   const cover = available.find((doc) => doc.is_cover) ?? available[0] ?? null;
   const photoSlides = cover ? [cover, ...available.filter((doc) => doc !== cover)] : [];
   const lightboxPhotos = lightbox?.source === "hero" ? photoSlides : galleryPhotos;

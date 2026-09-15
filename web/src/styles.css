@@ -1650,7 +1650,7 @@ tr:last-child td { border-bottom: 0; }
 .lightbox {
   display: block;
   padding: 0;
-  background: rgba(29, 29, 31, 0.96);
+  background: #000;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
