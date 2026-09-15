@@ -1491,6 +1491,56 @@ tr:last-child td { border-bottom: 0; }
 .about-empty p { margin: 0; max-width: 56ch; }
 .about-editor textarea { font-size: 16px; line-height: 1.5; }
 
+/* Open eye = public, closed eye = private. No chip, no frame.
+   Public keeps ink-soft on icon and word; private is muted gray on both.
+   Color is set on the children so a sticky :hover after tap cannot keep
+   the public ink on a private control. */
+.vis-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.vis-toggle .vis-glyph {
+  width: 22px;
+  height: 22px;
+  max-width: none;
+  display: block;
+  flex: 0 0 auto;
+  color: inherit;
+  stroke: currentColor;
+}
+.vis-toggle .vis-word {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+  color: inherit;
+}
+.vis-toggle.is-private,
+.vis-toggle.is-private .vis-word,
+.vis-toggle.is-private .vis-glyph { color: var(--muted); }
+.vis-toggle:disabled { opacity: 0.45; cursor: wait; }
+.vis-toggle:focus-visible { outline: none; }
+.vis-toggle:focus-visible .vis-glyph { color: var(--accent); }
+.fact-value .vis-toggle { margin-left: 8px; vertical-align: middle; }
+.vis-field .vis-toggle { margin-top: 4px; }
+.price-wrap .vis-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  padding: 0 12px;
+}
+
 /* Visibility chip */
 .vis-chip {
   display: inline-flex;
@@ -1652,7 +1702,8 @@ a.text-btn { text-decoration: none; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
 .form-grid .stack { margin: 8px 0; }
 .form-grid .span-2 { grid-column: 1 / -1; }
-.inline-choice .segmented { margin-top: 2px; }
+.inline-choice .segmented,
+.inline-choice .vis-toggle { margin-top: 2px; }
 
 .price-field > span {
   display: block;
@@ -1661,51 +1712,8 @@ a.text-btn { text-decoration: none; }
   color: var(--muted);
   font-weight: 500;
 }
-.price-field-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.price-field-row .field { flex: 1 1 auto; min-width: 0; }
-.price-toggle {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.price-toggle i {
-  position: relative;
-  display: block;
-  width: 30px;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-  transition: background 200ms;
-}
-.price-toggle i::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
-  transition: transform 200ms;
-}
-.price-toggle.on { color: var(--ink-soft); }
-.price-toggle.on i { background: var(--ok); box-shadow: none; }
-.price-toggle.on i::after { transform: translateX(12px); }
+.price-wrap { position: relative; }
+.price-wrap .field { padding-right: 96px; }
 .upload-card { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 .upload-card .stack { margin: 0; flex: 1 1 200px; }
 .inline-form { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
