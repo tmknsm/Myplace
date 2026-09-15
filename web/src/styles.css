@@ -130,7 +130,7 @@ img, svg { max-width: 100%; }
   letter-spacing: -0.02em;
 }
 .brand span { display: none; }
-.search-wrap, .header-search, .hero-search { position: relative; }
+.search-wrap, .header-search, .hero-search { position: relative; overflow: visible; }
 .header-search { flex: 1; max-width: 420px; }
 .top-links {
   margin-left: auto;
@@ -2380,7 +2380,10 @@ html.dialog-open body {
     to { transform: translateY(calc(-1 * var(--search-row-height))); }
   }
   @keyframes search-row-tuck {
-    from { transform: translateY(0); clip-path: inset(0 0 0 0); }
+    /* A zero inset still clips overflowing descendants, so the results
+       sheet (positioned below the field) would be cropped by this row.
+       Leave the bottom open at rest; close it only as the row tucks away. */
+    from { transform: translateY(0); clip-path: inset(0 0 -100vmax 0); }
     to { transform: translateY(calc(-1 * var(--search-row-height))); clip-path: inset(var(--search-row-height) 0 0 0); }
   }
   .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
