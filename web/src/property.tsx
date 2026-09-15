@@ -1170,45 +1170,49 @@ function RoomsSection({
   const adder = useSheet();
   return (
     <section className="section" id="rooms">
-      <h2>Rooms</h2>
+      <div className="section-head">
+        <h2>Rooms</h2>
+        {owner && (
+          <button type="button" className="text-btn accent" data-testid="add-room" onClick={adder.show}>Add room</button>
+        )}
+      </div>
       <p className="meta-line section-note">
         {owner
           ? "Kitchen, baths, bedrooms. Pick a room and fill in the finishes. Public unless you mark it private."
           : "Rooms the owner has described, with the finishes people ask about."}
       </p>
+      {owner && (
+        <Sheet
+          open={adder.open}
+          title="Add a room"
+          lede="Choose the room first. The fields below follow from that."
+          onClose={adder.hide}
+          testId="room-sheet"
+        >
+          <RoomForm
+            key={adder.seq}
+            propertyId={propertyId}
+            onCancel={adder.hide}
+            onSaved={async (count, room) => {
+              adder.hide();
+              toast(count ? `Room added with ${count} photo${count === 1 ? "" : "s"}.` : "Room added.");
+              await onChange(room ? (page) => ({
+                ...page,
+                rooms: [...(page.rooms ?? []).filter((row) => row.room_id !== room.room_id), room],
+              }) : undefined);
+            }}
+          />
+        </Sheet>
+      )}
+      {rooms.length === 0 && (
+        <div className="group empty-card">
+          {owner ? "Nothing listed yet. Start with the kitchen, a bath, the room people ask about." : "The owner hasn't shared any rooms yet."}
+        </div>
+      )}
       <div className="topic-list">
         {rooms.map((room) => (
           <RoomCard key={room.room_id} room={room} owner={owner} propertyId={propertyId} onChange={onChange} toast={toast} />
         ))}
-        {owner && (
-          <>
-            <button type="button" className="group topic-card topic-empty" onClick={adder.show} data-testid="add-room">
-              <span className="topic-empty-title">Add a room</span>
-              <span className="meta-line">Kitchen, baths, bedrooms. Pick one and fill in the finishes.</span>
-            </button>
-            <Sheet
-              open={adder.open}
-              title="Add a room"
-              lede="Choose the room first. The fields below follow from that."
-              onClose={adder.hide}
-              testId="room-sheet"
-            >
-              <RoomForm
-                key={adder.seq}
-                propertyId={propertyId}
-                onCancel={adder.hide}
-                onSaved={async (count, room) => {
-                  adder.hide();
-                  toast(count ? `Room added with ${count} photo${count === 1 ? "" : "s"}.` : "Room added.");
-                  await onChange(room ? (page) => ({
-                    ...page,
-                    rooms: [...(page.rooms ?? []).filter((row) => row.room_id !== room.room_id), room],
-                  }) : undefined);
-                }}
-              />
-            </Sheet>
-          </>
-        )}
       </div>
     </section>
   );
