@@ -15,7 +15,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   const meta = useMeta();
   const [debugOpen, setDebugOpen] = useState(false);
   const isHome = location.pathname === "/";
-  const headerSearch = !isHome && !/^\/(signin|dev|admin)/.test(location.pathname);
+  const headerSearch = !isHome && !/^\/(signin|signup|dev|admin)/.test(location.pathname);
   // The share button rides beside the search on the property page itself, in
   // every state. Keyed on the id so the slot re-opens for each page load.
   // The empty slot after it is where the property page mounts its quick-add
@@ -294,76 +294,142 @@ function ClaimStatusPage() {
   );
 }
 
-function SignInPage() {
+/**
+ * One email-code flow, two doors. Sign up says what the account is for and
+ * frames the same steps as creating one; sign in stays brief. Each links to
+ * the other and carries the return path along.
+ */
+function AuthPage({ mode }: { mode: "signin" | "signup" }) {
   const { refresh, user } = useAuth();
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const next = params.get("next") || "/account";
+  const signup = mode === "signup";
+  const codeRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (user) navigate(next, { replace: true });
   }, [user, next, navigate]);
+  useEffect(() => {
+    if (sent) codeRef.current?.focus();
+  }, [sent]);
+
+  const otherHref = (path: string) => {
+    const query = new URLSearchParams();
+    if (params.get("next")) query.set("next", params.get("next")!);
+    if (email) query.set("email", email);
+    const search = query.toString();
+    return search ? `${path}?${search}` : path;
+  };
+
+  const sendCode = async () => {
+    if (!email.trim() || busy) return;
+    setBusy(true);
+    try {
+      await api.requestCode(email.trim());
+      setSent(true);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send code");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const verify = async () => {
+    if (code.length < 6 || busy) return;
+    setBusy(true);
+    try {
+      await api.verify(email.trim(), code);
+      await refresh();
+      navigate(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not verify");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="page wizard">
-      <div className="kicker">Welcome</div>
-      <h1 className="display">Sign in</h1>
-      <p className="meta-line">A six-digit code. No password.</p>
-      <label className="stack">
-        <span>Email</span>
-        <input
-          className="field"
-          type="email"
-          inputMode="email"
-          autoComplete="email"
-          autoCapitalize="none"
-          autoCorrect="off"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-      </label>
-      {sent && (
-        <label className="stack">
-          <span>Code</span>
-          <input
-            className="field otp"
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]*"
-            maxLength={6}
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-            placeholder="000000"
-          />
-        </label>
+    <div className={`page wizard auth-page${signup ? " is-signup" : ""}`} data-testid={signup ? "signup-page" : "signin-page"}>
+      <div className="kicker">{signup ? "Free account" : "Welcome back"}</div>
+      <h1 className="display">{signup ? "Create your account" : "Sign in"}</h1>
+      <p className="meta-line auth-lede">
+        {signup
+          ? "Enter your email and we'll send a six-digit code. No password to remember."
+          : "A six-digit code. No password."}
+      </p>
+
+      {signup && !sent && (
+        <ul className="auth-perks">
+          <li>See what owners have added to claimed homes: paint, rooms, improvements.</li>
+          <li>Claim your own address and keep its record.</li>
+          <li>Choose what stays private and what the neighborhood sees.</li>
+        </ul>
       )}
-      {error && <p className="error">{error}</p>}
-      {!sent ? (
-        <button className="btn" onClick={async () => {
-          try {
-            await api.requestCode(email);
-            setSent(true);
-            setError(null);
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Could not send code");
-          }
-        }}>Send code</button>
-      ) : (
-        <button className="btn" onClick={async () => {
-          try {
-            await api.verify(email, code);
-            await refresh();
-            navigate(next);
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Could not verify");
-          }
-        }}>Verify and continue</button>
-      )}
+
+      <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void (sent ? verify() : sendCode()); }}>
+        {!sent ? (
+          <label className="stack">
+            <span>Email</span>
+            <input
+              className="field"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoFocus
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </label>
+        ) : (
+          <>
+            <div className="auth-sent">
+              <span>Code sent to <strong>{email.trim()}</strong></span>
+              <button type="button" className="text-link" onClick={() => { setSent(false); setCode(""); setError(null); }}>Change</button>
+            </div>
+            <label className="stack">
+              <span>Six-digit code</span>
+              <input
+                ref={codeRef}
+                className="field otp"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]*"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="000000"
+              />
+            </label>
+          </>
+        )}
+        {error && <p className="error">{error}</p>}
+        <button type="submit" className="btn auth-submit" disabled={busy || (sent ? code.length < 6 : !email.trim())}>
+          {sent
+            ? (signup ? "Create account" : "Verify and continue")
+            : (signup ? "Continue with email" : "Send code")}
+        </button>
+        {sent && (
+          <button type="button" className="text-btn auth-resend" disabled={busy} onClick={() => void sendCode()}>Send a new code</button>
+        )}
+      </form>
+
+      <p className="auth-switch">
+        {signup ? (
+          <>Already have an account? <Link to={otherHref("/signin")}>Sign in</Link></>
+        ) : (
+          <>New to Myplace? <Link to={otherHref("/signup")}>Create an account</Link></>
+        )}
+      </p>
     </div>
   );
 }
@@ -543,7 +609,8 @@ export function App() {
         <Route path="/property/:id/manage" element={<PropertyManagePage />} />
         <Route path="/property/:id/manage/inbox" element={<PropertyInboxPage />} />
         <Route path="/property/:id/manage/notifications" element={<NotificationsRedirect />} />
-        <Route path="/signin" element={<SignInPage />} />
+        <Route path="/signin" element={<AuthPage mode="signin" />} />
+        <Route path="/signup" element={<AuthPage mode="signup" />} />
         <Route path="/account" element={<AccountPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/admin/claims/:claimId" element={<AdminClaimPage />} />
