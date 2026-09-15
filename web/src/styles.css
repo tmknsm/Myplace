@@ -675,6 +675,26 @@ input[type="file"] {
 .wizard { max-width: 420px; margin-left: auto; margin-right: auto; padding-top: 48px; }
 
 /* ---- Sign in / sign up ------------------------------------------------- */
+.page.wizard.auth-page {
+  display: flex;
+  flex-direction: column;
+  max-width: none;
+  min-height: calc(100dvh - var(--topbar-height, 84px));
+  padding-bottom: 0;
+}
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.auth-body {
+  flex: 1 0 auto;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  padding-bottom: 28px;
+}
 .auth-page .display {
   font-family: var(--font-serif);
   font-weight: 500;
@@ -711,7 +731,6 @@ input[type="file"] {
   margin-top: 1px;
   color: var(--accent);
 }
-.auth-form { display: grid; }
 .auth-form .stack { margin: 6px 0 14px; }
 .auth-names {
   display: grid;
@@ -733,8 +752,7 @@ input[type="file"] {
   color: var(--muted);
 }
 .auth-sent strong { color: var(--ink); font-weight: 560; overflow-wrap: anywhere; }
-.auth-submit { width: 100%; min-height: 46px; margin-top: 4px; }
-.auth-resend { justify-self: center; font-size: 14px; color: var(--muted); min-height: 40px; }
+.auth-resend { display: inline-flex; font-size: 14px; color: var(--muted); min-height: 40px; }
 .auth-switch {
   margin: 28px 0 0;
   padding-top: 20px;

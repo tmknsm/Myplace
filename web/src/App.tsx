@@ -364,117 +364,121 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
 
   return (
     <div className="page wizard auth-page" data-testid={signup ? "signup-page" : "signin-page"}>
-      <div className="kicker">{signup ? "Free account" : "Welcome back"}</div>
-      <h1 className="display">{signup ? "Create your account" : "Sign in"}</h1>
-      <p className="meta-line auth-lede">We'll send you a six-digit code to your email. No password to remember.</p>
-      <p className="auth-switch">
-        {signup ? (
-          <>Already have an account? <Link to={otherHref("/signin")}>Sign in</Link></>
-        ) : (
-          <>Don't have an account? <Link to={otherHref("/signup")}>Create an account</Link></>
-        )}
-      </p>
-
-      {signup && !sent && (
-        <ul className="auth-perks">
-          <li>
-            <HouseIcon />
-            <span>See what owners have added to claimed homes: paint, rooms, improvements.</span>
-          </li>
-          <li>
-            <PinIcon />
-            <span>Claim your own address and keep its record.</span>
-          </li>
-          <li>
-            <EyeIcon />
-            <span>Choose what stays private and what the neighborhood sees.</span>
-          </li>
-        </ul>
-      )}
-
       <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void (sent ? verify() : sendCode()); }}>
-        {!sent ? (
-          <>
-            {signup && (
-              <div className="auth-names">
-                <label className="stack">
-                  <span>First name</span>
-                  <input
-                    className="field"
-                    type="text"
-                    autoComplete="given-name"
-                    autoCapitalize="words"
-                    autoCorrect="off"
-                    autoFocus
-                    required
-                    maxLength={80}
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                  />
-                </label>
-                <label className="stack">
-                  <span>Last name</span>
-                  <input
-                    className="field"
-                    type="text"
-                    autoComplete="family-name"
-                    autoCapitalize="words"
-                    autoCorrect="off"
-                    maxLength={80}
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                  />
-                </label>
-              </div>
+        <div className="auth-body">
+          <div className="kicker">{signup ? "Free account" : "Welcome back"}</div>
+          <h1 className="display">{signup ? "Create your account" : "Sign in"}</h1>
+          <p className="meta-line auth-lede">We'll send you a six-digit code to your email. No password to remember.</p>
+          <p className="auth-switch">
+            {signup ? (
+              <>Already have an account? <Link to={otherHref("/signin")}>Sign in</Link></>
+            ) : (
+              <>Don't have an account? <Link to={otherHref("/signup")}>Create an account</Link></>
             )}
-            <label className="stack">
-              <span>Email</span>
-              <input
-                className="field"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                autoCapitalize="none"
-                autoCorrect="off"
-                autoFocus={!signup}
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </label>
-          </>
-        ) : (
-          <>
-            <div className="auth-sent">
-              <span>Code sent to <strong>{email.trim()}</strong></span>
-              <button type="button" className="text-link" onClick={() => { setSent(false); setCode(""); setError(null); }}>Change</button>
-            </div>
-            <label className="stack">
-              <span>Six-digit code</span>
-              <input
-                ref={codeRef}
-                className="field otp"
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="[0-9]*"
-                maxLength={6}
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="000000"
-              />
-            </label>
-          </>
-        )}
-        {error && <p className="error">{error}</p>}
-        <button type="submit" className="btn auth-submit" disabled={busy || (sent ? code.length < 6 : !readyToSend)}>
-          {sent
-            ? (signup ? "Create account" : "Verify and continue")
-            : "Continue with email"}
-        </button>
-        {sent && (
-          <button type="button" className="text-btn auth-resend" disabled={busy} onClick={() => void sendCode()}>Send a new code</button>
-        )}
+          </p>
+
+          {signup && !sent && (
+            <ul className="auth-perks">
+              <li>
+                <HouseIcon />
+                <span>See what owners have added to claimed homes: paint, rooms, improvements.</span>
+              </li>
+              <li>
+                <PinIcon />
+                <span>Claim your own address and keep its record.</span>
+              </li>
+              <li>
+                <EyeIcon />
+                <span>Choose what stays private and what the neighborhood sees.</span>
+              </li>
+            </ul>
+          )}
+
+          {!sent ? (
+            <>
+              {signup && (
+                <div className="auth-names">
+                  <label className="stack">
+                    <span>First name</span>
+                    <input
+                      className="field"
+                      type="text"
+                      autoComplete="given-name"
+                      autoCapitalize="words"
+                      autoCorrect="off"
+                      autoFocus
+                      required
+                      maxLength={80}
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                    />
+                  </label>
+                  <label className="stack">
+                    <span>Last name</span>
+                    <input
+                      className="field"
+                      type="text"
+                      autoComplete="family-name"
+                      autoCapitalize="words"
+                      autoCorrect="off"
+                      maxLength={80}
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                    />
+                  </label>
+                </div>
+              )}
+              <label className="stack">
+                <span>Email</span>
+                <input
+                  className="field"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoFocus={!signup}
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <div className="auth-sent">
+                <span>Code sent to <strong>{email.trim()}</strong></span>
+                <button type="button" className="text-link" onClick={() => { setSent(false); setCode(""); setError(null); }}>Change</button>
+              </div>
+              <label className="stack">
+                <span>Six-digit code</span>
+                <input
+                  ref={codeRef}
+                  className="field otp"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="000000"
+                />
+              </label>
+            </>
+          )}
+          {error && <p className="error">{error}</p>}
+          {sent && (
+            <button type="button" className="text-btn auth-resend" disabled={busy} onClick={() => void sendCode()}>Send a new code</button>
+          )}
+        </div>
+        <div className="manage-cta">
+          <button type="submit" className="btn" disabled={busy || (sent ? code.length < 6 : !readyToSend)}>
+            {sent
+              ? (signup ? "Create account" : "Verify and continue")
+              : "Continue with email"}
+          </button>
+        </div>
       </form>
     </div>
   );
