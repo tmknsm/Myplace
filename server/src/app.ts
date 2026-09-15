@@ -832,8 +832,8 @@ app.post("/api/properties/:id/rooms", async (c) => {
 async function loadOwnedRoom(c: Parameters<typeof requireUser>[0], roomId: string) {
   const user = requireUser(c);
   const sql = getSql();
-  const rows = await sql<{ room_id: string; property_id: string; kind: string }[]>`
-    SELECT room_id, property_id, kind FROM property_rooms
+  const rows = await sql<{ room_id: string; property_id: string; kind: string; visibility: string; details: unknown }[]>`
+    SELECT room_id, property_id, kind, visibility, details FROM property_rooms
     WHERE room_id = ${roomId} AND removed_at IS NULL
   `;
   const room = rows[0];
@@ -856,7 +856,12 @@ app.patch("/api/rooms/:id", async (c) => {
   if (!isRoomKind(kind)) return c.json({ error: "Choose a room." }, 400);
   const visibility = body.visibility === "public" || body.visibility === "private" ? body.visibility : null;
   const title = body.title === undefined ? undefined : body.title?.trim() || null;
-  const details = body.details === undefined ? undefined : normalizeRoomDetails(kind, body.details);
+  // A kind change without new details still re-scopes the stored keys to the new room type.
+  const details = body.details !== undefined
+    ? normalizeRoomDetails(kind, body.details)
+    : kind !== room.kind
+      ? normalizeRoomDetails(kind, room.details)
+      : undefined;
   const sql = getSql();
   await sql`
     UPDATE property_rooms
@@ -867,6 +872,14 @@ app.patch("/api/rooms/:id", async (c) => {
       visibility = ${visibility ?? sql`visibility`}
     WHERE room_id = ${room.room_id}
   `;
+  if (visibility && visibility !== room.visibility) {
+    // Photos that were following the room's visibility keep following it;
+    // one the owner set differently by hand stays as it is.
+    await sql`
+      UPDATE documents SET visibility = ${visibility}
+      WHERE room_id = ${room.room_id} AND removed_at IS NULL AND visibility = ${room.visibility}
+    `;
+  }
   await emitEvent({
     propertyId: room.property_id,
     eventType: "room.updated",

@@ -354,7 +354,7 @@ export function PropertyPageView() {
   const rooms = property.rooms ?? [];
   const showRooms = owner || rooms.length > 0;
   const showCharacter = characterTopics.length > 0 || showRooms;
-  const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id).length;
+  const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id && !doc.room_id).length;
 
   const nav: Array<{ id: string; label: string }> = [
     ...(showAbout ? [{ id: "about", label: "About" }] : []),
@@ -1146,9 +1146,10 @@ function roomDisplayRows(room: Room): Array<{ field: RoomField; value: string; s
   const details = room.details ?? {};
   return fieldsForRoom(room.kind).flatMap((field) => {
     if (field.kind === "hex") return [];
-    const value = details[field.key]?.trim() ?? "";
-    if (!value) return [];
     const swatch = field.key === "paint" ? parseHex(details.paint_hex) : null;
+    // A swatch with no color name still earns a row; the hex stands in for the name.
+    const value = details[field.key]?.trim() || (swatch ?? "");
+    if (!value) return [];
     return [{ field, value, swatch }];
   });
 }

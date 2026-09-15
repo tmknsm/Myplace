@@ -913,3 +913,100 @@ test("owner can add, edit, and delete a room", async () => {
   const afterBody = await after.json() as { property: { rooms: unknown[] } };
   expect(afterBody.property.rooms).toEqual([]);
 });
+
+test("room details are validated and only the owner can touch a room", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("roomowner@example.com", "roomowner-desk@example.com");
+  const stranger = await signIn("nosy@example.com");
+  const post = (body: unknown, who = cookie) => app.request("http://localhost/api/properties/prop_test/rooms", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: who },
+    body: JSON.stringify(body),
+  });
+
+  expect((await post({ kind: "ballroom" })).status).toBe(400);
+  expect((await post({ kind: "kitchen", details: { link: "javascript:alert(1)" } })).status).toBe(400);
+  expect((await post({ kind: "kitchen", details: { paint_hex: "blue" } })).status).toBe(400);
+  expect((await post({ kind: "kitchen", details: { year: "19" } })).status).toBe(400);
+  expect((await post({ kind: "kitchen" }, stranger)).status).toBe(403);
+
+  const created = await post({
+    kind: "kitchen",
+    details: { link: "hudsonpaint.com/kitchen", paint_hex: "E7E0D0", year: "2019", unknown_key: "dropped", cabinetry: "  Inset  " },
+  });
+  expect(created.status).toBe(201);
+  const { room } = await created.json() as { room: { room_id: string; details: Record<string, string> } };
+  expect(room.details).toEqual({ link: "https://hudsonpaint.com/kitchen", paint_hex: "#e7e0d0", year: "2019", cabinetry: "Inset" });
+
+  const strangerPatch = await app.request(`http://localhost/api/rooms/${room.room_id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: stranger },
+    body: JSON.stringify({ title: "Mine now" }),
+  });
+  expect(strangerPatch.status).toBe(403);
+  const strangerDelete = await app.request(`http://localhost/api/rooms/${room.room_id}`, { method: "DELETE", headers: { cookie: stranger } });
+  expect(strangerDelete.status).toBe(403);
+  const anonymousDelete = await app.request(`http://localhost/api/rooms/${room.room_id}`, { method: "DELETE" });
+  expect(anonymousDelete.status).toBe(401);
+
+  // Switching the kind without resending details drops keys that no longer apply.
+  const rekind = await app.request(`http://localhost/api/rooms/${room.room_id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ kind: "powder_room" }),
+  });
+  expect(rekind.status).toBe(200);
+  const rekindBody = await rekind.json() as { room: { kind: string; details: Record<string, string> } };
+  expect(rekindBody.room.kind).toBe("powder_room");
+  expect(rekindBody.room.details.cabinetry).toBeUndefined();
+  expect(rekindBody.room.details.link).toBe("https://hudsonpaint.com/kitchen");
+});
+
+test("room photos stay with the room and follow its visibility", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("roomphotos@example.com", "roomphotos-desk@example.com");
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const upload = async (fields: Record<string, string>) => {
+    const form = new FormData();
+    form.append("file", new File([png], "room.png", { type: "image/png" }));
+    for (const [key, value] of Object.entries(fields)) form.append(key, value);
+    return app.request("http://localhost/api/properties/prop_test/documents", { method: "POST", headers: { cookie }, body: form });
+  };
+
+  const created = await app.request("http://localhost/api/properties/prop_test/rooms", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ kind: "primary_bathroom", visibility: "private", details: { tile: "Penny" } }),
+  });
+  const { room } = await created.json() as { room: { room_id: string } };
+
+  expect((await upload({ roomId: "room_nope" })).status).toBe(404);
+  const attached = await upload({ roomId: room.room_id, visibility: "private" });
+  expect(attached.status).toBe(201);
+  const { documentId } = await attached.json() as { documentId: string };
+
+  type Page = { property: { rooms: Array<{ room_id: string; documents: Array<{ document_id: string; room_id: string | null }> }>; documents: Array<{ document_id: string; room_id?: string | null }> } };
+  const publicBefore = await (await app.request("http://localhost/api/properties/prop_test")).json() as Page;
+  expect(publicBefore.property.rooms).toEqual([]);
+  expect(publicBefore.property.documents.map((doc) => doc.document_id)).not.toContain(documentId);
+
+  const ownerPage = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).json() as Page;
+  expect(ownerPage.property.rooms[0]?.documents.map((doc) => doc.document_id)).toEqual([documentId]);
+  expect(ownerPage.property.documents.find((doc) => doc.document_id === documentId)?.room_id).toBe(room.room_id);
+
+  const flip = await app.request(`http://localhost/api/rooms/${room.room_id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ visibility: "public" }),
+  });
+  expect(flip.status).toBe(200);
+  const publicAfter = await (await app.request("http://localhost/api/properties/prop_test")).json() as Page;
+  expect(publicAfter.property.rooms).toHaveLength(1);
+  expect(publicAfter.property.rooms[0]?.documents.map((doc) => doc.document_id)).toEqual([documentId]);
+
+  const removed = await app.request(`http://localhost/api/rooms/${room.room_id}`, { method: "DELETE", headers: { cookie } });
+  expect(removed.status).toBe(200);
+  const gone = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).json() as Page;
+  expect(gone.property.rooms).toEqual([]);
+  expect(gone.property.documents.map((doc) => doc.document_id)).not.toContain(documentId);
+});

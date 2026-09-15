@@ -141,15 +141,70 @@ export function fieldsForRoom(kind: string): RoomField[] {
   return [...(EXTRA[kind] ?? EXTRA.other ?? []), ...COMMON_FINISH, ...COMMON_META];
 }
 
-/** Keep only known keys for this room type. Empty strings drop out. */
+const HEX_ONLY = /^#?(?:[0-9a-f]{6}|[0-9a-f]{3})$/i;
+
+/** "#30474f", "30474f", or "#abc" → "#30474f"; anything else → null. */
+export function normalizeRoomHex(raw: string): string | null {
+  const text = raw.trim();
+  if (!HEX_ONLY.test(text)) return null;
+  return (text.startsWith("#") ? text : `#${text}`).toLowerCase();
+}
+
+/** Accept "hudsonpaint.com" as well as a full URL; only http(s) survives. */
+export function normalizeRoomLink(raw: string): string | null {
+  const text = raw.trim();
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `https://${text}`;
+  try {
+    const url = new URL(withScheme);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (!url.hostname.includes(".")) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeRoomYear(raw: string): string | null {
+  const text = raw.trim();
+  if (!/^\d{4}$/.test(text)) return null;
+  const year = Number(text);
+  if (year < 1600 || year > new Date().getFullYear() + 1) return null;
+  return text;
+}
+
+export class RoomDetailsError extends Error {
+  status = 400;
+}
+
+/**
+ * Keep only known keys for this room type, drop empties, and check the typed
+ * fields. Throws a 400-flavoured error when a link, swatch, or year is malformed.
+ */
 export function normalizeRoomDetails(kind: string, raw: unknown): Record<string, string> {
-  const allowed = new Set(fieldsForRoom(kind).map((field) => field.key));
+  const fields = new Map(fieldsForRoom(kind).map((field) => [field.key, field]));
   const details: Record<string, string> = {};
   if (!raw || typeof raw !== "object") return details;
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (!allowed.has(key)) continue;
+    const field = fields.get(key);
+    if (!field) continue;
     const text = typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
-    if (text) details[key] = text;
+    if (!text) continue;
+    if (text.length > 2000) throw new RoomDetailsError(`${field.label} is too long.`);
+    if (field.kind === "link") {
+      const url = normalizeRoomLink(text);
+      if (!url) throw new RoomDetailsError(`${field.label} needs to be a web address.`);
+      details[key] = url;
+    } else if (field.kind === "hex") {
+      const hex = normalizeRoomHex(text);
+      if (!hex) throw new RoomDetailsError(`${field.label} should be a hex color, like #30474f.`);
+      details[key] = hex;
+    } else if (field.kind === "year") {
+      const year = normalizeRoomYear(text);
+      if (!year) throw new RoomDetailsError(`${field.label} should be a four-digit year.`);
+      details[key] = year;
+    } else {
+      details[key] = text;
+    }
   }
   return details;
 }
