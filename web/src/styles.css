@@ -102,6 +102,12 @@ img, svg { max-width: 100%; }
 .header-search {
   pointer-events: auto;
 }
+.topbar {
+  --share-slot: var(--tap);
+  --share-gap: 16px;
+  --share-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --share-pop: cubic-bezier(0.2, 1.35, 0.4, 1);
+}
 .topbar-main {
   display: flex;
   align-items: center;
@@ -110,6 +116,21 @@ img, svg { max-width: 100%; }
   max-width: 100%;
   padding: 10px max(var(--pad), env(safe-area-inset-right)) var(--topbar-pad-bottom) max(var(--pad), env(safe-area-inset-left));
 }
+/* Links, then share and quick add, hugging the right edge. */
+.topbar-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.header-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+/* The stacked search row is for narrow screens only; never show it on desktop. */
+.header-search.narrow-only { display: none; }
 .brand {
   text-decoration: none;
   display: flex;
@@ -132,16 +153,35 @@ img, svg { max-width: 100%; }
 .brand span { display: none; }
 .search-wrap, .header-search, .hero-search { position: relative; overflow: visible; }
 .header-search {
-  --share-slot: var(--tap);
-  --share-gap: 16px;
-  --share-ease: cubic-bezier(0.32, 0.72, 0, 1);
-  --share-pop: cubic-bezier(0.2, 1.35, 0.4, 1);
   flex: 1;
   max-width: 420px;
   display: flex;
   align-items: center;
 }
 .header-search .search-wrap { flex: 1 1 auto; min-width: 0; }
+
+/*
+ * Desktop bar: brand on the left, the search field centered in the bar, and
+ * the links plus share / quick add flush right. The outer columns share the
+ * leftover width equally so the field sits on the true center line; when the
+ * quick-add slot opens, the whole right group slides left to make room.
+ */
+@media (min-width: 881px) {
+  .topbar-main {
+    display: grid;
+    grid-template-columns: minmax(max-content, 1fr) minmax(0, 420px) minmax(max-content, 1fr);
+    align-items: center;
+    column-gap: 16px;
+  }
+  .topbar-main .brand { grid-column: 1; justify-self: start; }
+  .topbar-main .header-search.wide-only {
+    grid-column: 2;
+    width: 100%;
+    max-width: 420px;
+    justify-self: center;
+  }
+  .topbar-main .topbar-end { grid-column: 3; justify-self: end; margin-left: 0; }
+}
 
 /*
  * Share, beside the search on the property page. The slot opens from zero
