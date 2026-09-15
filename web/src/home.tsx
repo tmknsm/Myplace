@@ -25,7 +25,88 @@ const PHOTOS = {
   victorian: "1759340643095-e06b6d5645bf",
   /** Farm in autumn woods, Hudson Valley — Clay Banks */
   valley: "1602524682848-a58eb73eaeb9",
+  /** White farmhouse with a wraparound porch */
+  porchFarmhouse: "1570129477492-45c003edd2be",
+  /** White cottage with red trim and a picket fence */
+  cottage: "1480074568708-e7b720bb3f09",
+  /** Brick cottage in the woods at dusk */
+  brickCottage: "1449844908441-8829872d2607",
+  /** Red cabin in a meadow */
+  redCabin: "1518780664697-55e3ad937233",
+  /** Living room with houseplants */
+  livingRoom: "1502672260266-1c1ef2d93688",
+  /** Dining room, white table */
+  diningRoom: "1519710164239-da123dc03ef4",
+  /** Living room, leather sofa */
+  sittingRoom: "1554995207-c18c203602cb",
+  /** White kitchen with pendant lights */
+  kitchenIsland: "1507089947368-19c1da9775ae",
 };
+
+// ---------------------------------------------------------------------------
+// Featured pages: five claimed houses, owner-reported details
+// ---------------------------------------------------------------------------
+
+interface FeaturedHome {
+  address: string;
+  place: string;
+  photos: [string, string, string];
+  photoCount: number;
+  facts: { label: string; value: string }[];
+}
+
+const FEATURED: FeaturedHome[] = [
+  {
+    address: "27 Union Street",
+    place: "Hudson · Columbia County",
+    photos: [PHOTOS.victorian, PHOTOS.livingRoom, PHOTOS.kitchenIsland],
+    photoCount: 22,
+    facts: [
+      { label: "Exterior", value: "Farrow & Ball, Hague Blue" },
+      { label: "Roof", value: "Slate, repaired 2018" },
+    ],
+  },
+  {
+    address: "112 County Route 27",
+    place: "Claverack · Columbia County",
+    photos: [PHOTOS.porchFarmhouse, PHOTOS.kitchen, PHOTOS.diningRoom],
+    photoCount: 31,
+    facts: [
+      { label: "Porch", value: "Rebuilt 2021, mahogany decking" },
+      { label: "Heat", value: "Buderus oil boiler, 2016" },
+    ],
+  },
+  {
+    address: "8 Church Street",
+    place: "Catskill · Greene County",
+    photos: [PHOTOS.cottage, PHOTOS.kitchenCounter, PHOTOS.sittingRoom],
+    photoCount: 14,
+    facts: [
+      { label: "Trim", value: "Benjamin Moore, Caliente" },
+      { label: "Windows", value: "Marvin, replaced 2019" },
+    ],
+  },
+  {
+    address: "340 Route 66",
+    place: "Chatham · Columbia County",
+    photos: [PHOTOS.brickCottage, PHOTOS.kitchenDetail, PHOTOS.livingRoom],
+    photoCount: 18,
+    facts: [
+      { label: "Brick", value: "Repointed 2020" },
+      { label: "Septic", value: "Pumped May 2024" },
+    ],
+  },
+  {
+    address: "19 Mitchell Hollow Road",
+    place: "Windham · Greene County",
+    photos: [PHOTOS.redCabin, PHOTOS.sittingRoom, PHOTOS.diningRoom],
+    photoCount: 9,
+    facts: [
+      { label: "Siding", value: "Board and batten, 2022" },
+      { label: "Solar", value: "6.4 kW rooftop, 2023" },
+    ],
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Chapters: one narrative, from looking to claiming to handing over
@@ -262,6 +343,34 @@ export function HomePage() {
             {countLabel ? `Search ${countLabel}` : "Search"} by address or tax map number, or <Link to="/map">wander the map</Link>.
           </p>
         </div>
+      </section>
+
+      <section className="home-featured" aria-labelledby="home-featured-title">
+        <header className="home-section-head">
+          <div className="kicker">Recently claimed</div>
+          <h2 id="home-featured-title">Pages the owners filled in.</h2>
+        </header>
+        <ul className="home-featured-track">
+          {FEATURED.map((home) => (
+            <li key={home.address} className="home-featured-card">
+              <div className="home-featured-photos">
+                <Photo id={home.photos[0]} width={720} alt={`${home.address}, exterior`} />
+                <Photo id={home.photos[1]} width={360} alt="" />
+                <Photo id={home.photos[2]} width={360} alt="" />
+              </div>
+              <div className="home-featured-body">
+                <div className="kicker">{home.place}</div>
+                <h3>{home.address}</h3>
+                <dl className="home-facts">
+                  {home.facts.map((fact) => (
+                    <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>
+                  ))}
+                </dl>
+                <p className="meta-line">{home.photoCount} photos · owner-reported</p>
+              </div>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <div className="home-chapters">
