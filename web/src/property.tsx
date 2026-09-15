@@ -1056,8 +1056,9 @@ function HeroCarousel({
   const current = Math.min(index, Math.max(0, count - 1));
   const [dotsOn, setDotsOn] = useState(true);
   const hideTimer = useRef(0);
-  const pointerDown = useRef(false);
+  const armed = useRef(false);
   const swiping = useRef(false);
+  const startX = useRef(0);
 
   // A shorter list (photo removed) can leave the index past the last slide.
   useEffect(() => {
@@ -1078,29 +1079,51 @@ function HeroCarousel({
     hideSoon();
     const track = trackRef.current;
     if (!track) return () => window.clearTimeout(hideTimer.current);
-    const onDown = () => {
-      pointerDown.current = true;
+
+    const begin = (event: PointerEvent | TouchEvent) => {
+      armed.current = true;
       swiping.current = false;
+      const x = "clientX" in event ? event.clientX : event.touches[0]?.clientX ?? 0;
+      startX.current = x;
     };
-    const onUp = () => {
-      pointerDown.current = false;
+    const move = (event: PointerEvent | TouchEvent) => {
+      if (!armed.current || swiping.current) return;
+      const x = "clientX" in event ? event.clientX : event.touches[0]?.clientX ?? startX.current;
+      if (Math.abs(x - startX.current) < 6) return;
+      swiping.current = true;
+      show();
+    };
+    const end = () => {
+      if (!armed.current && !swiping.current) return;
+      armed.current = false;
       if (swiping.current) hideSoon();
     };
     const onScroll = () => {
-      if (pointerDown.current) swiping.current = true;
+      if (armed.current) swiping.current = true;
       if (!swiping.current) return;
       show();
-      if (!pointerDown.current) hideSoon();
+      if (!armed.current) hideSoon();
     };
-    track.addEventListener("pointerdown", onDown);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+
+    // Capture: the slides are buttons, and a native swipe cancels the pointer
+    // before scroll. Touch + capture keep the gesture even after that.
+    track.addEventListener("pointerdown", begin, { capture: true });
+    track.addEventListener("touchstart", begin, { capture: true, passive: true });
+    window.addEventListener("pointermove", move, { passive: true });
+    window.addEventListener("touchmove", move, { passive: true });
+    window.addEventListener("pointerup", end);
+    window.addEventListener("touchend", end);
+    window.addEventListener("touchcancel", end);
     track.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       window.clearTimeout(hideTimer.current);
-      track.removeEventListener("pointerdown", onDown);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+      track.removeEventListener("pointerdown", begin, { capture: true });
+      track.removeEventListener("touchstart", begin, { capture: true });
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("touchend", end);
+      window.removeEventListener("touchcancel", end);
       track.removeEventListener("scroll", onScroll);
     };
   }, []);
