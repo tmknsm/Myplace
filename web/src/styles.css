@@ -1930,7 +1930,7 @@ html.dialog-open body {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  padding: 0 24px 24px;
+  padding: 0 24px;
   touch-action: pan-y;
 }
 /* The title and body arrive a beat after the panel so the sheet reads as a
@@ -1941,16 +1941,33 @@ html.dialog-open body {
 .sheet-panel.is-closing .sheet-panel-title,
 .sheet-panel.is-closing .sheet-panel-body { animation: none; }
 
+.sheet-form,
+.improvement-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
 .sheet-form .form-grid { grid-template-columns: 1fr 1fr; }
 .sheet-form .form-grid .stack { margin: 8px 0; }
 .sheet-form > .stack { margin: 8px 0; }
 .sheet-form textarea.field { line-height: 1.5; }
 .sheet-form .inline-choice { margin-top: 14px; }
-.sheet-actions { margin-top: 18px; }
+/* Same idea as .manage-cta: the actions sit at the end of the form and stick
+   to the bottom of the sheet while the fields scroll underneath. Extra
+   padding covers the phone sheet's off-screen bleed. */
+.action-row.sheet-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: auto -24px 0;
+  padding: 12px 24px calc(12px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px));
+  border-top: 1px solid var(--hairline);
+  background: var(--chrome-fill);
+  backdrop-filter: var(--chrome-blur);
+  -webkit-backdrop-filter: var(--chrome-blur);
+}
 .sheet-actions .btn { flex: 1 1 auto; }
 .improvement-form .form-grid { grid-template-columns: 1fr 1fr; }
-.improvement-form .action-row { margin-top: 18px; }
-.improvement-form .action-row .btn { flex: 1 1 auto; }
 .topic-readonly strong { display: block; font-size: 16px; font-weight: 590; }
 .topic-readonly small { display: block; margin-top: 2px; }
 
@@ -2296,7 +2313,13 @@ html.dialog-open body {
     border-radius: 2px;
     background: color-mix(in srgb, var(--accent) 70%, var(--canvas));
   }
-  .sheet-panel-body { padding: 0 16px calc(24px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px)); }
+  .sheet-panel-body { padding: 0 16px; }
+  .sheet-actions {
+    margin-left: -16px;
+    margin-right: -16px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
   .sheet-form .form-grid,
   .improvement-form .form-grid { grid-template-columns: 1fr 1fr; }
   .sheet-form .form-grid .span-2,

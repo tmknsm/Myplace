@@ -1033,15 +1033,15 @@ function AboutForm({ fact, propertyId, onSaved, onCancel }: { fact: Fact; proper
       />
       <VisibilityChoice value={visibility} onChange={setVisibility} />
       {error && <p className="error">{error}</p>}
-      <div className="action-row compact sheet-actions">
-        <button type="submit" className="btn" disabled={busy || !draft.trim()} data-testid="about-save">{busy ? "Saving…" : "Save"}</button>
-        <button type="button" className="btn secondary" disabled={busy} onClick={onCancel}>Cancel</button>
-      </div>
       {text && (
         <div className="form-danger">
           <button type="button" className="text-link danger" disabled={busy} onClick={() => void save("")}>Clear the story</button>
         </div>
       )}
+      <div className="action-row compact sheet-actions">
+        <button type="submit" className="btn" disabled={busy || !draft.trim()} data-testid="about-save">{busy ? "Saving…" : "Save"}</button>
+        <button type="button" className="btn secondary" disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
     </form>
   );
 }
@@ -1834,10 +1834,6 @@ function ImprovementForm({
         </label>
       </div>
       {error && <p className="error">{error}</p>}
-      <div className="action-row compact">
-        <button type="submit" className="btn" disabled={busy || !title.trim()} data-testid="improvement-save">{busy ? "Saving…" : editing ? "Save changes" : "Save improvement"}</button>
-        <button type="button" className="btn secondary" onClick={onCancel} disabled={busy}>Cancel</button>
-      </div>
       {editing && item && onDeleted && (
         <div className="form-danger">
           {confirmDelete ? (
@@ -1866,6 +1862,10 @@ function ImprovementForm({
           )}
         </div>
       )}
+      <div className="action-row compact sheet-actions">
+        <button type="submit" className="btn" disabled={busy || !title.trim()} data-testid="improvement-save">{busy ? "Saving…" : editing ? "Save changes" : "Save improvement"}</button>
+        <button type="button" className="btn secondary" onClick={onCancel} disabled={busy}>Cancel</button>
+      </div>
     </form>
   );
 }
