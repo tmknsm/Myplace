@@ -50,8 +50,8 @@ export const api = {
   me: () => request<{ user: User | null }>("/api/auth/me"),
   requestCode: (email: string) =>
     request<{ ok: boolean }>("/api/auth/request-code", { method: "POST", body: JSON.stringify({ email }) }),
-  verify: (email: string, code: string) =>
-    request<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ email, code }) }),
+  verify: (email: string, code: string, names?: { firstName?: string; lastName?: string }) =>
+    request<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ email, code, ...names }) }),
   signOut: () => request<{ ok: boolean }>("/api/auth/sign-out", { method: "POST" }),
   search: (q: string) => request<{ results: SearchHit[] }>(`/api/search?q=${encodeURIComponent(q)}`),
   parcels: (bbox: string) => request<ParcelCollection>(`/api/parcels?bbox=${bbox}`),
@@ -181,6 +181,8 @@ export interface User {
   user_id: string;
   primary_email: string;
   display_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
   is_admin: boolean;
 }
 

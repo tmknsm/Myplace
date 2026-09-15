@@ -710,6 +710,12 @@ input[type="file"] {
 }
 .auth-form { display: grid; }
 .auth-form .stack { margin: 6px 0 14px; }
+.auth-names {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+.auth-names .stack { min-width: 0; }
 .auth-sent {
   display: flex;
   align-items: baseline;
@@ -3025,6 +3031,7 @@ html.peek-gated body {
 }
 
 @media (max-width: 420px) {
+  .auth-names { grid-template-columns: 1fr; }
   .top-links a { font-size: 14px; }
 }
 

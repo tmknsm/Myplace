@@ -734,6 +734,35 @@ test("debug PIN claim refuses to displace a verified owner", async () => {
   ]);
 });
 
+test("sign-up stores first and last name", async () => {
+  const email = "ada@example.com";
+  let res = await app.request("http://localhost/api/auth/request-code", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  expect(res.status).toBe(200);
+  const mail = await sql<{ text_body: string }[]>`
+    SELECT text_body FROM emails WHERE to_email = ${email} ORDER BY sent_at DESC LIMIT 1
+  `;
+  const code = mail[0]?.text_body.match(/is (\d{6})/)?.[1];
+  expect(code).toBeTruthy();
+  res = await app.request("http://localhost/api/auth/verify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, code, firstName: "Ada", lastName: "Lovelace" }),
+  });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.user.first_name).toBe("Ada");
+  expect(body.user.last_name).toBe("Lovelace");
+  expect(body.user.display_name).toBe("Ada Lovelace");
+  const rows = await sql<{ first_name: string; last_name: string; display_name: string }[]>`
+    SELECT first_name, last_name, display_name FROM users WHERE primary_email = ${email}
+  `;
+  expect(rows[0]).toEqual({ first_name: "Ada", last_name: "Lovelace", display_name: "Ada Lovelace" });
+});
+
 test("debug sign-in accepts the 000000 shortcut", async () => {
   const res = await app.request("http://localhost/api/auth/verify", {
     method: "POST",

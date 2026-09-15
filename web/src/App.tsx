@@ -81,7 +81,7 @@ function Layout({ children }: { children: React.ReactNode }) {
               )}
               {user ? (
                 <>
-                  <Link to="/account">{user.display_name ? user.display_name.split(" ")[0] : "Account"}</Link>
+                  <Link to="/account">{user.first_name || user.display_name?.split(" ")[0] || "Account"}</Link>
                   <button className="text-btn wide-only" onClick={() => signOut()}>Sign out</button>
                 </>
               ) : (
@@ -303,6 +303,8 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
   const { refresh, user } = useAuth();
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const [firstName, setFirstName] = useState(params.get("first") ?? "");
+  const [lastName, setLastName] = useState(params.get("last") ?? "");
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
@@ -327,8 +329,9 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
     return search ? `${path}?${search}` : path;
   };
 
+  const readyToSend = Boolean(email.trim() && (!signup || firstName.trim()));
   const sendCode = async () => {
-    if (!email.trim() || busy) return;
+    if (!readyToSend || busy) return;
     setBusy(true);
     try {
       await api.requestCode(email.trim());
@@ -342,9 +345,13 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
   };
   const verify = async () => {
     if (code.length < 6 || busy) return;
+    if (signup && !firstName.trim()) {
+      setError("Enter your first name.");
+      return;
+    }
     setBusy(true);
     try {
-      await api.verify(email.trim(), code);
+      await api.verify(email.trim(), code, signup ? { firstName: firstName.trim(), lastName: lastName.trim() } : undefined);
       await refresh();
       navigate(next);
     } catch (err) {
@@ -360,7 +367,7 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
       <h1 className="display">{signup ? "Create your account" : "Sign in"}</h1>
       <p className="meta-line auth-lede">
         {signup
-          ? "Enter your email and we'll send a six-digit code. No password to remember."
+          ? "Your name, then a six-digit code to your email. No password to remember."
           : "A six-digit code. No password."}
       </p>
 
@@ -374,21 +381,55 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
 
       <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void (sent ? verify() : sendCode()); }}>
         {!sent ? (
-          <label className="stack">
-            <span>Email</span>
-            <input
-              className="field"
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              autoCapitalize="none"
-              autoCorrect="off"
-              autoFocus
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </label>
+          <>
+            {signup && (
+              <div className="auth-names">
+                <label className="stack">
+                  <span>First name</span>
+                  <input
+                    className="field"
+                    type="text"
+                    autoComplete="given-name"
+                    autoCapitalize="words"
+                    autoCorrect="off"
+                    autoFocus
+                    required
+                    maxLength={80}
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                  />
+                </label>
+                <label className="stack">
+                  <span>Last name</span>
+                  <input
+                    className="field"
+                    type="text"
+                    autoComplete="family-name"
+                    autoCapitalize="words"
+                    autoCorrect="off"
+                    maxLength={80}
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+            <label className="stack">
+              <span>Email</span>
+              <input
+                className="field"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                autoFocus={!signup}
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </label>
+          </>
         ) : (
           <>
             <div className="auth-sent">
@@ -413,7 +454,7 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
           </>
         )}
         {error && <p className="error">{error}</p>}
-        <button type="submit" className="btn auth-submit" disabled={busy || (sent ? code.length < 6 : !email.trim())}>
+        <button type="submit" className="btn auth-submit" disabled={busy || (sent ? code.length < 6 : !readyToSend)}>
           {sent
             ? (signup ? "Create account" : "Verify and continue")
             : (signup ? "Continue with email" : "Send code")}

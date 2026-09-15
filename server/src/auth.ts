@@ -9,7 +9,18 @@ export interface AuthedUser {
   user_id: string;
   primary_email: string;
   display_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
   is_admin: boolean;
+}
+
+function cleanName(value: string | undefined): string | null {
+  const next = value?.replace(/\s+/g, " ").trim() ?? "";
+  return next || null;
+}
+
+function displayFromNames(first: string | null, last: string | null, fallback: string): string {
+  return [first, last].filter(Boolean).join(" ") || fallback;
 }
 
 export type AppEnv = {
@@ -70,7 +81,7 @@ export async function authMiddleware(c: Context<AppEnv>, next: Next): Promise<Re
   }
   const sql = getSql();
   const rows = await sql<AuthedUser[]>`
-    SELECT u.user_id, u.primary_email, u.display_name, u.is_admin
+    SELECT u.user_id, u.primary_email, u.display_name, u.first_name, u.last_name, u.is_admin
     FROM sessions s
     JOIN users u ON u.user_id = s.user_id
     WHERE s.session_id = ${sessionId} AND s.expires_at > now()
@@ -91,25 +102,35 @@ export function requireAdmin(c: Context<AppEnv>): AuthedUser {
   return user;
 }
 
-export async function upsertUser(email: string): Promise<AuthedUser> {
+export async function upsertUser(email: string, names?: { firstName?: string; lastName?: string }): Promise<AuthedUser> {
   const sql = getSql();
   const normalized = email.trim().toLowerCase();
+  const firstName = cleanName(names?.firstName);
+  const lastName = cleanName(names?.lastName);
   const existing = await sql<AuthedUser[]>`
-    SELECT user_id, primary_email, display_name, is_admin
+    SELECT user_id, primary_email, display_name, first_name, last_name, is_admin
     FROM users WHERE primary_email = ${normalized}
   `;
   if (existing[0]) {
+    const current = existing[0];
+    const nextFirst = current.first_name || firstName;
+    const nextLast = current.last_name || lastName;
+    const nextDisplay = current.display_name || displayFromNames(nextFirst, nextLast, normalized.split("@")[0] || normalized);
     await sql`
-      UPDATE users SET email_verified_at = COALESCE(email_verified_at, now())
-      WHERE user_id = ${existing[0].user_id}
+      UPDATE users
+      SET email_verified_at = COALESCE(email_verified_at, now()),
+          first_name = COALESCE(first_name, ${nextFirst}),
+          last_name = COALESCE(last_name, ${nextLast}),
+          display_name = COALESCE(display_name, ${nextDisplay})
+      WHERE user_id = ${current.user_id}
     `;
-    return existing[0];
+    return { ...current, first_name: nextFirst, last_name: nextLast, display_name: nextDisplay };
   }
   const userId = id("usr");
-  const displayName = normalized.split("@")[0] || normalized;
+  const displayName = displayFromNames(firstName, lastName, normalized.split("@")[0] || normalized);
   await sql`
-    INSERT INTO users (user_id, primary_email, email_verified_at, display_name)
-    VALUES (${userId}, ${normalized}, now(), ${displayName})
+    INSERT INTO users (user_id, primary_email, email_verified_at, display_name, first_name, last_name)
+    VALUES (${userId}, ${normalized}, now(), ${displayName}, ${firstName}, ${lastName})
   `;
   await sql`
     INSERT INTO user_emails (user_email_id, user_id, email, verified_at)
@@ -119,6 +140,8 @@ export async function upsertUser(email: string): Promise<AuthedUser> {
     user_id: userId,
     primary_email: normalized,
     display_name: displayName,
+    first_name: firstName,
+    last_name: lastName,
     is_admin: false,
   };
 }
