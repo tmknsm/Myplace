@@ -70,11 +70,11 @@ export const FIELD_VOCAB: FieldDef[] = [
   // The profile group is prose the owner writes about the place itself.
   { key: "profile.summary", label: "About this place", group: "profile", layer: "owner", valueType: "string" },
   // The character group is what people actually ask about when they stop in
-  // front of a house: the paint, the style, the floors, what's still original.
-  // It leads the page; the systems group below is what's in the walls.
+  // front of a house: the paint, the style, the trim color. It leads the page;
+  // the systems group below is what's in the walls.
   { key: "style.architecture", label: "Architectural style", group: "character", layer: "owner", valueType: "string" },
   { key: "exterior.color", label: "Exterior paint", group: "character", layer: "owner", valueType: "string" },
-  { key: "exterior.trim", label: "Trim", group: "character", layer: "owner", valueType: "string" },
+  { key: "exterior.trim", label: "Trim color", group: "character", layer: "owner", valueType: "string" },
   { key: "exterior.door", label: "Front door", group: "character", layer: "owner", valueType: "string" },
   { key: "exterior.siding", label: "Siding", group: "character", layer: "owner", valueType: "string" },
   { key: "interior.floors", label: "Floors", group: "character", layer: "owner", valueType: "string" },

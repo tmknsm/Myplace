@@ -78,26 +78,20 @@ const FACT_SECTIONS: Array<{ id: string; title: string; keys?: string[]; group?:
 ];
 
 /**
- * The strip under the hero is the owner's, not the assessor's. It leads with
- * the things a passerby would ask about (the paint, the style, the front door)
- * and never shows bedroom counts or assessed value; those live in the county's
- * half. Order here is the order tiles fill in, and the order an owner is
- * prompted to add them.
+ * The strip under the hero. Character facts the owner wrote (paint, style,
+ * trim color) come first when they're filled in. Public facts fill the rest
+ * so an unclaimed or barely-started page still has something worth reading:
+ * beds, baths, the year it last sold, the year it was built. Empty slots
+ * stay empty — the Style & finishes section is where you add the rest.
  */
-const STRIP_KEYS: Array<{ key: string; label: string }> = [
+const STRIP_KEYS: Array<{ key: string; label: string; asYear?: boolean }> = [
   { key: "exterior.color", label: "Exterior paint" },
   { key: "style.architecture", label: "Style" },
-  { key: "exterior.door", label: "Front door" },
-  { key: "exterior.trim", label: "Trim" },
-  { key: "interior.floors", label: "Floors" },
-  { key: "exterior.siding", label: "Siding" },
-  { key: "interior.kitchen", label: "Kitchen" },
-  { key: "original_details", label: "Still original" },
-  { key: "interior.palette", label: "Inside" },
-  { key: "interior.hardware", label: "Hardware" },
-  { key: "garden", label: "Garden" },
-  { key: "built_by", label: "Built by" },
-  { key: "house.name", label: "Known as" },
+  { key: "exterior.trim", label: "Trim color" },
+  { key: "bedrooms", label: "Bedrooms" },
+  { key: "bathrooms", label: "Baths" },
+  { key: "last_sale.date", label: "Purchased", asYear: true },
+  { key: "year_built", label: "Built", asYear: true },
 ];
 const STRIP_MAX = 6;
 
@@ -446,7 +440,7 @@ export function PropertyPageView() {
         </div>
       </header>
 
-      <StatStrip facts={property.facts} owner={owner} onAdd={focusField} />
+      <StatStrip facts={property.facts} />
 
       <div className="profile-grid">
         <SectionNav items={nav} />
@@ -522,7 +516,7 @@ export function PropertyPageView() {
               id="character"
               title="Style & finishes"
               description={owner
-                ? "What people actually ask about when they slow down out front: the paint, the style, the floors, what's still original. The first few fill the tiles at the top of the page."
+                ? "What people actually ask about when they slow down out front: the paint, the style, the trim color. Public unless you mark it private."
                 : "How the owner describes the place. Their words, not the county's."}
               facts={owner ? characterFacts : publicCharacter}
               focus={fieldFocus}
@@ -681,46 +675,50 @@ function VaultCard({ propertyId, count, maintainers }: { propertyId: string; cou
 // Hero support: stat strip, in-page nav, lightbox
 // ---------------------------------------------------------------------------
 
+/** Year-only display for dates and year-built numbers ("2019", "1889"). */
+function factYear(fact: Fact): string | null {
+  if (typeof fact.value === "number" && Number.isFinite(fact.value)) {
+    const year = Math.trunc(fact.value);
+    return year > 1000 ? String(year) : null;
+  }
+  if (typeof fact.value === "string") {
+    const parsed = new Date(fact.value);
+    if (!Number.isNaN(parsed.getTime())) return String(parsed.getFullYear());
+    const match = fact.value.match(/\b(1[6-9]\d{2}|20\d{2})\b/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
 /**
- * The tiles under the hero. Filled tiles are the owner's character facts in
- * STRIP_KEYS order; for the owner, the empty slots become prompts so the
- * strip itself is the invitation. Visitors to an unclaimed page see nothing
- * here: the page is still just the county record, and that lives below.
+ * The tiles under the hero. Only facts that already have a value. Character
+ * first (paint, style, trim color), then the public ones that are actually
+ * worth glancing at (beds, baths, the year it last sold, the year it was built).
  */
-function StatStrip({ facts, owner, onAdd }: { facts: Fact[]; owner: boolean; onAdd: (fieldKey: string) => void }) {
-  const filled = STRIP_KEYS.flatMap((tile) => {
+function StatStrip({ facts }: { facts: Fact[] }) {
+  const tiles = STRIP_KEYS.flatMap((tile) => {
     const fact = facts.find((item) => item.fieldKey === tile.key);
-    if (!fact || fact.status === "unknown" || !fact.display) return [];
+    if (!fact || fact.status === "unknown") return [];
+    if (tile.asYear) {
+      const year = factYear(fact);
+      if (!year) return [];
+      return [{ key: tile.key, label: tile.label, text: year, swatch: null as string | null, isPrivate: fact.visibility === "private", prose: false }];
+    }
+    if (!fact.display) return [];
     const { text, swatch } = splitSwatch(tile.key, fact.display);
-    return [{ ...tile, text, swatch, isPrivate: fact.visibility === "private" }];
+    return [{ key: tile.key, label: tile.label, text, swatch, isPrivate: fact.visibility === "private", prose: Boolean(swatch) || tile.key === "style.architecture" || tile.key === "exterior.color" || tile.key === "exterior.trim" }];
   }).slice(0, STRIP_MAX);
-  const prompts = owner
-    ? STRIP_KEYS.filter((tile) => !filled.some((item) => item.key === tile.key)).slice(0, Math.max(0, STRIP_MAX - filled.length))
-    : [];
-  const count = filled.length + prompts.length;
-  if (count === 0) return null;
+  if (tiles.length === 0) return null;
   return (
-    <div className={`stat-strip${count % 2 ? " odd" : ""}`} data-testid="stat-strip">
-      {filled.map((tile) => (
-        <div key={tile.key} className={`stat text${tile.isPrivate ? " is-private" : ""}`} data-field={tile.key}>
+    <div className={`stat-strip${tiles.length % 2 ? " odd" : ""}`} data-testid="stat-strip">
+      {tiles.map((tile) => (
+        <div key={tile.key} className={`stat${tile.prose ? " text" : ""}${tile.isPrivate ? " is-private" : ""}`} data-field={tile.key}>
           <span>{tile.label}{tile.isPrivate ? " · private" : ""}</span>
           <strong>
             {tile.swatch && <i className="swatch" style={{ background: tile.swatch }} aria-hidden="true" />}
             {tile.text}
           </strong>
         </div>
-      ))}
-      {prompts.map((tile, index) => (
-        <button
-          key={tile.key}
-          type="button"
-          className="stat prompt"
-          data-testid={`strip-add-${tile.key}`}
-          onClick={() => onAdd(tile.key)}
-        >
-          <span>{tile.label}</span>
-          <strong>{filled.length === 0 && index === 0 ? "Start here" : "Add"}</strong>
-        </button>
       ))}
     </div>
   );
@@ -1290,10 +1288,9 @@ function ProfileChecklist({
     { label: "Cover photo", ok: Boolean(cover), target: "photos" },
     { label: "Exterior paint", ok: has("exterior.color"), target: "field:exterior.color", cta: "Name the paint" },
     { label: "Style", ok: has("style.architecture"), target: "field:style.architecture", cta: "Name the style" },
+    { label: "Trim color", ok: has("exterior.trim"), target: "field:exterior.trim", cta: "Name the trim" },
     { label: "The story", ok: has(SUMMARY_KEY), target: "about", cta: "Tell the story" },
     { label: "Photos", ok: documents.some(isImage), target: "photos" },
-    { label: "Front door", ok: has("exterior.door"), target: "field:exterior.door" },
-    { label: "Floors", ok: has("interior.floors"), target: "field:interior.floors" },
     { label: "Still original", ok: has("original_details"), target: "field:original_details", cta: "List what's original" },
     { label: "Work done", ok: improvements.length > 0, target: "improvements", cta: "Log the last big job" },
     { label: "Roof", ok: has("roof.type") || has("roof.year") || improvements.some((item) => item.category === "roof"), target: "systems" },
