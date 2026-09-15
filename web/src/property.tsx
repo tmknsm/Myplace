@@ -566,33 +566,35 @@ export function PropertyPageView() {
               : [locality, property.sbl ? `SBL ${property.sbl}` : null].filter(Boolean).join(" · ")
           }</p>
         </div>
-        <div className="profile-actions">
-          {owner ? (
-            <div className="action-row compact" ref={actionsRef}>
-              <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
-                Add photos
-              </PhotoFileButton>
-              <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
-            </div>
-          ) : (
-            <>
-              {(!maintained || viewer.openClaim || viewer.invitation?.role === "owner") && (
-                <div className="action-row compact">
-                  {viewer.openClaim ? (
-                    <Link className="btn secondary" to={`/property/${id}/claim/${viewer.openClaim.claim_id}`}>Claim under review</Link>
-                  ) : (
-                    <button type="button" className="btn" data-testid="claim-button" onClick={startClaim}>
-                      {viewer.invitation?.role === "owner" ? "Continue handoff" : "Claim this address"}
-                    </button>
-                  )}
-                </div>
-              )}
-              {!maintained && !viewer.openClaim && (
-                <p className="meta-line profile-nudge">Still just the county record. If it's yours, claim it and add what the county doesn't know.</p>
-              )}
-            </>
-          )}
-        </div>
+        {(owner || (!maintained || viewer.openClaim || viewer.invitation?.role === "owner")) && (
+          <div className="profile-actions">
+            {owner ? (
+              <div className="action-row compact" ref={actionsRef}>
+                <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
+                  Add photos
+                </PhotoFileButton>
+                <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
+              </div>
+            ) : (
+              <>
+                {(!maintained || viewer.openClaim || viewer.invitation?.role === "owner") && (
+                  <div className="action-row compact">
+                    {viewer.openClaim ? (
+                      <Link className="btn secondary" to={`/property/${id}/claim/${viewer.openClaim.claim_id}`}>Claim under review</Link>
+                    ) : (
+                      <button type="button" className="btn" data-testid="claim-button" onClick={startClaim}>
+                        {viewer.invitation?.role === "owner" ? "Continue handoff" : "Claim this address"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {!maintained && !viewer.openClaim && (
+                  <p className="meta-line profile-nudge">Still just the county record. If it's yours, claim it and add what the county doesn't know.</p>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </header>
 
       {owner && quickAddSlots.map((slot, index) => createPortal(
