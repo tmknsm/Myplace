@@ -18,8 +18,10 @@ import {
   hasFile,
   isImage,
   money,
+  FIELD_HINTS,
   MULTILINE_FIELDS,
   scrollToId,
+  splitSwatch,
   useToast,
   type Toast,
 } from "./property-shared";
@@ -36,6 +38,7 @@ const SUMMARY_KEY = "profile.summary";
  * in the record is ever dropped.
  */
 const FACT_SECTIONS: Array<{ id: string; title: string; keys?: string[]; group?: string }> = [
+  { id: "character", title: "Style & finishes", group: "character" },
   { id: "systems", title: "Systems", group: "owner" },
   {
     id: "location",
@@ -74,17 +77,32 @@ const FACT_SECTIONS: Array<{ id: string; title: string; keys?: string[]; group?:
   },
 ];
 
-const STAT_KEYS: Array<{ key: string; label: string; subKey?: string }> = [
-  { key: "year_built", label: "Built" },
-  { key: "building_area", label: "Building" },
-  { key: "bedrooms", label: "Bedrooms" },
-  { key: "bathrooms", label: "Baths" },
-  { key: "acreage", label: "Lot" },
-  { key: "property_class", label: "Class" },
-  { key: "assessment.total", label: "Assessed" },
-  { key: "market_value_estimate", label: "Full market value" },
-  { key: "last_sale.price", label: "Last sold", subKey: "last_sale.date" },
+/**
+ * The strip under the hero is the owner's, not the assessor's. It leads with
+ * the things a passerby would ask about (the paint, the style, the front door)
+ * and never shows bedroom counts or assessed value; those live in the county's
+ * half. Order here is the order tiles fill in, and the order an owner is
+ * prompted to add them.
+ */
+const STRIP_KEYS: Array<{ key: string; label: string }> = [
+  { key: "exterior.color", label: "Exterior paint" },
+  { key: "style.architecture", label: "Style" },
+  { key: "exterior.door", label: "Front door" },
+  { key: "exterior.trim", label: "Trim" },
+  { key: "interior.floors", label: "Floors" },
+  { key: "exterior.siding", label: "Siding" },
+  { key: "interior.kitchen", label: "Kitchen" },
+  { key: "original_details", label: "Still original" },
+  { key: "interior.palette", label: "Inside" },
+  { key: "interior.hardware", label: "Hardware" },
+  { key: "garden", label: "Garden" },
+  { key: "built_by", label: "Built by" },
+  { key: "house.name", label: "Known as" },
 ];
+const STRIP_MAX = 6;
+
+/** A request to open one fact's editor; a fresh object each time so repeat taps still fire. */
+type FieldFocus = { key: string; at: number } | null;
 
 function organizeFacts(facts: Fact[]): Map<string, Fact[]> {
   const placed = new Set<string>([SUMMARY_KEY]);
@@ -168,6 +186,7 @@ export function PropertyPageView() {
   const [toast, showToast] = useToast();
   const [improvementFormOpen, setImprovementFormOpen] = useState(false);
   const [aboutEditing, setAboutEditing] = useState(false);
+  const [fieldFocus, setFieldFocus] = useState<FieldFocus>(null);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [heroIndex, setHeroIndex] = useState(0);
   const [photoUploads, setPhotoUploads] = useState(0);
@@ -244,7 +263,14 @@ export function PropertyPageView() {
   const hasSummary = Boolean(summary?.display);
   const systemsFacts = sections.get("systems") ?? [];
   const publicSystems = systemsFacts.filter((fact) => fact.status !== "unknown");
+  const characterFacts = sections.get("character") ?? [];
+  const publicCharacter = characterFacts.filter((fact) => fact.status !== "unknown");
   const maintained = property.maintainers.length > 0;
+
+  const focusField = (key: string) => {
+    setFieldFocus({ key, at: Date.now() });
+    scrollToId("character");
+  };
 
   const startClaim = () => {
     if (meta?.debug) {
@@ -293,11 +319,13 @@ export function PropertyPageView() {
   const showPhotos = owner || available.length > 0;
   const showImprovements = owner || property.improvements.length > 0;
   const showSystems = owner || publicSystems.length > 0;
-  const showOwnerHalf = showAbout || showPhotos || showImprovements || showSystems;
+  const showCharacter = owner || publicCharacter.length > 0;
+  const showOwnerHalf = showAbout || showPhotos || showImprovements || showSystems || showCharacter;
   const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id).length;
 
   const nav: Array<{ id: string; label: string }> = [
     ...(showAbout ? [{ id: "about", label: "About" }] : []),
+    ...(showCharacter ? [{ id: "character", label: "Style" }] : []),
     ...(showPhotos ? [{ id: "photos", label: "Photos" }] : []),
     ...(showImprovements ? [{ id: "improvements", label: "Improvements" }] : []),
     ...(showSystems ? [{ id: "systems", label: "Systems" }] : []),
@@ -418,7 +446,7 @@ export function PropertyPageView() {
         </div>
       </header>
 
-      <StatStrip facts={property.facts} />
+      <StatStrip facts={property.facts} owner={owner} onAdd={focusField} />
 
       <div className="profile-grid">
         <SectionNav items={nav} />
@@ -462,6 +490,10 @@ export function PropertyPageView() {
                 }
                 if (target === "about") setAboutEditing(true);
                 if (target === "improvements") setImprovementFormOpen(true);
+                if (target.startsWith("field:")) {
+                  focusField(target.slice("field:".length));
+                  return;
+                }
                 scrollToId(target);
               }}
             />
@@ -481,6 +513,19 @@ export function PropertyPageView() {
               fact={summary}
               editing={aboutEditing}
               setEditing={setAboutEditing}
+              {...sectionProps}
+            />
+          )}
+
+          {showCharacter && (
+            <FactSection
+              id="character"
+              title="Style & finishes"
+              description={owner
+                ? "What people actually ask about when they slow down out front: the paint, the style, the floors, what's still original. The first few fill the tiles at the top of the page."
+                : "How the owner describes the place. Their words, not the county's."}
+              facts={owner ? characterFacts : publicCharacter}
+              focus={fieldFocus}
               {...sectionProps}
             />
           )}
@@ -636,31 +681,46 @@ function VaultCard({ propertyId, count, maintainers }: { propertyId: string; cou
 // Hero support: stat strip, in-page nav, lightbox
 // ---------------------------------------------------------------------------
 
-function StatStrip({ facts }: { facts: Fact[] }) {
-  const stats = STAT_KEYS.flatMap((stat) => {
-    const fact = facts.find((item) => item.fieldKey === stat.key);
+/**
+ * The tiles under the hero. Filled tiles are the owner's character facts in
+ * STRIP_KEYS order; for the owner, the empty slots become prompts so the
+ * strip itself is the invitation. Visitors to an unclaimed page see nothing
+ * here: the page is still just the county record, and that lives below.
+ */
+function StatStrip({ facts, owner, onAdd }: { facts: Fact[]; owner: boolean; onAdd: (fieldKey: string) => void }) {
+  const filled = STRIP_KEYS.flatMap((tile) => {
+    const fact = facts.find((item) => item.fieldKey === tile.key);
     if (!fact || fact.status === "unknown" || !fact.display) return [];
-    const sub = stat.subKey ? facts.find((item) => item.fieldKey === stat.subKey) : null;
-    return [{
-      key: stat.key,
-      label: stat.label,
-      value: fact.display,
-      sub: sub && sub.status !== "unknown" && typeof sub.value === "string" ? dateLabel(sub.value, { month: "short", year: "numeric" }) : null,
-      status: fact.status,
-    }];
-  }).slice(0, 6);
-  if (stats.length === 0) return null;
+    const { text, swatch } = splitSwatch(tile.key, fact.display);
+    return [{ ...tile, text, swatch, isPrivate: fact.visibility === "private" }];
+  }).slice(0, STRIP_MAX);
+  const prompts = owner
+    ? STRIP_KEYS.filter((tile) => !filled.some((item) => item.key === tile.key)).slice(0, Math.max(0, STRIP_MAX - filled.length))
+    : [];
+  const count = filled.length + prompts.length;
+  if (count === 0) return null;
   return (
-    <div className={`stat-strip${stats.length % 2 ? " odd" : ""}`} data-testid="stat-strip">
-      {stats.map((stat) => (
-        <div key={stat.key} className="stat">
-          <span>{stat.label}</span>
+    <div className={`stat-strip${count % 2 ? " odd" : ""}`} data-testid="stat-strip">
+      {filled.map((tile) => (
+        <div key={tile.key} className={`stat text${tile.isPrivate ? " is-private" : ""}`} data-field={tile.key}>
+          <span>{tile.label}{tile.isPrivate ? " · private" : ""}</span>
           <strong>
-            {stat.value}
-            {stat.sub && <small> · {stat.sub}</small>}
+            {tile.swatch && <i className="swatch" style={{ background: tile.swatch }} aria-hidden="true" />}
+            {tile.text}
           </strong>
-          {stat.status !== "available" && <em className={`badge ${stat.status}`}>{STATUS_LABEL[stat.status]}</em>}
         </div>
+      ))}
+      {prompts.map((tile, index) => (
+        <button
+          key={tile.key}
+          type="button"
+          className="stat prompt"
+          data-testid={`strip-add-${tile.key}`}
+          onClick={() => onAdd(tile.key)}
+        >
+          <span>{tile.label}</span>
+          <strong>{filled.length === 0 && index === 0 ? "Start here" : "Add"}</strong>
+        </button>
       ))}
     </div>
   );
@@ -944,6 +1004,7 @@ function FactSection({
   onChange,
   toast,
   before,
+  focus,
   children,
 }: {
   id: string;
@@ -955,6 +1016,7 @@ function FactSection({
   onChange: PageRefresh;
   toast: Toast;
   before?: React.ReactNode;
+  focus?: FieldFocus;
   children?: React.ReactNode;
 }) {
   if (facts.length === 0 && !children && !before) return null;
@@ -966,7 +1028,15 @@ function FactSection({
       {facts.length > 0 && (
         <div className="group">
           {facts.map((fact) => (
-            <FactRow key={fact.fieldKey} fact={fact} owner={owner} propertyId={propertyId} onChange={onChange} toast={toast} />
+            <FactRow
+              key={fact.fieldKey}
+              fact={fact}
+              owner={owner}
+              propertyId={propertyId}
+              onChange={onChange}
+              toast={toast}
+              focus={focus && focus.key === fact.fieldKey ? focus : null}
+            />
           ))}
         </div>
       )}
@@ -981,24 +1051,37 @@ export function FactRow({
   propertyId,
   onChange,
   toast,
+  focus,
 }: {
   fact: Fact;
   owner?: boolean;
   propertyId?: string;
   onChange?: () => Promise<void> | void;
   toast?: Toast;
+  /** Set by the page (the strip's prompt tiles, the checklist) to open this row's editor. */
+  focus?: FieldFocus;
 }) {
   const [editing, setEditing] = useState(false);
   const [disputing, setDisputing] = useState(false);
   const [visBusy, setVisBusy] = useState(false);
   const editable = owner && propertyId && ownerCanWrite(fact);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const focusAt = focus?.at ?? 0;
+  useEffect(() => {
+    if (!focusAt || !editable) return;
+    setEditing(true);
+    // The section scroll lands first; then bring this row into view.
+    const timer = window.setTimeout(() => rowRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }), 350);
+    return () => window.clearTimeout(timer);
+  }, [focusAt, editable]);
   const disputable = owner && propertyId && !ownerCanWrite(fact) && fact.status !== "unknown";
   const ownerAssertion = fact.assertions.find((assertion) => assertion.sourceType === "verified_owner");
   const showBadge = fact.status !== "available" && !(fact.status === "unknown" && editable);
   const canToggle = editable && ownerAssertion && fact.visibility;
+  const { text, swatch } = splitSwatch(fact.fieldKey, fact.display);
 
   return (
-    <div className={`fact ${editable ? "is-editable" : ""} ${fact.dispute ? "is-disputed" : ""} ${fact.visibility === "private" ? "is-private" : ""}`} data-field={fact.fieldKey}>
+    <div ref={rowRef} className={`fact ${editable ? "is-editable" : ""} ${fact.dispute ? "is-disputed" : ""} ${fact.visibility === "private" ? "is-private" : ""}`} data-field={fact.fieldKey}>
       <div className="fact-label">{fact.label}</div>
       <div className="fact-value">
         {editable && editing && propertyId ? (
@@ -1019,7 +1102,10 @@ export function FactRow({
           </button>
         ) : (
           <>
-            <strong>{fact.display ?? "—"}</strong>
+            <strong>
+              {swatch && <i className="swatch" style={{ background: swatch }} aria-hidden="true" />}
+              {fact.display ? text : "—"}
+            </strong>
             {showBadge && <span className={`badge ${fact.status}`}>{STATUS_LABEL[fact.status]}</span>}
             {fact.dispute && <span className="badge disputed">disputed by owner</span>}
             {editable && (
@@ -1107,6 +1193,7 @@ function FieldEditor({
   const [error, setError] = useState<string | null>(null);
   const multiline = MULTILINE_FIELDS.has(fact.fieldKey);
   const hasExisting = initial !== null && initial !== undefined && initial !== "";
+  const hint = FIELD_HINTS[fact.fieldKey] ?? (def?.unit ? `In ${def.unit}` : multiline ? `Describe ${fact.label.toLowerCase()}` : undefined);
 
   const save = async (next: string) => {
     setBusy(true);
@@ -1124,7 +1211,7 @@ function FieldEditor({
   return (
     <form className="field-editor" onSubmit={(event) => { event.preventDefault(); void save(value); }}>
       {multiline ? (
-        <textarea className="field" rows={3} autoFocus value={value} onChange={(event) => setValue(event.target.value)} placeholder={`Describe ${fact.label.toLowerCase()}`} />
+        <textarea className="field" rows={3} autoFocus value={value} onChange={(event) => setValue(event.target.value)} placeholder={hint} onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }} />
       ) : (
         <input
           className="field"
@@ -1133,7 +1220,7 @@ function FieldEditor({
           inputMode={inputType === "number" ? "decimal" : undefined}
           step={inputType === "number" ? "any" : undefined}
           value={value}
-          placeholder={def?.unit ? `In ${def.unit}` : undefined}
+          placeholder={hint}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Escape") onCancel(); }}
         />
@@ -1201,8 +1288,13 @@ function ProfileChecklist({
   const doc = (type: string) => documents.some((item) => item.document_type === type) || improvements.some((item) => item.documents.some((d) => d.document_type === type));
   const items: Array<{ label: string; ok: boolean; target: string; cta?: string }> = [
     { label: "Cover photo", ok: Boolean(cover), target: "photos" },
+    { label: "Exterior paint", ok: has("exterior.color"), target: "field:exterior.color", cta: "Name the paint" },
+    { label: "Style", ok: has("style.architecture"), target: "field:style.architecture", cta: "Name the style" },
     { label: "The story", ok: has(SUMMARY_KEY), target: "about", cta: "Tell the story" },
     { label: "Photos", ok: documents.some(isImage), target: "photos" },
+    { label: "Front door", ok: has("exterior.door"), target: "field:exterior.door" },
+    { label: "Floors", ok: has("interior.floors"), target: "field:interior.floors" },
+    { label: "Still original", ok: has("original_details"), target: "field:original_details", cta: "List what's original" },
     { label: "Work done", ok: improvements.length > 0, target: "improvements", cta: "Log the last big job" },
     { label: "Roof", ok: has("roof.type") || has("roof.year") || improvements.some((item) => item.category === "roof"), target: "systems" },
     { label: "Heating", ok: has("heating") || improvements.some((item) => item.category === "hvac"), target: "systems" },
@@ -1236,7 +1328,7 @@ function ProfileChecklist({
         <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={done}>
           <i style={{ width: `${(done / items.length) * 100}%` }} />
         </div>
-        <p className="meta-line">How much of the page is filled in, not the condition of the house. Photos, work and systems are public unless you mark them private; the vault is private by default.</p>
+        <p className="meta-line">How much of the page is filled in, not the condition of the house. Paint, photos, work and systems are public unless you mark them private; the vault is private by default.</p>
         <div className="completeness-grid">
           {items.map((item) => item.ok ? (
             <span key={item.label} className="ok"><i aria-hidden="true">✓</i>{item.label}</span>

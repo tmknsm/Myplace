@@ -5,6 +5,7 @@ export type FieldGroup =
   | "rules"
   | "records"
   | "profile"
+  | "character"
   | "owner";
 
 export interface FieldDef {
@@ -68,6 +69,22 @@ export const FIELD_VOCAB: FieldDef[] = [
   { key: "env.bulk_storage", label: "DEC bulk storage", group: "rules", layer: "official", valueType: "string" },
   // The profile group is prose the owner writes about the place itself.
   { key: "profile.summary", label: "About this place", group: "profile", layer: "owner", valueType: "string" },
+  // The character group is what people actually ask about when they stop in
+  // front of a house: the paint, the style, the floors, what's still original.
+  // It leads the page; the systems group below is what's in the walls.
+  { key: "style.architecture", label: "Architectural style", group: "character", layer: "owner", valueType: "string" },
+  { key: "exterior.color", label: "Exterior paint", group: "character", layer: "owner", valueType: "string" },
+  { key: "exterior.trim", label: "Trim", group: "character", layer: "owner", valueType: "string" },
+  { key: "exterior.door", label: "Front door", group: "character", layer: "owner", valueType: "string" },
+  { key: "exterior.siding", label: "Siding", group: "character", layer: "owner", valueType: "string" },
+  { key: "interior.floors", label: "Floors", group: "character", layer: "owner", valueType: "string" },
+  { key: "interior.kitchen", label: "Kitchen", group: "character", layer: "owner", valueType: "string" },
+  { key: "interior.palette", label: "Interior palette", group: "character", layer: "owner", valueType: "string" },
+  { key: "interior.hardware", label: "Hardware & fixtures", group: "character", layer: "owner", valueType: "string" },
+  { key: "original_details", label: "Original details", group: "character", layer: "owner", valueType: "string" },
+  { key: "garden", label: "Garden & grounds", group: "character", layer: "owner", valueType: "string" },
+  { key: "built_by", label: "Built by", group: "character", layer: "owner", valueType: "string" },
+  { key: "house.name", label: "Known as", group: "character", layer: "owner", valueType: "string" },
   { key: "roof.type", label: "Roof", group: "owner", layer: "owner", valueType: "string" },
   { key: "roof.year", label: "Roof year", group: "owner", layer: "owner", valueType: "number" },
   { key: "heating", label: "Heating", group: "owner", layer: "owner", valueType: "string" },
