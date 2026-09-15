@@ -51,6 +51,20 @@ function factHex(fieldKey: string, facts: Fact[]): string | null {
   return raw;
 }
 
+const OFFICIAL_SOURCES = new Set(["government", "platform_admin"]);
+
+/** True only when county/state (or desk) says this lot is in a historic district. */
+function isOfficialHistoricDistrict(facts: Fact[]): boolean {
+  const fact = facts.find((item) => item.fieldKey === "historic.district");
+  if (!fact || fact.dispute || fact.status !== "available") return false;
+  const official = fact.assertions.filter((item) => OFFICIAL_SOURCES.has(item.sourceType));
+  if (!official.length) return false;
+  const text = String(official[0]?.display ?? official[0]?.value ?? fact.display ?? fact.value ?? "");
+  if (!/historic\s+district/i.test(text)) return false;
+  if (/not in a listed/i.test(text) || /not a district/i.test(text)) return false;
+  return true;
+}
+
 type PageData = { property: PropertyPage; viewer: Viewer };
 
 /** Which sheet is up. Every owner input on the page goes through one of these. */
@@ -333,6 +347,7 @@ export function PropertyPageView() {
   const summary = property.facts.find((fact) => fact.fieldKey === SUMMARY_KEY) ?? null;
   const hasSummary = Boolean(summary?.display);
   const maintained = property.maintainers.length > 0;
+  const historicDistrict = isOfficialHistoricDistrict(property.facts);
   // Visitors only see topics with something public in them; the owner sees every card.
   const topicHasPhotos = (topic: Topic) => property.documents.some((doc) => doc.topic_id === topic.id && isImage(doc) && hasFile(doc));
   const visibleTopics = (list: Topic[]) => owner
@@ -500,13 +515,20 @@ export function PropertyPageView() {
 
       <header className="profile-head group">
         <div className="profile-title">
-          {owner ? (
-            <span className="owner-chip" data-testid="owner-chip">
-              {viewer.role === "co_owner" ? "Co-owner" : "Claimed"}
-            </span>
-          ) : maintained ? (
-            <span className="owner-chip">Owner-maintained</span>
-          ) : null}
+          {(owner || maintained || historicDistrict) && (
+            <div className="profile-chips">
+              {owner ? (
+                <span className="owner-chip" data-testid="owner-chip">
+                  {viewer.role === "co_owner" ? "Co-owner" : "Claimed"}
+                </span>
+              ) : maintained ? (
+                <span className="owner-chip">Owner-maintained</span>
+              ) : null}
+              {historicDistrict && (
+                <span className="owner-chip" data-testid="historic-chip">Historic district</span>
+              )}
+            </div>
+          )}
           <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
           <h1>{title}</h1>
           <p className="profile-meta mono">{[locality, property.sbl ? `SBL ${property.sbl}` : null].filter(Boolean).join(" · ")}</p>
