@@ -18,11 +18,16 @@ function Layout({ children }: { children: React.ReactNode }) {
   const headerSearch = !isHome && !/^\/(signin|dev|admin)/.test(location.pathname);
   // The share button rides beside the search on the property page itself, in
   // every state. Keyed on the id so the slot re-opens for each page load.
+  // The empty slot after it is where the property page mounts its quick-add
+  // button (a portal) once the owner's add buttons scroll behind the header.
   const propertyId = location.pathname.match(/^\/property\/([^/]+)\/?$/)?.[1] ?? null;
   const share = propertyId ? (
-    <div className="header-share" key={propertyId}>
-      <ShareButton propertyId={propertyId} />
-    </div>
+    <>
+      <div className="header-share" key={propertyId}>
+        <ShareButton propertyId={propertyId} />
+      </div>
+      <div className="header-add-slot" />
+    </>
   ) : null;
   const topbarRef = useRef<HTMLElement | null>(null);
   useEffect(() => setDebugOpen(false), [location.pathname]);

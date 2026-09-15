@@ -257,6 +257,12 @@ export function PropertyPageView() {
   const [pinOpen, setPinOpen] = useState(false);
   const [toast, showToast] = useToast();
   const [improvementFormOpen, setImprovementFormOpen] = useState(false);
+  const [roomFormOpen, setRoomFormOpen] = useState(false);
+  // The header's plus button: shown once the owner's Add photos / Add
+  // improvement row has scrolled fully behind the top bar.
+  const actionsRef = useRef<HTMLDivElement | null>(null);
+  const [quickAddOn, setQuickAddOn] = useState(false);
+  const [quickAddSlots, setQuickAddSlots] = useState<HTMLElement[]>([]);
   const [sheet, setSheet] = useState<SheetState>(null);
   const [sheetSeq, setSheetSeq] = useState(0);
   // Keep the last sheet's content mounted while it animates out.
@@ -321,6 +327,41 @@ export function PropertyPageView() {
 
   const sections = useMemo(() => organizeFacts(data?.property.facts ?? []), [data]);
   const closeSheet = useCallback(() => setSheet(null), []);
+
+  // Both header search rows (wide and narrow) carry a slot; only one is
+  // displayed at a time, so the button is portaled into each.
+  const canQuickAdd = Boolean(data?.viewer.maintainer && !data?.viewer.openClaim);
+  useEffect(() => {
+    if (!canQuickAdd) return;
+    setQuickAddSlots(Array.from(document.querySelectorAll<HTMLElement>(".header-add-slot")));
+    return () => setQuickAddSlots([]);
+  }, [canQuickAdd]);
+  useEffect(() => {
+    const node = actionsRef.current;
+    if (!canQuickAdd || !node) return;
+    let observer: IntersectionObserver | null = null;
+    const watch = () => {
+      observer?.disconnect();
+      const header = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar-height")) || 0;
+      observer = new IntersectionObserver(([entry]) => {
+        if (!entry) return;
+        // Off screen above the header, not below the fold.
+        const edge = entry.rootBounds?.top ?? header;
+        setQuickAddOn(!entry.isIntersecting && entry.boundingClientRect.bottom <= edge + 0.5);
+      }, { rootMargin: `-${Math.ceil(header)}px 0px 0px 0px`, threshold: 0 });
+      observer.observe(node);
+    };
+    watch();
+    // --topbar-height is written by the layout's effect, which runs after this one.
+    const frame = requestAnimationFrame(watch);
+    window.addEventListener("resize", watch);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", watch);
+      observer?.disconnect();
+      setQuickAddOn(false);
+    };
+  }, [canQuickAdd]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!data || !id) return <PageSpinner label="Loading record" />;
@@ -527,7 +568,7 @@ export function PropertyPageView() {
         </div>
         <div className="profile-actions">
           {owner ? (
-            <div className="action-row compact">
+            <div className="action-row compact" ref={actionsRef}>
               <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
                 Add photos
               </PhotoFileButton>
@@ -553,6 +594,19 @@ export function PropertyPageView() {
           )}
         </div>
       </header>
+
+      {owner && quickAddSlots.map((slot, index) => createPortal(
+        <QuickAdd
+          on={quickAddOn}
+          uploading={uploading}
+          onPhotos={(files) => uploadPhotos(files)}
+          onPhotoError={reportPhotoError}
+          onImprovement={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}
+          onRoom={() => { setRoomFormOpen(true); scrollToId("rooms"); }}
+        />,
+        slot,
+        `quick-add-${index}`,
+      ))}
 
       <StatStrip facts={property.facts} onClaim={prospect ? goClaim : undefined} />
 
@@ -661,6 +715,8 @@ export function PropertyPageView() {
               rooms={rooms}
               owner={owner}
               propertyId={id}
+              formOpen={roomFormOpen}
+              setFormOpen={setRoomFormOpen}
               onChange={refresh}
               toast={showToast}
             />
@@ -1569,22 +1625,29 @@ function RoomsSection({
   rooms,
   owner,
   propertyId,
+  formOpen,
+  setFormOpen,
   onChange,
   toast,
 }: {
   rooms: Room[];
   owner: boolean;
   propertyId: string;
+  formOpen: boolean;
+  setFormOpen: (open: boolean) => void;
   onChange: PageRefresh;
   toast: Toast;
 }) {
-  const adder = useSheet();
+  // A fresh form each time the sheet opens; the sheet itself stays mounted to animate out.
+  const [formSeq, setFormSeq] = useState(0);
+  useEffect(() => { if (formOpen) setFormSeq((n) => n + 1); }, [formOpen]);
+  const closeForm = useCallback(() => setFormOpen(false), [setFormOpen]);
   return (
     <section className="section" id="rooms">
       <div className="section-head">
         <h2>Rooms</h2>
         {owner && (
-          <button type="button" className="text-btn accent" data-testid="add-room" onClick={adder.show}>Add room</button>
+          <button type="button" className="text-btn accent" data-testid="add-room" onClick={() => setFormOpen(true)}>Add room</button>
         )}
       </div>
       <p className="meta-line section-note">
@@ -1594,18 +1657,18 @@ function RoomsSection({
       </p>
       {owner && (
         <Sheet
-          open={adder.open}
+          open={formOpen}
           title="Add a room"
           lede="Choose the room first. The fields below follow from that."
-          onClose={adder.hide}
+          onClose={closeForm}
           testId="room-sheet"
         >
           <RoomForm
-            key={adder.seq}
+            key={formSeq}
             propertyId={propertyId}
-            onCancel={adder.hide}
+            onCancel={closeForm}
             onSaved={async (count, room) => {
-              adder.hide();
+              setFormOpen(false);
               toast(count ? `Room added with ${count} photo${count === 1 ? "" : "s"}.` : "Room added.");
               await onChange(room ? (page) => ({
                 ...page,
@@ -3081,6 +3144,117 @@ function ImprovementPhotos({
         />
       )}
     </>
+  );
+}
+
+const QUICK_ADD_EXIT_MS = 140;
+
+/**
+ * The red plus beside the header's share button. Its slot opens from zero
+ * width like the share slot did, so the search field contracts to make room,
+ * and the button pops in once the space is there. Tapping it drops a small
+ * menu: photos, an improvement, a room. Lives in the header search row, so it
+ * tucks away with the field when the section bar docks.
+ */
+function QuickAdd({
+  on,
+  uploading,
+  onPhotos,
+  onPhotoError,
+  onImprovement,
+  onRoom,
+}: {
+  on: boolean;
+  uploading: boolean;
+  onPhotos: (files: File[]) => void | Promise<void>;
+  onPhotoError: (message: string) => void;
+  onImprovement: () => void;
+  onRoom: () => void;
+}) {
+  const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const exitTimer = useRef(0);
+  const open = phase === "open";
+  const close = useCallback(() => {
+    setPhase((current) => (current === "open" ? "closing" : current));
+  }, []);
+  useEffect(() => {
+    if (phase !== "closing") return;
+    exitTimer.current = window.setTimeout(() => setPhase("closed"), QUICK_ADD_EXIT_MS);
+    return () => window.clearTimeout(exitTimer.current);
+  }, [phase]);
+  // Anything that moves the button away closes the menu: the trigger row
+  // scrolling back into view, or any page scroll (the row may be tucking).
+  useEffect(() => { if (!on) close(); }, [on, close]);
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) close();
+    };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close);
+    };
+  }, [open, close]);
+  const pick = (action: () => void) => () => { close(); action(); };
+  return (
+    <div ref={rootRef} className={`header-add${on ? " is-on" : ""}${open ? " is-open" : ""}`}>
+      <button
+        type="button"
+        className="btn header-add-btn"
+        aria-label="Add to this page"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-hidden={!on}
+        tabIndex={on ? 0 : -1}
+        data-testid="quick-add"
+        onClick={() => (open ? close() : setPhase("open"))}
+      >
+        <svg className="header-add-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </svg>
+      </button>
+      {phase !== "closed" && (
+        <div className={`header-add-menu${phase === "closing" ? " is-closing" : ""}`} role="menu" aria-label="Add to this page" data-testid="quick-add-menu">
+          <PhotoFileButton
+            className="header-add-item"
+            busy={uploading}
+            multiple
+            testId="quick-add-photos"
+            onPick={(files) => { close(); return onPhotos(files); }}
+            onError={onPhotoError}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+              <circle cx="9" cy="10" r="1.6" />
+              <path d="M20.5 15.5l-4.6-4.6a1 1 0 0 0-1.4 0L7 18.5" />
+            </svg>
+            <span>Add photos</span>
+          </PhotoFileButton>
+          <button type="button" role="menuitem" className="header-add-item" data-testid="quick-add-improvement" onClick={pick(onImprovement)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M14.5 6.5a4 4 0 0 0 5 5l-8.6 8.6a2.1 2.1 0 0 1-3-3L16.5 8.5" />
+              <path d="M14.5 6.5L18 3l3 3-3.5 3.5" />
+            </svg>
+            <span>Add improvement</span>
+          </button>
+          <button type="button" role="menuitem" className="header-add-item" data-testid="quick-add-room" onClick={pick(onRoom)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M5 20V5.5a1.5 1.5 0 0 1 1.5-1.5h11A1.5 1.5 0 0 1 19 5.5V20" />
+              <path d="M3 20h18" />
+              <circle cx="15" cy="12.5" r="0.9" fill="currentColor" />
+            </svg>
+            <span>Add room</span>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
