@@ -176,6 +176,15 @@ export class RoomDetailsError extends Error {
   status = 400;
 }
 
+/** Optional card blurb. Empty → null; over 2,000 characters → 400. */
+export function normalizeRoomDescription(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  const text = typeof raw === "string" ? raw.trim() : String(raw).trim();
+  if (!text) return null;
+  if (text.length > 2000) throw new RoomDetailsError("Description is too long.");
+  return text;
+}
+
 /**
  * Keep only known keys for this room type, drop empties, and check the typed
  * fields. Throws a 400-flavoured error when a link, swatch, or year is malformed.

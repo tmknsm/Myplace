@@ -267,7 +267,7 @@ export interface ImprovementInput {
 
 export interface RoomInput {
   kind: string;
-  title?: string | null;
+  description?: string | null;
   details?: Record<string, string>;
   visibility?: string;
 }
@@ -278,6 +278,7 @@ export interface Room {
   created_by: string | null;
   kind: string;
   title: string | null;
+  description: string | null;
   details: Record<string, string>;
   visibility: string;
   created_at: string;

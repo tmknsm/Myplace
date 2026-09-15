@@ -95,14 +95,25 @@ async function main() {
     SELECT room_id FROM property_rooms
     WHERE property_id = ${PROPERTY_ID} AND removed_at IS NULL
   `;
+  const DESCRIPTIONS: Record<string, string> = {
+    room_warren_kitchen: "The kitchen sits in the later addition off the brick-walled garden.",
+    room_warren_parlor: "Heart pine, one dark green parlor, natural brick where it was never plastered.",
+  };
   if (existingRooms.length) {
-    console.log(`rooms skip (${existingRooms.length} already on the page)`);
+    for (const [roomId, description] of Object.entries(DESCRIPTIONS)) {
+      const updated = await sql`
+        UPDATE property_rooms
+        SET description = COALESCE(NULLIF(description, ''), ${description}), title = NULL
+        WHERE room_id = ${roomId} AND property_id = ${PROPERTY_ID} AND removed_at IS NULL
+      `;
+      console.log(`room  ${roomId} ${updated.count ? "updated" : "skip"}`);
+    }
   } else {
-    const rooms: Array<{ room_id: string; kind: string; title: string | null; details: Record<string, string> }> = [
+    const rooms: Array<{ room_id: string; kind: string; description: string | null; details: Record<string, string> }> = [
       {
         room_id: "room_warren_kitchen",
         kind: "kitchen",
-        title: null,
+        description: "The kitchen sits in the later addition off the brick-walled garden.",
         details: normalizeRoomDetails("kitchen", {
           cabinetry: "Inset painted cabinets, garden-facing",
           counters: "Soapstone",
@@ -110,31 +121,29 @@ async function main() {
           flooring: "Tile in the kitchen addition",
           fixtures: "Unlacquered brass",
           paint: "Warm plaster whites",
-          notes: "The kitchen sits in the later addition off the brick-walled garden.",
         }),
       },
       {
         room_id: "room_warren_parlor",
         kind: "living_room",
-        title: "Parlor",
+        description: "Heart pine, one dark green parlor, natural brick where it was never plastered.",
         details: normalizeRoomDetails("living_room", {
           flooring: "Heart pine",
           paint: "One dark green parlor",
           fireplace: "Original parlor mantel, working",
-          notes: "Natural brick where it was never plastered.",
         }),
       },
     ];
     for (const room of rooms) {
       await sql`
-        INSERT INTO property_rooms (room_id, property_id, created_by, kind, title, details, visibility)
+        INSERT INTO property_rooms (room_id, property_id, created_by, kind, description, details, visibility)
         VALUES (
-          ${room.room_id}, ${PROPERTY_ID}, ${owner.user_id}, ${room.kind}, ${room.title},
+          ${room.room_id}, ${PROPERTY_ID}, ${owner.user_id}, ${room.kind}, ${room.description},
           ${sql.json(room.details)}, 'public'
         )
         ON CONFLICT (room_id) DO NOTHING
       `;
-      console.log(`room  ${room.kind}${room.title ? ` (${room.title})` : ""}`);
+      console.log(`room  ${room.kind}`);
     }
   }
 

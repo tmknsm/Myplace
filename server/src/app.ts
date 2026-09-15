@@ -32,7 +32,7 @@ import {
   sendMail,
 } from "./services/mail.ts";
 import { COUNTY_PROFILES, DEFAULT_MAP, isGeometryQuality } from "./counties.ts";
-import { isRoomKind, normalizeRoomDetails } from "../../shared/rooms.ts";
+import { isRoomKind, normalizeRoomDescription, normalizeRoomDetails } from "../../shared/rooms.ts";
 import {
   DOCUMENT_TYPES,
   IMPROVEMENT_CATEGORIES,
@@ -803,7 +803,7 @@ app.post("/api/properties/:id/rooms", async (c) => {
   const user = await requireMaintainer(c, propertyId);
   const body = await c.req.json<{
     kind?: string;
-    title?: string | null;
+    description?: string | null;
     details?: unknown;
     visibility?: string;
   }>();
@@ -811,12 +811,12 @@ app.post("/api/properties/:id/rooms", async (c) => {
   if (!isRoomKind(kind)) return c.json({ error: "Choose a room." }, 400);
   const visibility = body.visibility === "private" ? "private" : "public";
   const details = normalizeRoomDetails(kind, body.details);
-  const title = body.title?.trim() || null;
+  const description = normalizeRoomDescription(body.description);
   const sql = getSql();
   const roomId = id("room");
   await sql`
-    INSERT INTO property_rooms (room_id, property_id, created_by, kind, title, details, visibility)
-    VALUES (${roomId}, ${propertyId}, ${user.user_id}, ${kind}, ${title}, ${sql.json(details)}, ${visibility})
+    INSERT INTO property_rooms (room_id, property_id, created_by, kind, description, details, visibility)
+    VALUES (${roomId}, ${propertyId}, ${user.user_id}, ${kind}, ${description}, ${sql.json(details)}, ${visibility})
   `;
   await emitEvent({
     propertyId,
@@ -848,14 +848,14 @@ app.patch("/api/rooms/:id", async (c) => {
   const { user, room } = await loadOwnedRoom(c, c.req.param("id"));
   const body = await c.req.json<{
     kind?: string;
-    title?: string | null;
+    description?: string | null;
     details?: unknown;
     visibility?: string;
   }>();
   const kind = body.kind !== undefined ? body.kind : room.kind;
   if (!isRoomKind(kind)) return c.json({ error: "Choose a room." }, 400);
   const visibility = body.visibility === "public" || body.visibility === "private" ? body.visibility : null;
-  const title = body.title === undefined ? undefined : body.title?.trim() || null;
+  const description = body.description === undefined ? undefined : normalizeRoomDescription(body.description);
   // A kind change without new details still re-scopes the stored keys to the new room type.
   const details = body.details !== undefined
     ? normalizeRoomDetails(kind, body.details)
@@ -867,7 +867,7 @@ app.patch("/api/rooms/:id", async (c) => {
     UPDATE property_rooms
     SET
       kind = ${kind},
-      title = ${title === undefined ? sql`title` : title},
+      description = ${description === undefined ? sql`description` : description},
       details = ${details === undefined ? sql`details` : sql.json(details)},
       visibility = ${visibility ?? sql`visibility`}
     WHERE room_id = ${room.room_id}

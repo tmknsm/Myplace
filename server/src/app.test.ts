@@ -932,16 +932,20 @@ test("room details are validated and only the owner can touch a room", async () 
 
   const created = await post({
     kind: "kitchen",
+    description: "  Garden-facing, in the later addition.  ",
     details: { link: "hudsonpaint.com/kitchen", paint_hex: "E7E0D0", year: "2019", unknown_key: "dropped", cabinetry: "  Inset  " },
   });
   expect(created.status).toBe(201);
-  const { room } = await created.json() as { room: { room_id: string; details: Record<string, string> } };
+  const { room } = await created.json() as { room: { room_id: string; description: string | null; details: Record<string, string> } };
+  expect(room.description).toBe("Garden-facing, in the later addition.");
   expect(room.details).toEqual({ link: "https://hudsonpaint.com/kitchen", paint_hex: "#e7e0d0", year: "2019", cabinetry: "Inset" });
+
+  expect((await post({ kind: "kitchen", description: "x".repeat(2001) })).status).toBe(400);
 
   const strangerPatch = await app.request(`http://localhost/api/rooms/${room.room_id}`, {
     method: "PATCH",
     headers: { "content-type": "application/json", cookie: stranger },
-    body: JSON.stringify({ title: "Mine now" }),
+    body: JSON.stringify({ description: "Mine now" }),
   });
   expect(strangerPatch.status).toBe(403);
   const strangerDelete = await app.request(`http://localhost/api/rooms/${room.room_id}`, { method: "DELETE", headers: { cookie: stranger } });

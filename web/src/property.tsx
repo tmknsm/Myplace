@@ -1139,7 +1139,7 @@ function TopicValue({ field, fact, facts }: { field: TopicField; fact: Fact; fac
 }
 
 function roomTitle(room: Room): string {
-  return room.title?.trim() || ROOM_KIND_LABEL[room.kind] || "Room";
+  return ROOM_KIND_LABEL[room.kind] || "Room";
 }
 
 function roomDisplayRows(room: Room): Array<{ field: RoomField; value: string; swatch: string | null }> {
@@ -1287,6 +1287,7 @@ function RoomCard({
         {room.visibility === "private" && <span className="badge private">private</span>}
         {owner && <button type="button" className="text-btn accent" onClick={editor.show} data-testid={`edit-room-${room.room_id}`}>Edit</button>}
       </header>
+      {room.description?.trim() && <p className="topic-card-lede">{room.description.trim()}</p>}
       {rows.length > 0 && (
         <dl className="topic-rows">
           {rows.map(({ field, value, swatch }) => (
@@ -1346,7 +1347,7 @@ function RoomForm({
   onDeleted?: () => Promise<void> | void;
 }) {
   const [kind, setKind] = useState(item?.kind ?? "kitchen");
-  const [title, setTitle] = useState(item?.title ?? "");
+  const [description, setDescription] = useState(item?.description ?? "");
   const [values, setValues] = useState<Record<string, string>>(() => ({ ...(item?.details ?? {}) }));
   const [visibility, setVisibility] = useState(item?.visibility ?? "public");
   const [files, setFiles] = useState<File[]>([]);
@@ -1386,7 +1387,7 @@ function RoomForm({
         }
         details[field.key] = raw;
       }
-      const payload = { kind, title: title.trim() || null, details, visibility };
+      const payload = { kind, description: description.trim() || null, details, visibility };
       const saved = item
         ? (await api.patchRoom(item.room_id, payload)).room
         : (await api.createRoom(propertyId, payload)).room;
@@ -1410,8 +1411,15 @@ function RoomForm({
           </select>
         </label>
         <label className="stack span-2">
-          <span>Called <i>(optional)</i></span>
-          <input className="field" value={title} placeholder={ROOM_KIND_LABEL[kind] ?? "The back kitchen"} onChange={(event) => setTitle(event.target.value)} />
+          <span>Description <i>(optional)</i></span>
+          <textarea
+            className="field"
+            rows={3}
+            value={description}
+            placeholder="The kitchen sits in the later addition off the garden."
+            onChange={(event) => setDescription(event.target.value)}
+            data-testid="room-description"
+          />
         </label>
         {fields.map((field) => {
           const half = Boolean(field.half && field.kind !== "multiline");

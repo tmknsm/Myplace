@@ -67,6 +67,7 @@ export interface RoomRow {
   created_by: string | null;
   kind: string;
   title: string | null;
+  description: string | null;
   details: Record<string, string> | null;
   visibility: string;
   created_at: string;
@@ -152,7 +153,7 @@ export async function loadDocuments(propertyId: string, viewerIsMaintainer: bool
 export async function loadRooms(propertyId: string, viewerIsMaintainer: boolean) {
   const sql = getSql();
   const rooms = await sql<RoomRow[]>`
-    SELECT room_id, property_id, created_by, kind, title, details, visibility, created_at
+    SELECT room_id, property_id, created_by, kind, title, description, details, visibility, created_at
     FROM property_rooms
     WHERE property_id = ${propertyId} AND removed_at IS NULL
       AND ${viewerIsMaintainer ? sql`TRUE` : sql`visibility = 'public'`}
