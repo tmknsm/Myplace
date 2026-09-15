@@ -2470,7 +2470,7 @@ html.dialog-open body {
   --page-inline-end: max(var(--page-margin), env(safe-area-inset-right));
   padding: calc(var(--page-margin) - 8px) var(--page-inline-end) max(var(--page-margin), env(safe-area-inset-bottom)) var(--page-inline-start);
 }
-/* Hero is full-bleed horizontally; page top padding clears the header chrome. */
+/* Hero is full-bleed on narrow screens; page top padding clears the header chrome. */
 .property-page .profile-hero-band {
   width: 100vw;
   max-width: 100vw;
@@ -2482,6 +2482,19 @@ html.dialog-open body {
 }
 .property-page .profile-hero {
   border-radius: var(--radius) var(--radius) 0 0;
+}
+/* Desktop: keep the hero inside the same column as the page content. */
+@media (min-width: 881px) {
+  .property-page .profile-hero-band {
+    width: auto;
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+    border-radius: var(--radius);
+  }
+  .property-page .profile-hero {
+    border-radius: var(--radius);
+  }
 }
 /* The address card reads as type on the canvas: no fill, flush with the page. */
 .property-page .profile-head,
