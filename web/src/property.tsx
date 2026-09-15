@@ -353,12 +353,13 @@ export function PropertyPageView() {
   const showSystems = systemsTopics.length > 0;
   const rooms = property.rooms ?? [];
   const showRooms = owner || rooms.length > 0;
-  const showCharacter = characterTopics.length > 0 || showRooms;
+  const showCharacter = characterTopics.length > 0;
   const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id && !doc.room_id).length;
 
   const nav: Array<{ id: string; label: string }> = [
     ...(showAbout ? [{ id: "about", label: "About" }] : []),
     ...(showCharacter ? [{ id: "character", label: "Style" }] : []),
+    ...(showRooms ? [{ id: "rooms", label: "Rooms" }] : []),
     ...(showPhotos ? [{ id: "photos", label: "Photos" }] : []),
     ...(showImprovements ? [{ id: "improvements", label: "Improvements" }] : []),
     ...(showSystems ? [{ id: "systems", label: "Systems" }] : []),
@@ -556,21 +557,23 @@ export function PropertyPageView() {
               id="character"
               title="Style & finishes"
               description={owner
-                ? "What people actually ask about when they slow down out front: the paint, the style, the rooms. Public unless you mark it private."
+                ? "What people actually ask about when they slow down out front: the paint, the style. Public unless you mark it private."
                 : "How the owner describes the place. Their words, not the county's."}
               topics={characterTopics}
               facts={property.facts}
               owner={owner}
               onOpen={(topic) => openSheet({ kind: "topic", id: topic.id })}
-            >
-              <RoomsBlock
-                rooms={rooms}
-                owner={owner}
-                propertyId={id}
-                onChange={refresh}
-                toast={showToast}
-              />
-            </TopicSection>
+            />
+          )}
+
+          {showRooms && (
+            <RoomsSection
+              rooms={rooms}
+              owner={owner}
+              propertyId={id}
+              onChange={refresh}
+              toast={showToast}
+            />
           )}
 
           {showPhotos && (
@@ -1064,7 +1067,6 @@ function TopicSection({
   facts,
   owner,
   onOpen,
-  children,
 }: {
   id: string;
   title: string;
@@ -1073,9 +1075,8 @@ function TopicSection({
   facts: Fact[];
   owner: boolean;
   onOpen: (topic: Topic) => void;
-  children?: ReactNode;
 }) {
-  if (topics.length === 0 && !children) return null;
+  if (topics.length === 0) return null;
   return (
     <section className="section" id={id}>
       <h2>{title}</h2>
@@ -1084,7 +1085,6 @@ function TopicSection({
         {topics.map((topic) => (
           <TopicCard key={topic.id} topic={topic} facts={facts} owner={owner} onOpen={() => onOpen(topic)} />
         ))}
-        {children}
       </div>
     </section>
   );
@@ -1154,7 +1154,7 @@ function roomDisplayRows(room: Room): Array<{ field: RoomField; value: string; s
   });
 }
 
-function RoomsBlock({
+function RoomsSection({
   rooms,
   owner,
   propertyId,
@@ -1169,40 +1169,48 @@ function RoomsBlock({
 }) {
   const adder = useSheet();
   return (
-    <>
-      {rooms.map((room) => (
-        <RoomCard key={room.room_id} room={room} owner={owner} propertyId={propertyId} onChange={onChange} toast={toast} />
-      ))}
-      {owner && (
-        <>
-          <button type="button" className="group topic-card topic-empty" onClick={adder.show} data-testid="add-room">
-            <span className="topic-empty-title">Add a room</span>
-            <span className="meta-line">Kitchen, baths, bedrooms. Pick one and fill in the finishes.</span>
-          </button>
-          <Sheet
-            open={adder.open}
-            title="Add a room"
-            lede="Choose the room first. The fields below follow from that."
-            onClose={adder.hide}
-            testId="room-sheet"
-          >
-            <RoomForm
-              key={adder.seq}
-              propertyId={propertyId}
-              onCancel={adder.hide}
-              onSaved={async (count, room) => {
-                adder.hide();
-                toast(count ? `Room added with ${count} photo${count === 1 ? "" : "s"}.` : "Room added.");
-                await onChange(room ? (page) => ({
-                  ...page,
-                  rooms: [...(page.rooms ?? []).filter((row) => row.room_id !== room.room_id), room],
-                }) : undefined);
-              }}
-            />
-          </Sheet>
-        </>
-      )}
-    </>
+    <section className="section" id="rooms">
+      <h2>Rooms</h2>
+      <p className="meta-line section-note">
+        {owner
+          ? "Kitchen, baths, bedrooms. Pick a room and fill in the finishes. Public unless you mark it private."
+          : "Rooms the owner has described, with the finishes people ask about."}
+      </p>
+      <div className="topic-list">
+        {rooms.map((room) => (
+          <RoomCard key={room.room_id} room={room} owner={owner} propertyId={propertyId} onChange={onChange} toast={toast} />
+        ))}
+        {owner && (
+          <>
+            <button type="button" className="group topic-card topic-empty" onClick={adder.show} data-testid="add-room">
+              <span className="topic-empty-title">Add a room</span>
+              <span className="meta-line">Kitchen, baths, bedrooms. Pick one and fill in the finishes.</span>
+            </button>
+            <Sheet
+              open={adder.open}
+              title="Add a room"
+              lede="Choose the room first. The fields below follow from that."
+              onClose={adder.hide}
+              testId="room-sheet"
+            >
+              <RoomForm
+                key={adder.seq}
+                propertyId={propertyId}
+                onCancel={adder.hide}
+                onSaved={async (count, room) => {
+                  adder.hide();
+                  toast(count ? `Room added with ${count} photo${count === 1 ? "" : "s"}.` : "Room added.");
+                  await onChange(room ? (page) => ({
+                    ...page,
+                    rooms: [...(page.rooms ?? []).filter((row) => row.room_id !== room.room_id), room],
+                  }) : undefined);
+                }}
+              />
+            </Sheet>
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1941,7 +1949,7 @@ function ProfileChecklist({
     { label: "Trim color", ok: has("exterior.trim"), target: "field:exterior.trim", cta: "Name the trim" },
     { label: "The story", ok: has(SUMMARY_KEY), target: "about", cta: "Tell the story" },
     { label: "Photos", ok: documents.some(isImage), target: "photos" },
-    { label: "A room", ok: rooms.length > 0, target: "character", cta: "Add a room" },
+    { label: "A room", ok: rooms.length > 0, target: "rooms", cta: "Add a room" },
     { label: "Still original", ok: has("original_details"), target: "field:original_details", cta: "List what's original" },
     { label: "Work done", ok: improvements.length > 0, target: "improvements", cta: "Log the last big job" },
     { label: "Roof", ok: has("roof.type") || has("roof.year") || improvements.some((item) => item.category === "roof"), target: "field:roof.type" },
