@@ -334,7 +334,6 @@ export function HomePage() {
           <div className="kicker">Columbia &amp; Greene counties, New York</div>
           <h1 id="home-title">Every house here already has a page.</h1>
           <p className="home-lede">
-            We built one for {count === null ? "every parcel" : `all ${count.toLocaleString()} of them`} out of public records.
             Claim yours, add what the county doesn't know, and it stays with the house after you sell.
           </p>
           <div className="home-search-anchor" ref={searchAnchor}>
