@@ -2042,14 +2042,15 @@ html.dialog-open body {
 .property-page .banner { padding: var(--card-pad) var(--card-pad-x); margin-bottom: var(--gutter); }
 .property-page .toast { margin-bottom: var(--gutter); }
 
-/* Section labels line up with card content. */
+/* Section titles sit flush with the cards, not inset to the card padding. */
 .property-page .section > h2,
 .property-page .section-note,
 .property-page .subhead {
-  margin-left: var(--card-pad-x);
-  margin-right: var(--card-pad-x);
+  margin-left: 0;
+  margin-right: 0;
 }
-.property-page .section-head { margin: 0 var(--card-pad-x) 8px; }
+.property-page .section-head { margin: 0 0 8px; }
+.property-page .half-head { margin-left: 0; margin-right: 0; }
 
 .property-page .group { padding: var(--card-pad) var(--card-pad-x); }
 .property-page .group + .group { margin-top: var(--gutter); }
