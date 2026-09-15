@@ -44,7 +44,7 @@ const lighting: RoomField = { key: "lighting", label: "Lighting", hint: "Schoolh
 const fixtures: RoomField = { key: "fixtures", label: "Fixtures & hardware", hint: "Unlacquered brass" };
 const year: RoomField = { key: "year", label: "Last updated", kind: "year", hint: "2019", half: true };
 const link: RoomField = { key: "link", label: "Link", kind: "link", hint: "The designer, the tile, the source list", half: true };
-const notes: RoomField = { key: "notes", label: "Notes", kind: "multiline", hint: "What a new owner should know" };
+const notes: RoomField = { key: "notes", label: "Notes", kind: "multiline", hint: "The sash that sticks when it rains, the radiator that needs bleeding" };
 
 const COMMON_FINISH: RoomField[] = [flooring, paint, swatch, lighting, fixtures];
 const COMMON_META: RoomField[] = [year, link, notes];
