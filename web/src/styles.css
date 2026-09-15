@@ -3206,7 +3206,7 @@ html.peek-gated body {
   width: 100%;
   height: clamp(320px, 56vh, 640px);
   object-fit: cover;
-  object-position: 50% 42%;
+  object-position: 50% 50%;
 }
 .home-hero-copy {
   position: relative;

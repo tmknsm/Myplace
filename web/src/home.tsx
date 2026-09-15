@@ -328,7 +328,7 @@ export function HomePage() {
     <div className="home">
       <section className="home-hero" aria-labelledby="home-title">
         <figure className="home-hero-band">
-          <img className="home-hero-photo" src="/home-hero.webp" alt="A cream house across a dry field, with a heron standing in the grass" width={2000} height={3000} decoding="async" />
+          <img className="home-hero-photo" src="/home-hero.webp" alt="A white house behind an open picket fence, framed by trees" width={2400} height={1600} decoding="async" />
         </figure>
         <div className="home-hero-copy">
           <div className="kicker">Columbia &amp; Greene counties, New York</div>
