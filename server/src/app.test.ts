@@ -1014,3 +1014,26 @@ test("room photos stay with the room and follow its visibility", async () => {
   expect(gone.property.rooms).toEqual([]);
   expect(gone.property.documents.map((doc) => doc.document_id)).not.toContain(documentId);
 });
+
+test("owner can attach a photo to a topic card", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("topicphotos@example.com", "topicphotos-desk@example.com");
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const upload = async (fields: Record<string, string>) => {
+    const form = new FormData();
+    form.append("file", new File([png], "style.png", { type: "image/png" }));
+    for (const [key, value] of Object.entries(fields)) form.append(key, value);
+    return app.request("http://localhost/api/properties/prop_test/documents", { method: "POST", headers: { cookie }, body: form });
+  };
+
+  expect((await upload({ topicId: "ballroom" })).status).toBe(400);
+  const attached = await upload({ topicId: "style", visibility: "public" });
+  expect(attached.status).toBe(201);
+  const { documentId } = await attached.json() as { documentId: string };
+
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json() as {
+    property: { documents: Array<{ document_id: string; topic_id?: string | null }> };
+  };
+  const doc = page.property.documents.find((item) => item.document_id === documentId);
+  expect(doc?.topic_id).toBe("style");
+});

@@ -390,6 +390,7 @@ export interface Doc {
   caption?: string | null;
   improvement_id?: string | null;
   room_id?: string | null;
+  topic_id?: string | null;
   is_cover?: boolean;
   has_file?: boolean;
   byte_size: number;

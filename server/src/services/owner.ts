@@ -78,6 +78,7 @@ export interface DocumentRow {
   property_id: string;
   improvement_id: string | null;
   room_id?: string | null;
+  topic_id?: string | null;
   original_filename: string | null;
   document_type: string | null;
   mime_type: string | null;
@@ -136,7 +137,7 @@ export async function loadImprovements(propertyId: string, viewerIsMaintainer: b
 export async function loadDocuments(propertyId: string, viewerIsMaintainer: boolean) {
   const sql = getSql();
   const documents = await withFileFlags(await sql<StoredDocumentRow[]>`
-    SELECT document_id, property_id, improvement_id, room_id, original_filename, document_type, mime_type,
+    SELECT document_id, property_id, improvement_id, room_id, topic_id, original_filename, document_type, mime_type,
            byte_size, visibility, transferability, caption, is_cover, created_at, uploaded_by, storage_key
     FROM documents
     WHERE property_id = ${propertyId} AND claim_id IS NULL AND removed_at IS NULL

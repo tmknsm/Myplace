@@ -33,6 +33,7 @@ import {
 } from "./services/mail.ts";
 import { COUNTY_PROFILES, DEFAULT_MAP, isGeometryQuality } from "./counties.ts";
 import { isRoomKind, normalizeRoomDescription, normalizeRoomDetails } from "../../shared/rooms.ts";
+import { isTopicId } from "../../shared/topics.ts";
 import {
   DOCUMENT_TYPES,
   IMPROVEMENT_CATEGORIES,
@@ -508,11 +509,12 @@ app.post("/api/properties/:id/documents", async (c) => {
   const claimId = typeof form.claimId === "string" && form.claimId ? form.claimId : null;
   const improvementId = typeof form.improvementId === "string" && form.improvementId ? form.improvementId : null;
   const roomId = typeof form.roomId === "string" && form.roomId ? form.roomId : null;
+  const topicId = typeof form.topicId === "string" && form.topicId ? form.topicId : null;
   const caption = typeof form.caption === "string" && form.caption.trim() ? form.caption.trim() : null;
   const isImage = file.type.startsWith("image/");
   const asCover = form.cover === "true" && isImage && !claimId;
   const requestedType = typeof form.documentType === "string" && form.documentType ? form.documentType : null;
-  const documentType = requestedType ?? (improvementId || roomId ? (isImage ? "photo" : "receipt") : isImage ? "photo" : "other");
+  const documentType = requestedType ?? (improvementId || roomId || topicId ? (isImage ? "photo" : "receipt") : isImage ? "photo" : "other");
   const visibility = typeof form.visibility === "string" && form.visibility
     ? form.visibility
     : (documentType === "photo" || isImage ? "public" : "private");
@@ -549,16 +551,17 @@ app.post("/api/properties/:id/documents", async (c) => {
     `;
     if (!room[0]) return c.json({ error: "Room not found" }, 404);
   }
+  if (topicId && !isTopicId(topicId)) return c.json({ error: "Unknown topic." }, 400);
 
   const documentId = id("doc");
   const upload = await storeUpload(propertyId, documentId, file);
   const { stored, key } = upload;
   await sql`
     INSERT INTO documents (
-      document_id, property_id, claim_id, improvement_id, room_id, uploaded_by, storage_key, original_filename,
+      document_id, property_id, claim_id, improvement_id, room_id, topic_id, uploaded_by, storage_key, original_filename,
       mime_type, byte_size, document_type, visibility, transferability, caption
     ) VALUES (
-      ${documentId}, ${propertyId}, ${claimId}, ${improvementId}, ${roomId}, ${user.user_id}, ${key}, ${stored.filename},
+      ${documentId}, ${propertyId}, ${claimId}, ${improvementId}, ${roomId}, ${topicId}, ${user.user_id}, ${key}, ${stored.filename},
       ${stored.mime}, ${stored.bytes.byteLength}, ${documentType}, ${visibility}, ${transferability}, ${caption}
     )
   `;
@@ -570,7 +573,7 @@ app.post("/api/properties/:id/documents", async (c) => {
       eventType: isImage ? "photo.added" : "document.added",
       actorType: "verified_owner",
       actorId: user.user_id,
-      payload: { document_id: documentId, document_type: documentType, visibility, transferability, improvement_id: improvementId },
+      payload: { document_id: documentId, document_type: documentType, visibility, transferability, improvement_id: improvementId, room_id: roomId, topic_id: topicId },
     });
   }
   return c.json({ documentId, documentType, visibility, transferability }, 201);

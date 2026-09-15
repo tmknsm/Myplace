@@ -23,6 +23,7 @@ import {
   type TopicFieldKind,
 } from "./property-topics";
 import { fieldsForRoom, ROOM_KIND_LABEL, ROOM_KINDS, type RoomField } from "../../shared/rooms";
+import { isTopicId } from "../../shared/topics";
 import {
   CATEGORY_LABEL,
   dateLabel,
@@ -290,7 +291,10 @@ export function PropertyPageView() {
   const hasSummary = Boolean(summary?.display);
   const maintained = property.maintainers.length > 0;
   // Visitors only see topics with something public in them; the owner sees every card.
-  const visibleTopics = (list: Topic[]) => owner ? list : list.filter((topic) => filledTopicFacts(topic, property.facts).length > 0);
+  const topicHasPhotos = (topic: Topic) => property.documents.some((doc) => doc.topic_id === topic.id && isImage(doc) && hasFile(doc));
+  const visibleTopics = (list: Topic[]) => owner
+    ? list
+    : list.filter((topic) => filledTopicFacts(topic, property.facts).length > 0 || topicHasPhotos(topic));
   const characterTopics = visibleTopics(topicsIn("character"));
   const systemsTopics = visibleTopics(topicsIn("systems"));
 
@@ -354,7 +358,7 @@ export function PropertyPageView() {
   const rooms = property.rooms ?? [];
   const showRooms = owner || rooms.length > 0;
   const showCharacter = characterTopics.length > 0;
-  const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id && !doc.room_id).length;
+  const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id && !doc.room_id && !doc.topic_id).length;
 
   const nav: Array<{ id: string; label: string }> = [
     ...(showPhotos ? [{ id: "photos", label: "Photos" }] : []),
@@ -575,8 +579,12 @@ export function PropertyPageView() {
                 : "How the owner describes the place. Their words, not the county's."}
               topics={characterTopics}
               facts={property.facts}
+              documents={property.documents}
               owner={owner}
               onOpen={(topic) => openSheet({ kind: "topic", id: topic.id })}
+              propertyId={id}
+              onChange={refresh}
+              toast={showToast}
             />
           )}
 
@@ -609,8 +617,12 @@ export function PropertyPageView() {
                 : "Reported by the owner. Not part of the county record."}
               topics={systemsTopics}
               facts={property.facts}
+              documents={property.documents}
               owner={owner}
               onOpen={(topic) => openSheet({ kind: "topic", id: topic.id })}
+              propertyId={id}
+              onChange={refresh}
+              toast={showToast}
             />
           )}
 
@@ -670,6 +682,7 @@ export function PropertyPageView() {
           open={sheet !== null}
           seq={sheetSeq}
           facts={property.facts}
+          documents={property.documents}
           propertyId={id}
           onClose={closeSheet}
           onChange={refresh}
@@ -1059,22 +1072,34 @@ function VisibilityChoice({ value, onChange }: { value: FieldVisibility; onChang
 // Topics: the owner's half, one card and one sheet per subject
 // ---------------------------------------------------------------------------
 
+function topicImages(documents: Doc[], topicId: string): Doc[] {
+  return documents.filter((doc) => doc.topic_id === topicId && isImage(doc));
+}
+
 function TopicSection({
   id,
   title,
   description,
   topics,
   facts,
+  documents,
   owner,
   onOpen,
+  propertyId,
+  onChange,
+  toast,
 }: {
   id: string;
   title: string;
   description: string;
   topics: Topic[];
   facts: Fact[];
+  documents: Doc[];
   owner: boolean;
   onOpen: (topic: Topic) => void;
+  propertyId: string;
+  onChange: PageRefresh;
+  toast: Toast;
 }) {
   if (topics.length === 0) return null;
   return (
@@ -1083,18 +1108,60 @@ function TopicSection({
       <p className="meta-line section-note">{description}</p>
       <div className="topic-list">
         {topics.map((topic) => (
-          <TopicCard key={topic.id} topic={topic} facts={facts} owner={owner} onOpen={() => onOpen(topic)} />
+          <TopicCard
+            key={topic.id}
+            topic={topic}
+            facts={facts}
+            images={topicImages(documents, topic.id)}
+            owner={owner}
+            onOpen={() => onOpen(topic)}
+            propertyId={propertyId}
+            onChange={onChange}
+            toast={toast}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-function TopicCard({ topic, facts, owner, onOpen }: { topic: Topic; facts: Fact[]; owner: boolean; onOpen: () => void }) {
+function TopicCard({
+  topic,
+  facts,
+  images,
+  owner,
+  onOpen,
+  propertyId,
+  onChange,
+  toast,
+}: {
+  topic: Topic;
+  facts: Fact[];
+  images: Doc[];
+  owner: boolean;
+  onOpen: () => void;
+  propertyId: string;
+  onChange: PageRefresh;
+  toast: Toast;
+}) {
   const filled = filledTopicFacts(topic, facts);
   const privateCount = filled.filter(({ fact }) => fact.visibility === "private").length;
   const allPrivate = filled.length > 0 && privateCount === filled.length;
-  if (filled.length === 0) {
+  const [busy, setBusy] = useState(false);
+  const attach = async (list: FileList | null) => {
+    if (!list?.length) return;
+    setBusy(true);
+    try {
+      for (const file of Array.from(list)) {
+        await api.upload(propertyId, file, { topicId: topic.id, visibility: allPrivate ? "private" : "public" });
+      }
+      toast(`${list.length} photo${list.length === 1 ? "" : "s"} added.`);
+      await onChange();
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (filled.length === 0 && images.length === 0) {
     if (!owner) return null;
     return (
       <button type="button" className="group topic-card topic-empty" onClick={onOpen} data-testid={`topic-${topic.id}`}>
@@ -1110,14 +1177,38 @@ function TopicCard({ topic, facts, owner, onOpen }: { topic: Topic; facts: Fact[
         {privateCount > 0 && <span className="badge private">{allPrivate ? "private" : "partly private"}</span>}
         {owner && <button type="button" className="text-btn accent" onClick={onOpen} data-testid={`edit-topic-${topic.id}`}>Edit</button>}
       </header>
-      <dl className="topic-rows">
-        {filled.map(({ field, fact }) => (
-          <div key={fact.fieldKey} className="topic-row" data-field={fact.fieldKey}>
-            <dt>{field.label ?? fact.label}</dt>
-            <dd><TopicValue field={field} fact={fact} facts={facts} /></dd>
-          </div>
-        ))}
-      </dl>
+      {filled.length > 0 && (
+        <dl className="topic-rows">
+          {filled.map(({ field, fact }) => (
+            <div key={fact.fieldKey} className="topic-row" data-field={fact.fieldKey}>
+              <dt>{field.label ?? fact.label}</dt>
+              <dd><TopicValue field={field} fact={fact} facts={facts} /></dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {(images.length > 0 || owner) && (
+        <ImprovementPhotos
+          images={images}
+          owner={owner}
+          onChange={onChange}
+          toast={toast}
+          trailing={owner ? (
+            <label className={`photo-thumb photo-add file-btn ${busy ? "is-busy" : ""}`}>
+              <span className="photo-add-plus" aria-hidden="true">+</span>
+              <span className="photo-add-label">{busy ? "Uploading…" : "Add photos"}</span>
+              <input
+                type="file"
+                multiple
+                accept="image/*,.heic"
+                disabled={busy}
+                aria-label={`Add photos to ${topic.title}`}
+                onChange={(event) => { void attach(event.target.files); event.target.value = ""; }}
+              />
+            </label>
+          ) : null}
+        />
+      )}
     </article>
   );
 }
@@ -1498,6 +1589,7 @@ function OwnerSheet({
   open,
   seq,
   facts,
+  documents,
   propertyId,
   onClose,
   onChange,
@@ -1507,6 +1599,7 @@ function OwnerSheet({
   open: boolean;
   seq: number;
   facts: Fact[];
+  documents: Doc[];
   propertyId: string;
   onClose: () => void;
   onChange: PageRefresh;
@@ -1555,6 +1648,7 @@ function OwnerSheet({
         key={`${topic.id}:${seq}`}
         topic={topic}
         facts={facts}
+        images={topicImages(documents, topic.id)}
         propertyId={propertyId}
         onSaved={(changed) => done(changed ? `${topic.title} saved.` : null)}
         onCancel={onClose}
@@ -1609,6 +1703,7 @@ function initialInput(fact: Fact, kind: TopicFieldKind): string {
 function TopicForm({
   topic,
   facts,
+  images,
   propertyId,
   onSaved,
   onCancel,
@@ -1616,6 +1711,7 @@ function TopicForm({
 }: {
   topic: Topic;
   facts: Fact[];
+  images: Doc[];
   propertyId: string;
   onSaved: (changed: boolean) => Promise<void> | void;
   onCancel: () => void;
@@ -1632,6 +1728,7 @@ function TopicForm({
 
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(rows.map((row) => [row.fact.fieldKey, row.initial])));
   const [visibility, setVisibility] = useState<FieldVisibility>(initialVisibility);
+  const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstWritable = rows.find((row) => row.writable)?.fact.fieldKey;
@@ -1680,7 +1777,12 @@ function TopicForm({
           await api.setFieldVisibility(propertyId, row.fact.fieldKey, visibility);
         }
       }
-      await onSaved(changedKeys.length > 0 || visibilityChanged);
+      if (isTopicId(topic.id)) {
+        for (const file of files) {
+          await api.upload(propertyId, file, { topicId: topic.id, visibility });
+        }
+      }
+      await onSaved(changedKeys.length > 0 || visibilityChanged || files.length > 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save");
       setBusy(false);
@@ -1728,6 +1830,16 @@ function TopicForm({
             </label>
           );
         })}
+        {isTopicId(topic.id) && (
+          <label className="stack span-2">
+            <span>Photos</span>
+            <input className="field file" type="file" multiple accept="image/*,.heic" onChange={(event) => setFiles(Array.from(event.target.files ?? []))} data-testid="topic-files" />
+            {images.length > 0 && (
+              <small className="meta-line">{images.length} already attached. New files are added to those.</small>
+            )}
+            {files.length > 0 && <small className="meta-line">{files.map((file) => file.name).join(", ")}</small>}
+          </label>
+        )}
       </div>
       <VisibilityChoice value={visibility} onChange={setVisibility} />
       {error && <p className="error">{error}</p>}

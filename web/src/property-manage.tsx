@@ -159,7 +159,7 @@ export function PropertyManagePage() {
           <p className="meta-line manage-lede">The private half: the vault, who else can edit, how you're notified, and what happens at closing.</p>
           <DocumentsSection
             propertyId={id!}
-            documents={property.documents.filter((doc) => !doc.improvement_id && !doc.room_id)}
+            documents={property.documents.filter((doc) => !doc.improvement_id && !doc.room_id && !doc.topic_id)}
             documentTypes={meta?.documentTypes ?? Object.keys(DOCUMENT_TYPE_LABEL)}
             onChange={refresh}
             toast={toast}
