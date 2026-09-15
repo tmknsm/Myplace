@@ -6,7 +6,7 @@ import { eventLabel, ParcelMap, SearchBox } from "./components";
 import { DebugSheet } from "./debug";
 import { HomePage } from "./home";
 import { useMeta } from "./meta";
-import { PropertyPageView } from "./property";
+import { PropertyPageView, PropertyPhotosPage } from "./property";
 import { NotificationsRedirect, PropertyInboxPage, PropertyManagePage } from "./property-manage";
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -519,6 +519,7 @@ export function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/map" element={<MapPage />} />
         <Route path="/property/:id" element={<PropertyPageView />} />
+        <Route path="/property/:id/photos" element={<PropertyPhotosPage />} />
         <Route path="/property/:id/claim" element={<ClaimPage />} />
         <Route path="/property/:id/claim/:claimId" element={<ClaimStatusPage />} />
         <Route path="/property/:id/manage" element={<PropertyManagePage />} />

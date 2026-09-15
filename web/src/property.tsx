@@ -190,6 +190,16 @@ function applyClaimedOwner(data: PageData, result: DebugClaimResult): PageData {
   };
 }
 
+function isGalleryPhoto(doc: Doc): boolean {
+  return isImage(doc) && doc.topic_id !== "paint" && doc.topic_id !== "style";
+}
+
+/** Cover first, then the rest in the order they arrived. */
+function orderGalleryPhotos(photos: Doc[], cover: Doc | null): Doc[] {
+  if (!cover) return photos;
+  return [cover, ...photos.filter((doc) => doc.document_id !== cover.document_id)];
+}
+
 function ownerCanWrite(fact: Fact): boolean {
   if (fact.layer === "owner") return true;
   return fact.status === "unknown" || fact.status === "owner_reported";
@@ -285,11 +295,12 @@ export function PropertyPageView() {
   const address = property.formatted ?? "this property";
   const photos = property.documents.filter(isImage);
   // Paint and style attachments live on those cards, not in the hero or Photos gallery.
-  const galleryPhotos = photos.filter((doc) => doc.topic_id !== "paint" && doc.topic_id !== "style");
+  const galleryPhotos = photos.filter(isGalleryPhoto);
   const available = galleryPhotos.filter(hasFile);
   const cover = available.find((doc) => doc.is_cover) ?? available[0] ?? null;
+  const gallery = orderGalleryPhotos(galleryPhotos, cover);
   const photoSlides = cover ? [cover, ...available.filter((doc) => doc !== cover)] : [];
-  const lightboxPhotos = lightbox?.source === "hero" ? photoSlides : galleryPhotos;
+  const lightboxPhotos = lightbox?.source === "hero" ? photoSlides : gallery;
   const mapSlideIndex = photoSlides.length;
   const heroSlideCount = mapSlideIndex + 1;
   const heroSlide = Math.min(heroIndex, Math.max(0, heroSlideCount - 1));
@@ -360,7 +371,7 @@ export function PropertyPageView() {
   };
 
   const showAbout = owner || hasSummary;
-  const showPhotos = owner || galleryPhotos.some(hasFile);
+  const showPhotos = owner || gallery.some(hasFile);
   const showImprovements = owner || property.improvements.length > 0;
   const showSystems = systemsTopics.length > 0;
   const rooms = property.rooms ?? [];
@@ -558,7 +569,7 @@ export function PropertyPageView() {
 
           {showPhotos && (
             <PhotosSection
-              photos={galleryPhotos}
+              photos={gallery}
               cover={cover}
               pendingCount={photoUploads}
               uploading={uploading}
@@ -2864,8 +2875,15 @@ function PhotoImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
+const PHOTO_PREVIEW_LIMIT = 4;
+
+function photosPagePath(propertyId: string): string {
+  return `/property/${propertyId}/photos`;
+}
+
 function PhotosSection({
   owner,
+  propertyId,
   photos,
   cover,
   pendingCount = 0,
@@ -2890,84 +2908,61 @@ function PhotosSection({
   onChange: PageRefresh;
   toast: Toast;
 }) {
+  const preview = photos.slice(0, PHOTO_PREVIEW_LIMIT);
+  const extra = Math.max(0, photos.length - PHOTO_PREVIEW_LIMIT);
+  const pendingSlots = Math.min(pendingCount, Math.max(0, PHOTO_PREVIEW_LIMIT - preview.length));
+  const allHref = photosPagePath(propertyId);
+
   return (
     <section className="section" id="photos">
       <div className="section-head">
         <h2>Photos</h2>
-        {owner && (
-          <PhotoFileButton className="text-btn accent" busy={uploading} multiple testId="photo-input" onPick={(files) => onUpload(files)} onError={onUploadError}>
-            Add photos
-          </PhotoFileButton>
-        )}
+        <div className="section-head-actions">
+          {photos.length > 0 && (
+            <Link className="text-btn accent" to={allHref} data-testid="photos-view-all">View all</Link>
+          )}
+          {owner && (
+            <PhotoFileButton className="text-btn accent" busy={uploading} multiple testId="photo-input" onPick={(files) => onUpload(files)} onError={onUploadError}>
+              Add photos
+            </PhotoFileButton>
+          )}
+        </div>
       </div>
       {owner && <p className="meta-line section-note">Public unless you say otherwise. The cover is what a neighbor sees first.{photos.some((doc) => !hasFile(doc)) ? " Cards marked “file missing” need the original photo reattached; after that they stay in Cloudflare." : ""}</p>}
       {uploadError && <p className="error" role="alert">{uploadError}</p>}
       {photos.length === 0 && pendingCount === 0 ? (
         <div className="group empty-card">{owner ? "No photos yet. Start with the exterior and the room you'd show off. Before-and-afters earn their keep later." : "The owner hasn't shared photos yet."}</div>
       ) : (
-        <div className={`photo-grid ${photos.length + pendingCount > 2 ? "featured" : ""} ${owner ? "" : "is-public"}`}>
-          {photos.map((doc, index) => (
-            <figure key={doc.document_id} className={`photo-card ${doc.visibility === "private" ? "is-private" : ""} ${hasFile(doc) ? "" : "is-missing"}`}>
-              {owner && !hasFile(doc) ? (
-                <RestorePhoto
-                  doc={doc}
-                  onPick={async (file) => {
-                    await api.replaceDocument(doc.document_id, file);
-                    toast("Photo restored.");
-                    await onChange();
-                  }}
-                />
-              ) : (
-                <button type="button" className="photo-open" onClick={() => onOpen(index)} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
-                  <PhotoImage src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} />
-                  {owner && cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
-                  {owner && doc.visibility === "private" && <span className="photo-flag private">Private</span>}
-                </button>
-              )}
-              {owner && (
-                <figcaption>
-                  <input
-                    className="caption-input"
-                    defaultValue={doc.caption ?? ""}
-                    placeholder="Add a caption"
-                    onBlur={async (event) => {
-                      const next = event.target.value.trim();
-                      if (next === (doc.caption ?? "")) return;
-                      await api.patchDocument(doc.document_id, { caption: next || null });
+        <div className="photo-grid is-preview is-public">
+          {preview.map((doc, index) => {
+            const overflow = extra > 0 && index === PHOTO_PREVIEW_LIMIT - 1;
+            return (
+              <figure key={doc.document_id} className={`photo-card ${index === 0 ? "is-cover" : ""} ${doc.visibility === "private" ? "is-private" : ""} ${hasFile(doc) ? "" : "is-missing"}`}>
+                {owner && !hasFile(doc) ? (
+                  <RestorePhoto
+                    doc={doc}
+                    onPick={async (file) => {
+                      await api.replaceDocument(doc.document_id, file);
+                      toast("Photo restored.");
                       await onChange();
                     }}
                   />
-                  <div className="photo-tools">
-                    <select className="mini-select" value={doc.visibility ?? "private"} aria-label="Visibility" onChange={async (event) => {
-                      await api.patchDocument(doc.document_id, { visibility: event.target.value });
-                      await onChange();
-                    }}>
-                      <option value="public">Public</option>
-                      <option value="property_transferable">Visible on transfer</option>
-                      <option value="private">Private</option>
-                    </select>
-                    <span className="photo-tool-links">
-                      {!doc.is_cover && (
-                        <button type="button" className="text-link" data-testid={`cover-${doc.document_id}`} onClick={async () => {
-                          await api.patchDocument(doc.document_id, { cover: true });
-                          toast("Cover photo updated.");
-                          await onChange((page) => ({
-                            ...page,
-                            documents: page.documents.map((item) => ({ ...item, is_cover: item.document_id === doc.document_id })),
-                          }));
-                        }}>Set as cover</button>
-                      )}
-                      <button type="button" className="text-link danger" onClick={async () => {
-                        await api.deleteDocument(doc.document_id);
-                        await onChange();
-                      }}>Remove</button>
-                    </span>
-                  </div>
-                </figcaption>
-              )}
-            </figure>
-          ))}
-          {Array.from({ length: pendingCount }, (_, index) => (
+                ) : overflow ? (
+                  <Link className="photo-open photo-more-link" to={allHref} aria-label={`View all photos, ${extra} more`} data-testid="photos-more">
+                    <PhotoImage src={fileUrl(doc)} alt="" />
+                    <span className="photo-more">+{extra}</span>
+                  </Link>
+                ) : (
+                  <button type="button" className="photo-open" onClick={() => onOpen(index)} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
+                    <PhotoImage src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} />
+                    {owner && cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
+                    {owner && doc.visibility === "private" && <span className="photo-flag private">Private</span>}
+                  </button>
+                )}
+              </figure>
+            );
+          })}
+          {Array.from({ length: pendingSlots }, (_, index) => (
             <figure key={`pending-${index}`} className="photo-card is-pending">
               <div className="photo-open" aria-label="Uploading photo">
                 <span className="photo-wait">
@@ -2979,5 +2974,210 @@ function PhotosSection({
         </div>
       )}
     </section>
+  );
+}
+
+function PhotoCard({
+  doc,
+  cover,
+  owner,
+  onOpen,
+  onChange,
+  toast,
+}: {
+  doc: Doc;
+  cover: Doc | null;
+  owner: boolean;
+  onOpen: () => void;
+  onChange: PageRefresh;
+  toast: Toast;
+}) {
+  return (
+    <figure className={`photo-card ${doc.visibility === "private" ? "is-private" : ""} ${hasFile(doc) ? "" : "is-missing"}`}>
+      {owner && !hasFile(doc) ? (
+        <RestorePhoto
+          doc={doc}
+          onPick={async (file) => {
+            await api.replaceDocument(doc.document_id, file);
+            toast("Photo restored.");
+            await onChange();
+          }}
+        />
+      ) : (
+        <button type="button" className="photo-open" onClick={onOpen} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
+          <PhotoImage src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} />
+          {owner && cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
+          {owner && doc.visibility === "private" && <span className="photo-flag private">Private</span>}
+        </button>
+      )}
+      {owner && (
+        <figcaption>
+          <input
+            className="caption-input"
+            defaultValue={doc.caption ?? ""}
+            placeholder="Add a caption"
+            onBlur={async (event) => {
+              const next = event.target.value.trim();
+              if (next === (doc.caption ?? "")) return;
+              await api.patchDocument(doc.document_id, { caption: next || null });
+              await onChange();
+            }}
+          />
+          <div className="photo-tools">
+            <select className="mini-select" value={doc.visibility ?? "private"} aria-label="Visibility" onChange={async (event) => {
+              await api.patchDocument(doc.document_id, { visibility: event.target.value });
+              await onChange();
+            }}>
+              <option value="public">Public</option>
+              <option value="property_transferable">Visible on transfer</option>
+              <option value="private">Private</option>
+            </select>
+            <span className="photo-tool-links">
+              {!doc.is_cover && (
+                <button type="button" className="text-link" data-testid={`cover-${doc.document_id}`} onClick={async () => {
+                  await api.patchDocument(doc.document_id, { cover: true });
+                  toast("Cover photo updated.");
+                  await onChange((page) => ({
+                    ...page,
+                    documents: page.documents.map((item) => ({ ...item, is_cover: item.document_id === doc.document_id })),
+                  }));
+                }}>Set as cover</button>
+              )}
+              <button type="button" className="text-link danger" onClick={async () => {
+                await api.deleteDocument(doc.document_id);
+                await onChange();
+              }}>Remove</button>
+            </span>
+          </div>
+        </figcaption>
+      )}
+    </figure>
+  );
+}
+
+export function PropertyPhotosPage() {
+  const { id } = useParams();
+  const { user } = useAuth();
+  const [data, setData] = useState<PageData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, showToast] = useToast();
+  const [lightbox, setLightbox] = useState<number | null>(null);
+  const [photoUploads, setPhotoUploads] = useState(0);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!id) return;
+    try {
+      setData(await api.property(id));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load property");
+    }
+  }, [id]);
+
+  const refresh = useCallback<PageRefresh>(async (patch) => {
+    if (patch) {
+      setData((current) => current ? { ...current, property: patch(current.property) } : current);
+    }
+    await load();
+  }, [load]);
+
+  useEffect(() => { setData(null); }, [id]);
+  useEffect(() => { void load(); }, [load, user?.user_id]);
+
+  const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
+  useEffect(() => {
+    if (!data) return;
+    const previous = document.title;
+    document.title = `Photos · ${title} · Myplace`;
+    return () => { document.title = previous; };
+  }, [data, title]);
+
+  if (error) return <div className="page"><p className="error">{error}</p></div>;
+  if (!data || !id) return <div className="page">Loading record…</div>;
+
+  const { property, viewer } = data;
+  const owner = Boolean(viewer.maintainer && !viewer.openClaim);
+  const galleryPhotos = property.documents.filter(isGalleryPhoto);
+  const available = galleryPhotos.filter(hasFile);
+  const cover = available.find((doc) => doc.is_cover) ?? available[0] ?? null;
+  const gallery = orderGalleryPhotos(galleryPhotos, cover);
+  const uploading = photoUploads > 0;
+
+  const uploadPhotos = async (files: File[]) => {
+    if (!files.length) return;
+    setPhotoError(null);
+    setPhotoUploads((count) => count + files.length);
+    try {
+      for (const file of files) {
+        await api.upload(id, file, { documentType: "photo", visibility: "public" });
+      }
+      showToast(`${files.length} photo${files.length === 1 ? "" : "s"} added.`);
+      await refresh();
+    } catch (err) {
+      const message = err instanceof ApiError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : "Photo could not be added. Try again.";
+      setPhotoError(message);
+      showToast(message);
+    } finally {
+      setPhotoUploads((count) => Math.max(0, count - files.length));
+    }
+  };
+
+  return (
+    <div className="page property-page photos-page">
+      <Link className="back-link" to={`/property/${id}`}>‹ {title}</Link>
+      <div className="section-head">
+        <h1>Photos</h1>
+        {owner && (
+          <PhotoFileButton className="text-btn accent" busy={uploading} multiple testId="photo-input" onPick={(files) => void uploadPhotos(files)} onError={(message) => { setPhotoError(message); showToast(message); }}>
+            Add photos
+          </PhotoFileButton>
+        )}
+      </div>
+      {owner && <p className="meta-line section-note">Public unless you say otherwise. The cover is what a neighbor sees first.{gallery.some((doc) => !hasFile(doc)) ? " Cards marked “file missing” need the original photo reattached; after that they stay in Cloudflare." : ""}</p>}
+      {photoError && <p className="error" role="alert">{photoError}</p>}
+      {toast && <div className="toast" role="status">{toast}</div>}
+      {gallery.length === 0 && photoUploads === 0 ? (
+        <div className="group empty-card">{owner ? "No photos yet. Start with the exterior and the room you'd show off. Before-and-afters earn their keep later." : "The owner hasn't shared photos yet."}</div>
+      ) : (
+        <div className={`photo-grid is-catalog featured ${owner ? "" : "is-public"}`}>
+          {gallery.map((doc, index) => (
+            <PhotoCard
+              key={doc.document_id}
+              doc={doc}
+              cover={cover}
+              owner={owner}
+              onOpen={() => setLightbox(index)}
+              onChange={refresh}
+              toast={showToast}
+            />
+          ))}
+          {Array.from({ length: photoUploads }, (_, index) => (
+            <figure key={`pending-${index}`} className="photo-card is-pending">
+              <div className="photo-open" aria-label="Uploading photo">
+                <span className="photo-wait">
+                  <Spinner />
+                </span>
+              </div>
+            </figure>
+          ))}
+        </div>
+      )}
+      {lightbox !== null && gallery[lightbox] && (
+        <PhotoLightbox
+          photos={gallery}
+          index={lightbox}
+          owner={owner}
+          onIndex={setLightbox}
+          onClose={() => setLightbox(null)}
+          onChange={refresh}
+          toast={showToast}
+        />
+      )}
+    </div>
   );
 }
