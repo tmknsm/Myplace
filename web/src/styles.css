@@ -127,6 +127,7 @@ img, svg { max-width: 100%; }
   min-width: 0;
   max-width: 100%;
   padding: 10px max(var(--pad), env(safe-area-inset-right)) var(--topbar-pad-bottom) max(var(--pad), env(safe-area-inset-left));
+  min-height: calc(var(--tap) + 10px + var(--topbar-pad-bottom));
 }
 /* Links, then share and quick add, hugging the right edge. */
 .topbar-end {
@@ -2849,7 +2850,7 @@ html.peek-gated body {
   .header-search.narrow-only { display: flex; max-width: none; }
   .action-row.narrow-only { display: flex; }
 
-  .topbar-main { gap: 10px; padding: 10px var(--pad); min-width: 0; }
+  .topbar-main { gap: 10px; padding: 10px var(--pad); min-width: 0; min-height: calc(var(--tap) + 20px); }
   .brand { min-width: 0; }
   .top-links { gap: 12px; }
   .header-search.narrow-only {

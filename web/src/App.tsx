@@ -80,15 +80,16 @@ function Layout({ children }: { children: React.ReactNode }) {
               <SearchBox compact />
             </div>
           )}
-          {isHome && (
-            // Hidden until the landing page's hero search scrolls under the header.
-            <div className="header-search wide-only home-handoff">
+          {(isHome || onAuth) && !headerSearch && (
+            // Same reserved search slot the landing page keeps in the bar.
+            // Auth uses it so the row does not shrink when you leave home.
+            <div className="header-search wide-only home-handoff" aria-hidden="true">
               <SearchBox compact />
             </div>
           )}
           <div className="topbar-end">
             <nav className="top-links">
-              {!onAuth && <Link to="/map">Map</Link>}
+              <Link to="/map">Map</Link>
               {user?.is_admin && <Link to="/admin" className="wide-only">Admin</Link>}
               {meta?.debug && (
                 <button type="button" className="text-btn debug-link" data-testid="debug-link" onClick={() => setDebugOpen(true)}>Debug</button>
@@ -98,9 +99,9 @@ function Layout({ children }: { children: React.ReactNode }) {
                   <Link to="/account">{user.first_name || user.display_name?.split(" ")[0] || "Account"}</Link>
                   <button className="text-btn wide-only" onClick={() => signOut()}>Sign out</button>
                 </>
-              ) : !onAuth ? (
+              ) : (
                 <Link to="/signup">Sign up</Link>
-              ) : null}
+              )}
             </nav>
             {/* Desktop: share and quick add sit at the right edge, after the links. */}
             {share && <div className="header-actions wide-only">{share}</div>}
