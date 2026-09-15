@@ -2536,10 +2536,10 @@ html.peek-gated body {
 .property-page .toast { margin-bottom: var(--gutter); }
 
 /*
- * Signed-out visitors on a claimed page. Heading + button sit on the hero
- * over a 60% black scrim. The gray note lives in the covered area. The
- * gradient stays mostly clear through the photo and address, veils the chip
- * labels, and goes solid on the values. Only the lockup captures clicks.
+ * Signed-out visitors on a claimed page. A 40% black scrim covers the whole
+ * hero. Heading + button sit on that photo; the gray note lives in the
+ * covered area. The canvas gradient veils chip labels and goes solid on the
+ * values. Only the lockup captures clicks.
  */
 .peek-gate {
   position: fixed;
@@ -2555,6 +2555,18 @@ html.peek-gated body {
     var(--canvas) var(--gate-solid, 62%)
   );
 }
+.peek-gate-scrim {
+  position: absolute;
+  top: var(--gate-hero-top, 0px);
+  left: var(--gate-hero-left, 0px);
+  width: var(--gate-hero-width, 100%);
+  height: var(--gate-hero-height, 42%);
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+@media (min-width: 881px) {
+  .peek-gate-scrim { border-radius: var(--radius); }
+}
 .peek-gate-lockup {
   position: absolute;
   left: 50%;
@@ -2565,11 +2577,9 @@ html.peek-gated body {
   align-items: center;
   gap: 14px;
   width: min(420px, calc(100% - 48px));
-  padding: 28px 28px 24px;
+  padding: 8px 12px;
   text-align: center;
   color: #fff;
-  background: rgba(0, 0, 0, 0.6);
-  border-radius: 24px;
   pointer-events: auto;
 }
 .peek-gate-lockup h2 {

@@ -255,7 +255,7 @@ export function PropertyPageView() {
   const [data, setData] = useState<PageData | null>(null);
   // Signed-out visitors on a claimed page see only what is above the fold.
   const gated = ready && !user && Boolean(data?.property.maintainers.length);
-  const [gateMetrics, setGateMetrics] = useState<{ heroMid: number; labels: number; solid: number } | null>(null);
+  const [gateMetrics, setGateMetrics] = useState<{ heroTop: number; heroLeft: number; heroWidth: number; heroHeight: number; heroMid: number; labels: number; solid: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [toast, showToast] = useToast();
@@ -350,10 +350,20 @@ export function PropertyPageView() {
       const value = document.querySelector<HTMLElement>('[data-testid="stat-strip"] .stat strong');
       const strip = document.querySelector<HTMLElement>('[data-testid="stat-strip"]');
       const head = document.querySelector<HTMLElement>(".property-page .profile-head");
+      const heroTop = heroBox ? rel(heroBox.top) : 0;
+      const heroHeight = heroBox?.height ?? window.innerHeight * 0.42;
       const heroMid = heroBox ? rel(heroBox.top + heroBox.height / 2) : window.innerHeight * 0.28;
       const labels = rel((label ?? strip)?.getBoundingClientRect().top ?? head?.getBoundingClientRect().bottom ?? window.innerHeight * 0.55);
       const solid = rel((value ?? strip)?.getBoundingClientRect().top ?? labels + 28);
-      setGateMetrics({ heroMid, labels, solid: Math.max(solid, labels + 12) });
+      setGateMetrics({
+        heroTop,
+        heroLeft: heroBox?.left ?? 0,
+        heroWidth: heroBox?.width ?? window.innerWidth,
+        heroHeight,
+        heroMid,
+        labels,
+        solid: Math.max(solid, labels + 12),
+      });
     };
     measure();
     const frame = requestAnimationFrame(measure);
@@ -663,12 +673,17 @@ export function PropertyPageView() {
         <div
           className="peek-gate"
           style={{
+            "--gate-hero-top": gateMetrics ? `${gateMetrics.heroTop}px` : "0px",
+            "--gate-hero-left": gateMetrics ? `${gateMetrics.heroLeft}px` : "0px",
+            "--gate-hero-width": gateMetrics ? `${gateMetrics.heroWidth}px` : "100%",
+            "--gate-hero-height": gateMetrics ? `${gateMetrics.heroHeight}px` : "42%",
             "--gate-hero-mid": gateMetrics ? `${gateMetrics.heroMid}px` : "28%",
             "--gate-labels": gateMetrics ? `${gateMetrics.labels}px` : "55%",
             "--gate-solid": gateMetrics ? `${gateMetrics.solid}px` : "62%",
           } as React.CSSProperties}
           data-testid="peek-gate"
         >
+          <div className="peek-gate-scrim" aria-hidden="true" />
           <div className="peek-gate-lockup">
             <h2>Sign up to see claimed properties</h2>
             <Link className="btn" to={`/signin?next=/property/${id}`} data-testid="peek-gate-signup">Sign up</Link>
