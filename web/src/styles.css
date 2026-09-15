@@ -2384,6 +2384,36 @@ html.dialog-open body {
   text-wrap: balance;
 }
 
+/* Hairline at the midpoint of each section gap. */
+.home-featured,
+.home-chapters,
+.home-chapter + .home-chapter,
+.home-pillars,
+.home-agents,
+.home-coverage,
+.home-cta,
+.home-foot {
+  position: relative;
+}
+.home-featured::before,
+.home-chapters::before,
+.home-chapter + .home-chapter::before,
+.home-pillars::before,
+.home-agents::before,
+.home-coverage::before,
+.home-cta::before,
+.home-foot::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--home-inline-start));
+  right: calc(-1 * var(--home-inline-end));
+  top: calc(var(--home-gap) / -2);
+  height: 1px;
+  background: var(--hairline);
+  pointer-events: none;
+}
+.home-foot { --home-gap: 112px; }
+
 /* Hero: the same full-bleed, top-rounded photograph as a property page. */
 .home-hero { padding-top: 0; }
 .home-hero-band,
@@ -2795,9 +2825,7 @@ html.dialog-open body {
   gap: 24px 56px;
   align-items: end;
   margin-top: var(--home-gap);
-  padding: 36px 0 40px;
-  border-top: 1px solid var(--hairline);
-  border-bottom: 1px solid var(--hairline);
+  padding: 0;
 }
 .home-agents-head { min-width: 0; }
 .home-agents .kicker { font-size: 14px; }
@@ -2904,9 +2932,8 @@ html.dialog-open body {
   grid-template-columns: auto 1fr;
   gap: 14px 32px;
   align-items: center;
-  margin-top: 112px;
-  padding: 28px 0 max(36px, calc(20px + env(safe-area-inset-bottom)));
-  border-top: 1px solid var(--hairline);
+  margin-top: var(--home-gap);
+  padding: 0 0 max(36px, calc(20px + env(safe-area-inset-bottom)));
 }
 .home-foot-links {
   display: flex;
@@ -3011,7 +3038,7 @@ html.home-search-docked .topbar .home-handoff {
   .home-pillar-grid { grid-template-columns: 1fr; gap: 8px; margin-top: 24px; }
   .home-pillar { padding: 10px 10px 22px; }
   .home-pillar-art { height: auto; min-height: 0; padding: 16px 18px; }
-  .home-agents { grid-template-columns: 1fr; gap: 14px; padding: 30px 0 32px; }
+  .home-agents { grid-template-columns: 1fr; gap: 14px; padding: 0; }
   .home-agents h2 { font-size: clamp(26px, 7vw, 32px); }
   .home-agents > p { font-size: 16px; }
   .home-coverage { grid-template-columns: 1fr; gap: 22px; }
