@@ -51,12 +51,14 @@ const COMMON_META: RoomField[] = [year, link, notes];
 
 const EXTRA: Record<string, RoomField[]> = {
   kitchen: [
-    { key: "cabinetry", label: "Cabinetry", hint: "Hudson Valley Cabinetry, inset Shaker, Hague Blue" },
+    { key: "cabinetry", label: "Cabinetry brand", hint: "Hudson Valley Cabinetry, inset Shaker" },
+    { key: "cabinetry_color", label: "Cabinetry color", hint: "Hague Blue" },
     { key: "counters", label: "Counters", hint: "Honed Vermont soapstone" },
     { key: "backsplash", label: "Backsplash", hint: "Zellige, glazed white" },
     { key: "appliances", label: "Appliances", hint: "Induction range, drawer dishwasher" },
     { key: "sink", label: "Sink & faucet", hint: "White farmhouse sink, unlacquered brass" },
-    { key: "island", label: "Island", hint: "Walnut top, seating for three" },
+    { key: "island", label: "Island brand", hint: "Custom millwork, seating for three" },
+    { key: "island_color", label: "Island color", hint: "Walnut top, painted base" },
   ],
   pantry: [
     { key: "storage", label: "Storage", hint: "Open shelves, one cold closet" },
@@ -185,6 +187,22 @@ export function normalizeRoomDescription(raw: unknown): string | null {
   return text;
 }
 
+/** Amount paid, stored as integer cents. Independent of the room's visibility. */
+export const ROOM_PAID_KEY = "paid";
+/** "1" when the owner chose to show the amount on the public page. */
+export const ROOM_PAID_PUBLIC_KEY = "paid_public";
+
+export function roomPaidCents(details: Record<string, string> | null | undefined): number | null {
+  const raw = details?.[ROOM_PAID_KEY];
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+}
+
+export function roomPaidPublic(details: Record<string, string> | null | undefined): boolean {
+  return details?.[ROOM_PAID_PUBLIC_KEY] === "1";
+}
+
 /**
  * Keep only known keys for this room type, drop empties, and check the typed
  * fields. Throws a 400-flavoured error when a link, swatch, or year is malformed.
@@ -214,6 +232,16 @@ export function normalizeRoomDetails(kind: string, raw: unknown): Record<string,
     } else {
       details[key] = text;
     }
+  }
+  const rec = raw as Record<string, unknown>;
+  const paidRaw = rec[ROOM_PAID_KEY];
+  if (paidRaw !== undefined && paidRaw !== null && paidRaw !== "") {
+    const cents = Number(String(paidRaw).replace(/[$,\s]/g, ""));
+    if (!Number.isFinite(cents) || cents < 0) throw new RoomDetailsError("Amount paid should be a number.");
+    details[ROOM_PAID_KEY] = String(Math.round(String(paidRaw).includes(".") ? cents * 100 : cents));
+  }
+  if (rec[ROOM_PAID_PUBLIC_KEY] === "1" || rec[ROOM_PAID_PUBLIC_KEY] === true || rec[ROOM_PAID_PUBLIC_KEY] === "public") {
+    details[ROOM_PAID_PUBLIC_KEY] = "1";
   }
   return details;
 }

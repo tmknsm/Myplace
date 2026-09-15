@@ -22,7 +22,7 @@ import {
   type TopicField,
   type TopicFieldKind,
 } from "./property-topics";
-import { fieldsForRoom, ROOM_KIND_LABEL, ROOM_KINDS, type RoomField } from "../../shared/rooms";
+import { fieldsForRoom, ROOM_KIND_LABEL, ROOM_KINDS, ROOM_PAID_KEY, ROOM_PAID_PUBLIC_KEY, roomPaidCents, roomPaidPublic, type RoomField } from "../../shared/rooms";
 import { isTopicId } from "../../shared/topics";
 import {
   CATEGORY_LABEL,
@@ -149,7 +149,7 @@ const STRIP_MAX = 6;
  */
 const GHOST_TILES: Array<{ key: string; label: string; text: string; swatch: boolean }> = [
   { key: "exterior.color", label: "Exterior paint", text: "Name & swatch", swatch: true },
-  { key: "style.architecture", label: "Style", text: "Period & details", swatch: false },
+  { key: "style.architecture", label: "Architecture", text: "Period & details", swatch: false },
   { key: "exterior.trim", label: "Trim color", text: "Name & swatch", swatch: true },
 ];
 
@@ -1315,6 +1315,39 @@ function VisibilityChoice({ value, onChange }: { value: FieldVisibility; onChang
   );
 }
 
+/** Amount paid, plus an independent toggle for showing it on the public page. Off = only you. */
+function PriceField({
+  cost,
+  onCost,
+  showPublic,
+  onShowPublic,
+}: {
+  cost: string;
+  onCost: (next: string) => void;
+  showPublic: boolean;
+  onShowPublic: (next: boolean) => void;
+}) {
+  return (
+    <div className="stack span-2 price-field">
+      <span>Amount paid</span>
+      <div className="price-field-row">
+        <input className="field" inputMode="decimal" placeholder="$" value={cost} onChange={(event) => onCost(event.target.value)} data-testid="price-input" />
+        <button
+          type="button"
+          className={`price-toggle${showPublic ? " on" : ""}`}
+          role="switch"
+          aria-checked={showPublic}
+          data-testid="price-public"
+          onClick={() => onShowPublic(!showPublic)}
+        >
+          <i aria-hidden="true" />
+          <span>{showPublic ? "Public" : "Only you"}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Topics: the owner's half, one card and one sheet per subject
 // ---------------------------------------------------------------------------
@@ -1572,6 +1605,8 @@ function RoomCard({
   const editor = useSheet();
   const [busy, setBusy] = useState(false);
   const rows = roomDisplayRows(room);
+  const paidCents = roomPaidCents(room.details);
+  const paidLabel = paidCents !== null && (owner || roomPaidPublic(room.details)) ? money(paidCents) : null;
   const images = room.documents.filter(isImage);
   const attach = async (list: FileList | null) => {
     if (!list?.length) return;
@@ -1626,7 +1661,7 @@ function RoomCard({
         {owner && <button type="button" className="text-btn accent" onClick={editor.show} data-testid={`edit-room-${room.room_id}`}>Edit</button>}
       </header>
       {room.description?.trim() && <p className="topic-card-lede">{room.description.trim()}</p>}
-      {rows.length > 0 && (
+      {(rows.length > 0 || paidLabel) && (
         <dl className="topic-rows">
           {rows.map(({ field, value, swatch }) => (
             <div key={field.key} className="topic-row">
@@ -1643,6 +1678,12 @@ function RoomCard({
               </dd>
             </div>
           ))}
+          {paidLabel && (
+            <div className="topic-row">
+              <dt>Amount paid</dt>
+              <dd>{paidLabel}{owner && !roomPaidPublic(room.details) ? <em className="badge private">only you</em> : null}</dd>
+            </div>
+          )}
         </dl>
       )}
       {(images.length > 0 || owner) && (
@@ -1688,6 +1729,8 @@ function RoomForm({
   const [description, setDescription] = useState(item?.description ?? "");
   const [values, setValues] = useState<Record<string, string>>(() => ({ ...(item?.details ?? {}) }));
   const [visibility, setVisibility] = useState(item?.visibility ?? "public");
+  const [cost, setCost] = useState(costInputValue(roomPaidCents(item?.details)));
+  const [costPublic, setCostPublic] = useState(roomPaidPublic(item?.details));
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1724,6 +1767,12 @@ function RoomForm({
           continue;
         }
         details[field.key] = raw;
+      }
+      if (cost.trim()) {
+        const cents = parseFormCostCents(cost);
+        if (cents === null) throw new Error("Amount paid should be a number.");
+        details[ROOM_PAID_KEY] = String(cents);
+        if (costPublic) details[ROOM_PAID_PUBLIC_KEY] = "1";
       }
       const payload = { kind, description: description.trim() || null, details, visibility };
       const saved = item
@@ -1791,6 +1840,7 @@ function RoomForm({
           )}
           {files.length > 0 && <small className="meta-line">{files.map((file) => file.name).join(", ")}</small>}
         </label>
+        <PriceField cost={cost} onCost={setCost} showPublic={costPublic} onShowPublic={setCostPublic} />
       </div>
       <VisibilityChoice value={visibility as FieldVisibility} onChange={(next) => setVisibility(next)} />
       {error && <p className="error">{error}</p>}
@@ -2463,6 +2513,14 @@ function costInputValue(cents: number | null | undefined): string {
   return String(cents / 100);
 }
 
+function parseFormCostCents(value: string): number | null {
+  const text = value.replace(/[$,\s]/g, "");
+  if (!text) return null;
+  const n = Number(text);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100);
+}
+
 function ImprovementForm({
   propertyId,
   categories,
@@ -2482,6 +2540,7 @@ function ImprovementForm({
   const [category, setCategory] = useState(item?.category ?? "roof");
   const [performedAt, setPerformedAt] = useState(dateInputValue(item?.performed_at));
   const [cost, setCost] = useState(costInputValue(item?.cost_cents));
+  const [costPublic, setCostPublic] = useState(item?.cost_visibility === "public");
   const [contractor, setContractor] = useState(item?.contractor ?? "");
   const [notes, setNotes] = useState(item?.notes ?? "");
   const [visibility, setVisibility] = useState(item?.visibility ?? "public");
@@ -2497,7 +2556,7 @@ function ImprovementForm({
       setBusy(true);
       setError(null);
       try {
-        const payload = { title, category, performedAt: performedAt || null, cost: cost || null, contractor: contractor || null, notes: notes || null, visibility };
+        const payload = { title, category, performedAt: performedAt || null, cost: cost || null, costVisibility: costPublic ? "public" : "private", contractor: contractor || null, notes: notes || null, visibility };
         const saved = item
           ? (await api.patchImprovement(item.improvement_id, payload)).improvement
           : (await api.createImprovement(propertyId, payload)).improvement;
@@ -2525,11 +2584,7 @@ function ImprovementForm({
           <span>Date completed</span>
           <input className="field" type="date" value={performedAt} onChange={(event) => setPerformedAt(event.target.value)} />
         </label>
-        <label className="stack">
-          <span>Cost</span>
-          <input className="field" inputMode="decimal" placeholder="$" value={cost} onChange={(event) => setCost(event.target.value)} />
-        </label>
-        <label className="stack">
+        <label className="stack span-2">
           <span>Who did it</span>
           <input className="field" value={contractor} placeholder="Contractor, company, or you" onChange={(event) => setContractor(event.target.value)} />
         </label>
@@ -2545,6 +2600,7 @@ function ImprovementForm({
           )}
           {files.length > 0 && <small className="meta-line">{files.map((file) => file.name).join(", ")}</small>}
         </label>
+        <PriceField cost={cost} onCost={setCost} showPublic={costPublic} onShowPublic={setCostPublic} />
         <label className="stack span-2 inline-choice">
           <span>Visibility</span>
           <div className="segmented">
@@ -2609,11 +2665,12 @@ function ImprovementCard({
   const editor = useSheet();
   const images = item.documents.filter(isImage);
   const files = item.documents.filter((doc) => !isImage(doc));
+  const costLabel = (owner || item.cost_visibility === "public") ? money(item.cost_cents) : null;
   const meta = [
     { key: "date", value: dateLabel(item.performed_at) },
-    { key: "cost", value: money(item.cost_cents) },
+    { key: "cost", value: costLabel, private: Boolean(owner && costLabel && item.cost_visibility !== "public") },
     { key: "contractor", value: item.contractor },
-  ].filter((entry): entry is { key: string; value: string } => Boolean(entry.value));
+  ].filter((entry): entry is { key: string; value: string; private?: boolean } => Boolean(entry.value));
 
   const attach = async (list: FileList | null) => {
     if (!list?.length) return;
@@ -2660,7 +2717,12 @@ function ImprovementCard({
         <h3>{item.title}</h3>
         {meta.length > 0 && (
           <ul className="improvement-meta">
-            {meta.map((entry) => <li key={entry.key} className={entry.key}>{entry.value}</li>)}
+            {meta.map((entry) => (
+              <li key={entry.key} className={entry.key}>
+                {entry.value}
+                {entry.private ? <em className="badge private">only you</em> : null}
+              </li>
+            ))}
           </ul>
         )}
       </header>

@@ -260,6 +260,7 @@ export interface ImprovementInput {
   category: string;
   performedAt?: string | null;
   cost?: string | number | null;
+  costVisibility?: string;
   contractor?: string | null;
   notes?: string | null;
   visibility?: string;
@@ -293,6 +294,7 @@ export interface Improvement {
   category: string;
   performed_at: string | null;
   cost_cents: number | null;
+  cost_visibility?: string;
   contractor: string | null;
   notes: string | null;
   visibility: string;
