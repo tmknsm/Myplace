@@ -500,32 +500,29 @@ export function PropertyPageView() {
 
       <header className="profile-head group">
         <div className="profile-title">
+          {owner ? (
+            <span className="owner-chip" data-testid="owner-chip">
+              {viewer.role === "co_owner" ? "Co-owner" : "Claimed"}
+              {viewer.verifiedAt ? ` · ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
+            </span>
+          ) : maintained ? (
+            <span className="owner-chip">Owner-maintained</span>
+          ) : null}
           <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
           <h1>{title}</h1>
           <p className="profile-meta mono">{[locality, property.sbl ? `SBL ${property.sbl}` : null].filter(Boolean).join(" · ")}</p>
         </div>
         <div className="profile-actions">
           {owner ? (
-            <>
-              <span className="owner-chip" data-testid="owner-chip">
-                {viewer.role === "co_owner" ? "Co-owner" : "Claimed"}
-                {viewer.verifiedAt ? ` · ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
-              </span>
-              <div className="action-row compact">
-                <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
-                  Add photos
-                </PhotoFileButton>
-                <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
-                <button type="button" className="btn secondary" data-testid="copy-link" onClick={() => void copyLink()}>Copy link</button>
-              </div>
-            </>
+            <div className="action-row compact">
+              <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
+                Add photos
+              </PhotoFileButton>
+              <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
+              <button type="button" className="btn secondary" data-testid="copy-link" onClick={() => void copyLink()}>Copy link</button>
+            </div>
           ) : (
             <>
-              {maintained && (
-                <span className="owner-chip">
-                  Owner-maintained
-                </span>
-              )}
               {(!maintained || viewer.openClaim || viewer.invitation?.role === "owner") && (
                 <div className="action-row compact">
                   {viewer.openClaim ? (
