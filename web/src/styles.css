@@ -218,14 +218,14 @@ img, svg { max-width: 100%; }
   transition: width 320ms var(--share-ease), margin-left 320ms var(--share-ease);
 }
 .header-add.is-on { width: var(--share-slot); margin-left: var(--add-gap); }
-.header-add-btn {
-  --btn-ring: color-mix(in srgb, var(--accent-pressed) 82%, #000);
+.btn.header-add-btn {
   flex: 0 0 auto;
   width: var(--share-slot);
   height: var(--share-slot);
   min-height: 0;
   padding: 0;
-  border-radius: 50%;
+  gap: 0;
+  border-radius: 100px;
   opacity: 0;
   transform: scale(0.5);
   visibility: hidden;
@@ -238,7 +238,7 @@ img, svg { max-width: 100%; }
     background 160ms ease,
     box-shadow 160ms ease;
 }
-.header-add.is-on .header-add-btn {
+.header-add.is-on .btn.header-add-btn {
   opacity: 1;
   transform: none;
   visibility: visible;
@@ -250,11 +250,13 @@ img, svg { max-width: 100%; }
     background 160ms ease,
     box-shadow 160ms ease;
 }
-.header-add.is-on .header-add-btn:active { transform: scale(0.94); transition-duration: 80ms; }
-.header-add-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
+.header-add.is-on .btn.header-add-btn:active { transform: scale(0.94); transition-duration: 80ms; }
+.btn.header-add-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent); }
 .header-add-glyph {
   width: 20px;
   height: 20px;
+  max-width: none;
+  flex: 0 0 auto;
   transition: transform 260ms var(--share-pop);
 }
 .header-add.is-open .header-add-glyph { transform: rotate(45deg); }
