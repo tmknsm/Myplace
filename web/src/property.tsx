@@ -515,15 +515,11 @@ export function PropertyPageView() {
 
       <header className="profile-head group">
         <div className="profile-title">
-          {(owner || maintained || historicDistrict) && (
+          {((maintained && !owner) || historicDistrict) && (
             <div className="profile-chips">
-              {owner ? (
-                <span className="owner-chip" data-testid="owner-chip">
-                  {viewer.role === "co_owner" ? "Co-owner" : "Claimed"}
-                </span>
-              ) : maintained ? (
-                <span className="owner-chip">Owner-maintained</span>
-              ) : null}
+              {maintained && !owner && (
+                <span className="owner-chip" data-testid="owner-chip">Claimed</span>
+              )}
               {historicDistrict && (
                 <span className="owner-chip" data-testid="historic-chip">Historic district</span>
               )}
