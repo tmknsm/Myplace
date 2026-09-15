@@ -279,6 +279,8 @@ export function PropertyPageView() {
     : null;
   const address = property.formatted ?? "this property";
   const photos = property.documents.filter(isImage);
+  // Paint and style attachments live on those cards, not in the Photos gallery.
+  const galleryPhotos = photos.filter((doc) => doc.topic_id !== "paint" && doc.topic_id !== "style");
   const available = photos.filter(hasFile);
   const cover = available.find((doc) => doc.is_cover) ?? available[0] ?? null;
   const photoSlides = cover ? [cover, ...available.filter((doc) => doc !== cover)] : [];
@@ -352,7 +354,7 @@ export function PropertyPageView() {
   };
 
   const showAbout = owner || hasSummary;
-  const showPhotos = owner || available.length > 0;
+  const showPhotos = owner || galleryPhotos.some(hasFile);
   const showImprovements = owner || property.improvements.length > 0;
   const showSystems = systemsTopics.length > 0;
   const rooms = property.rooms ?? [];
@@ -550,14 +552,17 @@ export function PropertyPageView() {
 
           {showPhotos && (
             <PhotosSection
-              photos={photos}
+              photos={galleryPhotos}
               cover={cover}
               pendingCount={photoUploads}
               uploading={uploading}
               uploadError={photoError}
               onUpload={(files) => uploadPhotos(files)}
               onUploadError={reportPhotoError}
-              onOpen={(index) => setLightbox(index)}
+              onOpen={(index) => {
+                const doc = galleryPhotos[index];
+                setLightbox(doc ? photos.indexOf(doc) : null);
+              }}
               {...sectionProps}
             />
           )}
