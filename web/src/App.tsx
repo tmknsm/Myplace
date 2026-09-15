@@ -40,12 +40,13 @@ function Layout({ children }: { children: React.ReactNode }) {
       // whatever docks beneath the header under its edge.
       const rect = node.getBoundingClientRect();
       const main = node.querySelector(".topbar-main")?.getBoundingClientRect();
+      // Freeze these on auth so a locked header height cannot rewrite the
+      // page min-height (and bounce the sticky button) while you scroll.
+      if (onAuth) return;
       document.documentElement.style.setProperty("--topbar-height", `${rect.height}px`);
       // Bottom of the brand row; on narrow screens the search row sits below it.
       document.documentElement.style.setProperty("--topbar-main-height", `${main ? main.bottom - rect.top : rect.height}px`);
-      if (!onAuth) {
-        document.documentElement.style.setProperty("--topbar-from-height", `${rect.height}px`);
-      }
+      document.documentElement.style.setProperty("--topbar-from-height", `${rect.height}px`);
     };
     sync();
     const observer = new ResizeObserver(sync);
