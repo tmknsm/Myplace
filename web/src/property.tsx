@@ -2078,7 +2078,7 @@ function PhotoLightbox({
     setConfirm(false);
   }, [index, onIndex, photos.length]);
 
-  useLockPageScroll(true, false);
+  useLockPageScroll(true);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();

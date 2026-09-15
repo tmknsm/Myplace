@@ -9,8 +9,8 @@ type Phase = "closed" | "open" | "closing";
 
 /**
  * Every owner edit on the property page lives in one of these. On phones it
- * rises from the bottom like a native iOS sheet while the page behind recedes
- * and rounds off; on wide screens it is a centered card. Dismiss by the
+ * rises from the bottom like a native iOS sheet over a black scrim; on wide
+ * screens it is a centered card over the same scrim. Dismiss by the
  * close button, Escape, tapping the backdrop, or dragging the header down.
  *
  * Callers own the `open` flag and keep children mounted; the sheet stays in
@@ -52,7 +52,7 @@ export function Sheet({
     return () => window.clearTimeout(closeTimer.current);
   }, [open]);
 
-  useLockPageScroll(phase !== "closed", phase === "open");
+  useLockPageScroll(phase !== "closed");
 
   useEffect(() => {
     if (phase !== "open") return;
@@ -151,16 +151,14 @@ export function Sheet({
 
 /**
  * Freeze the page while a sheet is up. html is the viewport scroller, so body
- * is pinned at the current offset; `lift` adds the recede-and-round treatment
- * and is released first so the page eases back while the sheet sinks.
+ * is pinned at the current offset and restored on close.
  */
-export function useLockPageScroll(active: boolean, lift: boolean) {
+export function useLockPageScroll(active: boolean) {
   useEffect(() => {
     if (!active) return;
     const html = document.documentElement;
     const body = document.body;
     const scrollY = window.scrollY;
-    html.style.setProperty("--sheet-scroll", `${scrollY}px`);
     html.classList.add("dialog-open");
     body.style.top = `-${scrollY}px`;
     return () => {
@@ -169,12 +167,6 @@ export function useLockPageScroll(active: boolean, lift: boolean) {
       window.scrollTo(0, scrollY);
     };
   }, [active]);
-  useEffect(() => {
-    const html = document.documentElement;
-    if (lift) html.classList.add("sheet-lift");
-    else html.classList.remove("sheet-lift");
-    return () => html.classList.remove("sheet-lift");
-  }, [lift]);
 }
 
 /** Open/close state plus a key that resets the form each time the sheet opens. */
