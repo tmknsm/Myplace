@@ -1660,6 +1660,8 @@ a.text-btn { text-decoration: none; }
 .improvement-meta li { display: inline-flex; align-items: baseline; }
 .improvement-meta li + li::before { content: "·"; margin: 0 7px; opacity: 0.7; }
 .improvement-meta .cost { color: var(--ink-soft); font-weight: 520; }
+.improvement-meta .contractor { flex-basis: 100%; }
+.improvement-meta li.contractor::before { content: none; margin: 0; }
 .improvement-notes {
   margin: 12px 0 0;
   color: var(--ink-soft);
