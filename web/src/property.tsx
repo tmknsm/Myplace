@@ -255,7 +255,7 @@ export function PropertyPageView() {
   const [data, setData] = useState<PageData | null>(null);
   // Signed-out visitors on a claimed page see only what is above the fold.
   const gated = ready && !user && Boolean(data?.property.maintainers.length);
-  const [gateSolid, setGateSolid] = useState<number | null>(null);
+  const [gateMetrics, setGateMetrics] = useState<{ heroMid: number; labels: number; solid: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [toast, showToast] = useToast();
@@ -320,23 +320,30 @@ export function PropertyPageView() {
   useEffect(() => { void load({ allowDowngrade: !user }); }, [load, user?.user_id]);
   useOwnershipChanges(id, () => { void load({ allowDowngrade: true }); });
 
-  // Pin the gated page at the top; the gradient turns solid just above the
-  // stat strip so none of the owner's values show through.
+  // Pin the gated page at the top. The copy sits on the hero; the gradient
+  // stays open through the chip labels and turns solid on the values.
   useEffect(() => {
     if (gated) window.scrollTo(0, 0);
   }, [gated]);
   useLockPageScroll(gated);
   useEffect(() => {
     if (!gated) {
-      setGateSolid(null);
+      setGateMetrics(null);
       return;
     }
     const measure = () => {
       const header = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar-height")) || 0;
+      const rel = (top: number) => Math.max(0, top - header);
+      const hero = document.querySelector<HTMLElement>(".property-page .profile-hero");
+      const heroBox = hero?.getBoundingClientRect();
+      const label = document.querySelector<HTMLElement>('[data-testid="stat-strip"] .stat span');
+      const value = document.querySelector<HTMLElement>('[data-testid="stat-strip"] .stat strong');
       const strip = document.querySelector<HTMLElement>('[data-testid="stat-strip"]');
       const head = document.querySelector<HTMLElement>(".property-page .profile-head");
-      const anchor = strip?.getBoundingClientRect().top ?? head?.getBoundingClientRect().bottom ?? window.innerHeight * 0.55;
-      setGateSolid(Math.max(0, anchor - header - 8));
+      const heroMid = heroBox ? rel(heroBox.top + heroBox.height / 2) : window.innerHeight * 0.28;
+      const labels = rel((label ?? strip)?.getBoundingClientRect().top ?? head?.getBoundingClientRect().bottom ?? window.innerHeight * 0.55);
+      const solid = rel((value ?? strip)?.getBoundingClientRect().top ?? labels + 28);
+      setGateMetrics({ heroMid, labels, solid: Math.max(solid, labels + 12) });
     };
     measure();
     const frame = requestAnimationFrame(measure);
@@ -571,7 +578,7 @@ export function PropertyPageView() {
   );
 
   return (
-    <div className="page wide profile property-page" data-testid="property-profile">
+    <div className={`page wide profile property-page${gated ? " is-gated" : ""}`} data-testid="property-profile">
       <div className="profile-hero-band">{hero}</div>
 
       <header className="profile-head group">
@@ -643,7 +650,15 @@ export function PropertyPageView() {
       <StatStrip facts={property.facts} onClaim={prospect ? goClaim : undefined} />
 
       {gated && (
-        <div className="peek-gate" style={{ "--gate-solid": gateSolid === null ? "55%" : `${gateSolid}px` } as React.CSSProperties} data-testid="peek-gate">
+        <div
+          className="peek-gate"
+          style={{
+            "--gate-hero-mid": gateMetrics ? `${gateMetrics.heroMid}px` : "28%",
+            "--gate-labels": gateMetrics ? `${gateMetrics.labels}px` : "55%",
+            "--gate-solid": gateMetrics ? `${gateMetrics.solid}px` : "62%",
+          } as React.CSSProperties}
+          data-testid="peek-gate"
+        >
           <div className="peek-gate-copy">
             <h2>Sign up to see claimed properties</h2>
             <p>The owner keeps this page. Create a free account to see everything they've added.</p>

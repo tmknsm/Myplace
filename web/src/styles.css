@@ -2528,31 +2528,39 @@ html.dialog-open body {
 .property-page .toast { margin-bottom: var(--gutter); }
 
 /*
- * Signed-out visitors on a claimed page: the page is pinned at the top and a
- * fixed gradient fades from clear at the top of the hero to solid canvas just
- * above the stat strip (--gate-solid is measured), so the owner's values stay
- * hidden. Only the copy takes pointer events; the hero still swipes.
+ * Signed-out visitors on a claimed page: pinned at the top. Copy sits on the
+ * hero in reversed (light) type. The gradient stays mostly clear through the
+ * photo and address, veils the chip labels, and goes solid on the values
+ * (--gate-labels / --gate-solid are measured). Only the lockup captures
+ * clicks; the hero still swipes around it.
  */
 .peek-gate {
   position: fixed;
   inset: var(--topbar-height, 0px) 0 0 0;
   z-index: 19;
   pointer-events: none;
-  background: linear-gradient(to bottom, transparent 0, var(--canvas) var(--gate-solid, 55%));
+  background: linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--gate-hero-mid, 28%) + 8%),
+    color-mix(in srgb, var(--canvas) 22%, transparent) var(--gate-labels, 55%),
+    color-mix(in srgb, var(--canvas) 70%, transparent) calc(var(--gate-solid, 62%) - 4px),
+    var(--canvas) var(--gate-solid, 62%)
+  );
 }
 .peek-gate-copy {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: min(var(--gate-solid, 55%), calc(100% - 260px));
-  bottom: 0;
+  left: 50%;
+  top: var(--gate-hero-mid, 28%);
+  transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 10px;
-  padding: 24px var(--pad) max(32px, calc(16px + env(safe-area-inset-bottom)));
+  width: min(420px, calc(100% - 48px));
+  padding: 8px 12px;
   text-align: center;
+  color: #fff;
   pointer-events: auto;
 }
 .peek-gate-copy h2 {
@@ -2562,15 +2570,21 @@ html.dialog-open body {
   line-height: 1.08;
   letter-spacing: -0.02em;
   margin: 0;
+  color: #fff;
   max-width: 18ch;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 .peek-gate-copy p {
   margin: 0;
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.86);
   font-size: 15px;
   max-width: 34ch;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 20px rgba(0, 0, 0, 0.28);
 }
 .peek-gate-copy .btn { margin-top: 8px; min-width: 168px; }
+.property-page.is-gated .stat strong {
+  visibility: hidden;
+}
 
 /* Section titles sit flush with the cards, not inset to the card padding. */
 .property-page .section > h2,
