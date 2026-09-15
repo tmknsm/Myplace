@@ -102,6 +102,21 @@ img, svg { max-width: 100%; }
 .header-search {
   pointer-events: auto;
 }
+/* Auth pages keep the header at the height of the page you left, so the
+   logo does not jump when Map / Sign up / search leave the bar. */
+.topbar.is-auth {
+  height: var(--topbar-from-height, var(--topbar-height));
+}
+.topbar.is-auth .topbar-main {
+  height: 100%;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.topbar.is-auth .header-search,
+.topbar.is-auth .header-actions,
+.topbar.is-auth .top-links {
+  display: none;
+}
 .topbar {
   --share-slot: var(--tap);
   --share-gap: 16px;

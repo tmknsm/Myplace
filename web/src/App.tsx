@@ -43,6 +43,9 @@ function Layout({ children }: { children: React.ReactNode }) {
       document.documentElement.style.setProperty("--topbar-height", `${rect.height}px`);
       // Bottom of the brand row; on narrow screens the search row sits below it.
       document.documentElement.style.setProperty("--topbar-main-height", `${main ? main.bottom - rect.top : rect.height}px`);
+      if (!onAuth) {
+        document.documentElement.style.setProperty("--topbar-from-height", `${rect.height}px`);
+      }
     };
     sync();
     const observer = new ResizeObserver(sync);
@@ -52,11 +55,11 @@ function Layout({ children }: { children: React.ReactNode }) {
       observer.disconnect();
       window.removeEventListener("resize", sync);
     };
-  }, [headerSearch, user, meta?.debug]);
+  }, [headerSearch, user, meta?.debug, onAuth]);
   return (
     <>
       <div className="chrome-glass" aria-hidden="true" />
-      <header className="topbar" ref={topbarRef}>
+      <header className={`topbar${onAuth ? " is-auth" : ""}`} ref={topbarRef}>
         <div className="topbar-main">
           <Link to="/" className="brand">
             <i className="mark" aria-hidden="true" />
