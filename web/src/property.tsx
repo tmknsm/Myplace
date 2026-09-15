@@ -2675,8 +2675,7 @@ function PhotoLightbox({
           </div>
         )}
         <div className="lightbox-caption">
-          {photo.caption && <strong>{photo.caption}</strong>}
-          <span className="meta-line">{count > 1 ? `${current + 1} of ${count}` : ""}{photo.created_at ? `${count > 1 ? " · " : ""}${dateLabel(photo.created_at)}` : ""}</span>
+          {photo.caption && <span className="meta-line">{photo.caption}</span>}
           {owner && (
             <div className="lightbox-actions">
               <label className={`btn secondary file-btn ${busy ? "is-busy" : ""}`}>
