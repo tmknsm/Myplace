@@ -1392,10 +1392,7 @@ function AboutForm({ fact, propertyId, onSaved, onCancel }: { fact: Fact; proper
         onChange={(event) => setDraft(event.target.value)}
         data-testid="about-input"
       />
-      <div className="stack inline-choice vis-field">
-        <span>Visibility</span>
-        <VisibilityToggle value={visibility} onChange={setVisibility} />
-      </div>
+      <VisibilityChoice value={visibility} onChange={setVisibility} />
       {error && <p className="error">{error}</p>}
       {text && (
         <div className="form-danger">
