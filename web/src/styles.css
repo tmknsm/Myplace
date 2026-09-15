@@ -1779,6 +1779,7 @@ tr:last-child td { border-bottom: 0; }
 .lightbox-caption {
   margin: 0;
   max-width: min(100%, 560px);
+  min-height: calc(14px * 1.4);
   font-size: 14px;
   line-height: 1.4;
   color: rgba(255, 255, 255, 0.78);

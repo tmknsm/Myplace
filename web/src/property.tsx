@@ -2691,6 +2691,7 @@ function PhotoLightbox({
         ))}
       </div>
       <div className="lightbox-bar">
+        <p className="lightbox-caption">{photo.caption ?? ""}</p>
         {count > 1 && (
           <div className="hero-dots lightbox-dots" role="tablist" aria-label="Photos">
             <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
@@ -2707,7 +2708,6 @@ function PhotoLightbox({
             ))}
           </div>
         )}
-        {photo.caption && <p className="lightbox-caption">{photo.caption}</p>}
       </div>
     </div>
   );
