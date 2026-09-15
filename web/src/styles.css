@@ -3159,7 +3159,8 @@ html.peek-gated body {
 }
 .home-foot { --home-gap: 112px; }
 
-/* Hero: the same full-bleed, top-rounded photograph as a property page. */
+/* Hero: full-bleed on narrow screens; on desktop it sits in the same
+   padded column as the rest of the landing page, like the property hero. */
 .home-hero { padding-top: 0; }
 .home-hero-band {
   width: 100vw;
@@ -3168,6 +3169,15 @@ html.peek-gated body {
   overflow: hidden;
   border-radius: var(--home-radius) var(--home-radius) 0 0;
   background: var(--surface-2);
+}
+@media (min-width: 881px) {
+  .home-hero-band {
+    width: auto;
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+    border-radius: var(--home-radius);
+  }
 }
 .home-hero-photo {
   display: block;
