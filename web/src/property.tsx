@@ -249,10 +249,13 @@ function ownerCanWrite(fact: Fact): boolean {
 
 export function PropertyPageView() {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, ready } = useAuth();
   const meta = useMeta();
   const navigate = useNavigate();
   const [data, setData] = useState<PageData | null>(null);
+  // Signed-out visitors on a claimed page see only what is above the fold.
+  const gated = ready && !user && Boolean(data?.property.maintainers.length);
+  const [gateSolid, setGateSolid] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pinOpen, setPinOpen] = useState(false);
   const [toast, showToast] = useToast();
@@ -316,6 +319,33 @@ export function PropertyPageView() {
   useEffect(() => { setData(null); }, [id]);
   useEffect(() => { void load({ allowDowngrade: !user }); }, [load, user?.user_id]);
   useOwnershipChanges(id, () => { void load({ allowDowngrade: true }); });
+
+  // Pin the gated page at the top; the gradient turns solid just above the
+  // stat strip so none of the owner's values show through.
+  useEffect(() => {
+    if (gated) window.scrollTo(0, 0);
+  }, [gated]);
+  useLockPageScroll(gated);
+  useEffect(() => {
+    if (!gated) {
+      setGateSolid(null);
+      return;
+    }
+    const measure = () => {
+      const header = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar-height")) || 0;
+      const strip = document.querySelector<HTMLElement>('[data-testid="stat-strip"]');
+      const head = document.querySelector<HTMLElement>(".property-page .profile-head");
+      const anchor = strip?.getBoundingClientRect().top ?? head?.getBoundingClientRect().bottom ?? window.innerHeight * 0.55;
+      setGateSolid(Math.max(0, anchor - header - 8));
+    };
+    measure();
+    const frame = requestAnimationFrame(measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", measure);
+    };
+  }, [gated, data]);
 
   const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
   useEffect(() => {
@@ -612,6 +642,17 @@ export function PropertyPageView() {
 
       <StatStrip facts={property.facts} onClaim={prospect ? goClaim : undefined} />
 
+      {gated && (
+        <div className="peek-gate" style={{ "--gate-solid": gateSolid === null ? "55%" : `${gateSolid}px` } as React.CSSProperties} data-testid="peek-gate">
+          <div className="peek-gate-copy">
+            <h2>Sign up to see claimed properties</h2>
+            <p>The owner keeps this page. Create a free account to see everything they've added.</p>
+            <Link className="btn" to={`/signin?next=/property/${id}`} data-testid="peek-gate-signup">Sign up</Link>
+          </div>
+        </div>
+      )}
+
+      {!gated && (
       <div className="profile-grid">
         <SectionNav items={nav} />
 
@@ -809,6 +850,7 @@ export function PropertyPageView() {
           )}
         </div>
       </div>
+      )}
 
       {owner && (
         <OwnerSheet

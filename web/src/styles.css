@@ -2527,6 +2527,51 @@ html.dialog-open body {
 .property-page .banner { padding: var(--card-pad) var(--card-pad-x); margin-bottom: var(--gutter); }
 .property-page .toast { margin-bottom: var(--gutter); }
 
+/*
+ * Signed-out visitors on a claimed page: the page is pinned at the top and a
+ * fixed gradient fades from clear at the top of the hero to solid canvas just
+ * above the stat strip (--gate-solid is measured), so the owner's values stay
+ * hidden. Only the copy takes pointer events; the hero still swipes.
+ */
+.peek-gate {
+  position: fixed;
+  inset: var(--topbar-height, 0px) 0 0 0;
+  z-index: 19;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent 0, var(--canvas) var(--gate-solid, 55%));
+}
+.peek-gate-copy {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: min(var(--gate-solid, 55%), calc(100% - 260px));
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px var(--pad) max(32px, calc(16px + env(safe-area-inset-bottom)));
+  text-align: center;
+  pointer-events: auto;
+}
+.peek-gate-copy h2 {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: clamp(26px, 4.4vw, 34px);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  margin: 0;
+  max-width: 18ch;
+}
+.peek-gate-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  max-width: 34ch;
+}
+.peek-gate-copy .btn { margin-top: 8px; min-width: 168px; }
+
 /* Section titles sit flush with the cards, not inset to the card padding. */
 .property-page .section > h2,
 .property-page .section-note,
