@@ -525,9 +525,15 @@ export function PropertyPageView() {
               )}
             </div>
           )}
-          <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
+          {!maintained && (
+            <div className="kicker">{[property.municipality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")}</div>
+          )}
           <h1>{title}</h1>
-          <p className="profile-meta mono">{[locality, property.sbl ? `SBL ${property.sbl}` : null].filter(Boolean).join(" · ")}</p>
+          <p className="profile-meta mono">{
+            maintained
+              ? [locality, property.county ? `${property.county} County` : null].filter(Boolean).join(" · ")
+              : [locality, property.sbl ? `SBL ${property.sbl}` : null].filter(Boolean).join(" · ")
+          }</p>
         </div>
         <div className="profile-actions">
           {owner ? (
