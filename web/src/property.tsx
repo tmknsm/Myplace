@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyPage, type Room, type Viewer } from "./api";
@@ -257,6 +257,12 @@ export function PropertyPageView() {
   const [pinOpen, setPinOpen] = useState(false);
   const [toast, showToast] = useToast();
   const [improvementFormOpen, setImprovementFormOpen] = useState(false);
+  const [roomFormOpen, setRoomFormOpen] = useState(false);
+  // The header's plus button: shown once the owner's Add photos / Add
+  // improvement row has scrolled fully behind the top bar.
+  const actionsRef = useRef<HTMLDivElement | null>(null);
+  const [quickAddOn, setQuickAddOn] = useState(false);
+  const [quickAddSlots, setQuickAddSlots] = useState<HTMLElement[]>([]);
   const [sheet, setSheet] = useState<SheetState>(null);
   const [sheetSeq, setSheetSeq] = useState(0);
   // Keep the last sheet's content mounted while it animates out.
@@ -321,6 +327,41 @@ export function PropertyPageView() {
 
   const sections = useMemo(() => organizeFacts(data?.property.facts ?? []), [data]);
   const closeSheet = useCallback(() => setSheet(null), []);
+
+  // Both header search rows (wide and narrow) carry a slot; only one is
+  // displayed at a time, so the button is portaled into each.
+  const canQuickAdd = Boolean(data?.viewer.maintainer && !data?.viewer.openClaim);
+  useEffect(() => {
+    if (!canQuickAdd) return;
+    setQuickAddSlots(Array.from(document.querySelectorAll<HTMLElement>(".header-add-slot")));
+    return () => setQuickAddSlots([]);
+  }, [canQuickAdd]);
+  useEffect(() => {
+    const node = actionsRef.current;
+    if (!canQuickAdd || !node) return;
+    let observer: IntersectionObserver | null = null;
+    const watch = () => {
+      observer?.disconnect();
+      const header = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar-height")) || 0;
+      observer = new IntersectionObserver(([entry]) => {
+        if (!entry) return;
+        // Off screen above the header, not below the fold.
+        const edge = entry.rootBounds?.top ?? header;
+        setQuickAddOn(!entry.isIntersecting && entry.boundingClientRect.bottom <= edge + 0.5);
+      }, { rootMargin: `-${Math.ceil(header)}px 0px 0px 0px`, threshold: 0 });
+      observer.observe(node);
+    };
+    watch();
+    // --topbar-height is written by the layout's effect, which runs after this one.
+    const frame = requestAnimationFrame(watch);
+    window.addEventListener("resize", watch);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", watch);
+      observer?.disconnect();
+      setQuickAddOn(false);
+    };
+  }, [canQuickAdd]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!data || !id) return <PageSpinner label="Loading record" />;
@@ -527,7 +568,7 @@ export function PropertyPageView() {
         </div>
         <div className="profile-actions">
           {owner ? (
-            <div className="action-row compact">
+            <div className="action-row compact" ref={actionsRef}>
               <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
                 Add photos
               </PhotoFileButton>
@@ -553,6 +594,19 @@ export function PropertyPageView() {
           )}
         </div>
       </header>
+
+      {owner && quickAddSlots.map((slot, index) => createPortal(
+        <QuickAdd
+          on={quickAddOn}
+          uploading={uploading}
+          onPhotos={(files) => uploadPhotos(files)}
+          onPhotoError={reportPhotoError}
+          onImprovement={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}
+          onRoom={() => { setRoomFormOpen(true); scrollToId("rooms"); }}
+        />,
+        slot,
+        `quick-add-${index}`,
+      ))}
 
       <StatStrip facts={property.facts} onClaim={prospect ? goClaim : undefined} />
 
@@ -661,6 +715,8 @@ export function PropertyPageView() {
               rooms={rooms}
               owner={owner}
               propertyId={id}
+              formOpen={roomFormOpen}
+              setFormOpen={setRoomFormOpen}
               onChange={refresh}
               toast={showToast}
             />
@@ -1569,22 +1625,29 @@ function RoomsSection({
   rooms,
   owner,
   propertyId,
+  formOpen,
+  setFormOpen,
   onChange,
   toast,
 }: {
   rooms: Room[];
   owner: boolean;
   propertyId: string;
+  formOpen: boolean;
+  setFormOpen: (open: boolean) => void;
   onChange: PageRefresh;
   toast: Toast;
 }) {
-  const adder = useSheet();
+  // A fresh form each time the sheet opens; the sheet itself stays mounted to animate out.
+  const [formSeq, setFormSeq] = useState(0);
+  useEffect(() => { if (formOpen) setFormSeq((n) => n + 1); }, [formOpen]);
+  const closeForm = useCallback(() => setFormOpen(false), [setFormOpen]);
   return (
     <section className="section" id="rooms">
       <div className="section-head">
         <h2>Rooms</h2>
         {owner && (
-          <button type="button" className="text-btn accent" data-testid="add-room" onClick={adder.show}>Add room</button>
+          <button type="button" className="text-btn accent" data-testid="add-room" onClick={() => setFormOpen(true)}>Add room</button>
         )}
       </div>
       <p className="meta-line section-note">
@@ -1594,18 +1657,18 @@ function RoomsSection({
       </p>
       {owner && (
         <Sheet
-          open={adder.open}
+          open={formOpen}
           title="Add a room"
           lede="Choose the room first. The fields below follow from that."
-          onClose={adder.hide}
+          onClose={closeForm}
           testId="room-sheet"
         >
           <RoomForm
-            key={adder.seq}
+            key={formSeq}
             propertyId={propertyId}
-            onCancel={adder.hide}
+            onCancel={closeForm}
             onSaved={async (count, room) => {
-              adder.hide();
+              setFormOpen(false);
               toast(count ? `Room added with ${count} photo${count === 1 ? "" : "s"}.` : "Room added.");
               await onChange(room ? (page) => ({
                 ...page,
@@ -3084,12 +3147,80 @@ function ImprovementPhotos({
   );
 }
 
+/**
+ * The red plus beside the header's share button. Its slot opens from zero
+ * width like the share slot did, so the search field contracts to make room,
+ * and the button pops in once the space is there. Tapping it opens a native
+ * select — the same picker the rest of the page uses — with photos, an
+ * improvement, or a room. Lives in the header search row, so it tucks away
+ * with the field when the section bar docks.
+ */
+function QuickAdd({
+  on,
+  uploading,
+  onPhotos,
+  onPhotoError,
+  onImprovement,
+  onRoom,
+}: {
+  on: boolean;
+  uploading: boolean;
+  onPhotos: (files: File[]) => void | Promise<void>;
+  onPhotoError: (message: string) => void;
+  onImprovement: () => void;
+  onRoom: () => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className={`header-add${on ? " is-on" : ""}`}>
+      <span className="btn header-add-btn" aria-hidden="true">
+        <svg className="header-add-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </svg>
+      </span>
+      <select
+        className="header-add-select"
+        aria-label="Add to this page"
+        data-testid="quick-add"
+        tabIndex={on ? 0 : -1}
+        disabled={!on}
+        value=""
+        onChange={(event) => {
+          const value = event.target.value;
+          event.target.value = "";
+          if (value === "photos") fileRef.current?.click();
+          else if (value === "improvement") onImprovement();
+          else if (value === "room") onRoom();
+        }}
+      >
+        <option value="" disabled hidden>Add</option>
+        <option value="photos">Add photos</option>
+        <option value="improvement">Add improvement</option>
+        <option value="room">Add room</option>
+      </select>
+      <PhotoFileButton
+        className="visually-hidden"
+        busy={uploading}
+        multiple
+        testId="quick-add-photos"
+        inputRef={fileRef}
+        onPick={onPhotos}
+        onError={onPhotoError}
+      >
+        Add photos
+      </PhotoFileButton>
+    </div>
+  );
+}
+
 function PhotoFileButton({
   className,
   busy,
   multiple,
   testId,
   labelTestId,
+  inputRef,
   onPick,
   onError,
   children,
@@ -3099,6 +3230,7 @@ function PhotoFileButton({
   multiple?: boolean;
   testId: string;
   labelTestId?: string;
+  inputRef?: Ref<HTMLInputElement>;
   onPick: (files: File[]) => void | Promise<void>;
   onError?: (message: string) => void;
   children: ReactNode;
@@ -3120,10 +3252,11 @@ function PhotoFileButton({
       {busy && <Spinner />}
       {children}
       <input
+        ref={inputRef}
         type="file"
         accept="image/*"
         multiple={multiple}
-        tabIndex={busy ? -1 : 0}
+        tabIndex={busy || inputRef ? -1 : 0}
         data-testid={testId}
         onClick={(event) => {
           if (busy || locked.current) block(event);

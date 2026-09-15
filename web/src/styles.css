@@ -132,6 +132,10 @@ img, svg { max-width: 100%; }
 .brand span { display: none; }
 .search-wrap, .header-search, .hero-search { position: relative; overflow: visible; }
 .header-search {
+  --share-slot: var(--tap);
+  --share-gap: 16px;
+  --share-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --share-pop: cubic-bezier(0.2, 1.35, 0.4, 1);
   flex: 1;
   max-width: 420px;
   display: flex;
@@ -145,10 +149,6 @@ img, svg { max-width: 100%; }
  * the space appears. Both replay on every property load (the slot is keyed).
  */
 .header-share {
-  --share-slot: var(--tap);
-  --share-gap: 16px;
-  --share-ease: cubic-bezier(0.32, 0.72, 0, 1);
-  --share-pop: cubic-bezier(0.2, 1.35, 0.4, 1);
   flex: 0 0 auto;
   width: var(--share-slot);
   margin-left: var(--share-gap);
@@ -195,6 +195,86 @@ img, svg { max-width: 100%; }
   55% { opacity: 1; }
   to { opacity: 1; transform: none; }
 }
+
+/*
+ * Quick add, to the right of share. Same choreography as the share slot, but
+ * reversible: the slot widens and the field contracts as the owner's add
+ * buttons pass behind the header, and it all folds back when they return.
+ */
+.header-add-slot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+.header-add {
+  --add-gap: 10px;
+  position: relative;
+  flex: 0 0 auto;
+  width: 0;
+  margin-left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: width 320ms var(--share-ease), margin-left 320ms var(--share-ease);
+}
+.header-add.is-on { width: var(--share-slot); margin-left: var(--add-gap); }
+.btn.header-add-btn {
+  flex: 0 0 auto;
+  width: var(--share-slot);
+  height: var(--share-slot);
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  border-radius: 100px;
+  opacity: 0;
+  transform: scale(0.5);
+  visibility: hidden;
+  pointer-events: none;
+  transform-origin: 50% 50%;
+  transition:
+    opacity 140ms ease,
+    transform 200ms var(--share-ease),
+    visibility 0s linear 200ms,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+.header-add.is-on .btn.header-add-btn {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity 180ms ease 90ms,
+    transform 320ms var(--share-pop) 90ms,
+    visibility 0s,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+.header-add.is-on:active .btn.header-add-btn { transform: scale(0.94); transition-duration: 80ms; }
+.header-add:has(.header-add-select:focus-visible) .btn.header-add-btn {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.header-add-glyph {
+  width: 20px;
+  height: 20px;
+  max-width: none;
+  flex: 0 0 auto;
+}
+.header-add-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 16px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.header-add:not(.is-on) .header-add-select { pointer-events: none; }
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -3358,6 +3438,7 @@ html.home-search-docked .topbar .home-handoff {
 
 @media (prefers-reduced-motion: reduce) {
   .header-share, .share-btn { animation: none; }
+  .header-add, .header-add-btn { transition: none; }
   .home-hero-copy > * { animation: none; }
   .home-chapter,
   .home-scene,
