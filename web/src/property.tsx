@@ -2542,6 +2542,7 @@ function ImprovementForm({
   const [cost, setCost] = useState(costInputValue(item?.cost_cents));
   const [costPublic, setCostPublic] = useState(item?.cost_visibility === "public");
   const [contractor, setContractor] = useState(item?.contractor ?? "");
+  const [scope, setScope] = useState(item?.scope ?? "");
   const [notes, setNotes] = useState(item?.notes ?? "");
   const [visibility, setVisibility] = useState(item?.visibility ?? "public");
   const [files, setFiles] = useState<File[]>([]);
@@ -2556,7 +2557,7 @@ function ImprovementForm({
       setBusy(true);
       setError(null);
       try {
-        const payload = { title, category, performedAt: performedAt || null, cost: cost || null, costVisibility: costPublic ? "public" : "private", contractor: contractor || null, notes: notes || null, visibility };
+        const payload = { title, category, performedAt: performedAt || null, cost: cost || null, costVisibility: costPublic ? "public" : "private", contractor: contractor || null, scope: scope || null, notes: notes || null, visibility };
         const saved = item
           ? (await api.patchImprovement(item.improvement_id, payload)).improvement
           : (await api.createImprovement(propertyId, payload)).improvement;
@@ -2587,6 +2588,10 @@ function ImprovementForm({
         <label className="stack span-2">
           <span>Who did it</span>
           <input className="field" value={contractor} placeholder="Contractor, company, or you" onChange={(event) => setContractor(event.target.value)} />
+        </label>
+        <label className="stack span-2">
+          <span>Scope of work</span>
+          <textarea className="field" rows={2} value={scope} placeholder="Full tear-off, ice-and-water, standing seam from ridge to gutter" onChange={(event) => setScope(event.target.value)} />
         </label>
         <label className="stack span-2">
           <span>Materials & finishes</span>
@@ -2726,6 +2731,7 @@ function ImprovementCard({
           </ul>
         )}
       </header>
+      {item.scope && <p className="improvement-notes">{item.scope}</p>}
       {item.notes && <p className="improvement-notes">{item.notes}</p>}
       {(images.length > 0 || owner) && (
         <ImprovementPhotos

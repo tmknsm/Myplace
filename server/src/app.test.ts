@@ -1098,13 +1098,15 @@ test("improvement amount paid stays private unless the owner toggles it public",
       title: "New standing-seam roof",
       category: "roof",
       cost: "18000",
+      scope: "  Full tear-off, ice-and-water, standing seam  ",
       visibility: "public",
     }),
   });
   expect(created.status).toBe(201);
   const { improvement } = await created.json() as {
-    improvement: { improvement_id: string; cost_cents: number | null; cost_visibility: string; visibility: string };
+    improvement: { improvement_id: string; cost_cents: number | null; cost_visibility: string; visibility: string; scope: string | null };
   };
+  expect(improvement.scope).toBe("Full tear-off, ice-and-water, standing seam");
   expect(improvement.cost_cents).toBe(1_800_000);
   expect(improvement.cost_visibility).toBe("private");
   expect(improvement.visibility).toBe("public");

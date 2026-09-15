@@ -701,6 +701,7 @@ app.post("/api/properties/:id/improvements", async (c) => {
     cost?: string | number;
     costVisibility?: string;
     contractor?: string;
+    scope?: string;
     notes?: string;
     visibility?: string;
   }>();
@@ -713,10 +714,10 @@ app.post("/api/properties/:id/improvements", async (c) => {
   const improvementId = id("imp");
   await sql`
     INSERT INTO property_improvements (
-      improvement_id, property_id, created_by, title, category, performed_at, cost_cents, cost_visibility, contractor, notes, visibility
+      improvement_id, property_id, created_by, title, category, performed_at, cost_cents, cost_visibility, contractor, scope, notes, visibility
     ) VALUES (
       ${improvementId}, ${propertyId}, ${user.user_id}, ${title}, ${category}, ${parseDate(body.performedAt)},
-      ${parseCostCents(body.cost)}, ${costVisibility}, ${body.contractor?.trim() || null}, ${body.notes?.trim() || null}, ${visibility}
+      ${parseCostCents(body.cost)}, ${costVisibility}, ${body.contractor?.trim() || null}, ${body.scope?.trim() || null}, ${body.notes?.trim() || null}, ${visibility}
     )
   `;
   await emitEvent({
@@ -755,6 +756,7 @@ app.patch("/api/improvements/:id", async (c) => {
     cost?: string | number | null;
     costVisibility?: string;
     contractor?: string | null;
+    scope?: string | null;
     notes?: string | null;
     visibility?: string;
   }>();
@@ -776,6 +778,7 @@ app.patch("/api/improvements/:id", async (c) => {
       performed_at = CASE WHEN ${body.performedAt === undefined} THEN performed_at ELSE ${parseDate(body.performedAt)} END,
       cost_cents = CASE WHEN ${body.cost === undefined} THEN cost_cents ELSE ${parseCostCents(body.cost)} END,
       contractor = CASE WHEN ${body.contractor === undefined} THEN contractor ELSE ${body.contractor?.trim() || null} END,
+      scope = CASE WHEN ${body.scope === undefined} THEN scope ELSE ${body.scope?.trim() || null} END,
       notes = CASE WHEN ${body.notes === undefined} THEN notes ELSE ${body.notes?.trim() || null} END
     WHERE improvement_id = ${improvement.improvement_id}
   `;

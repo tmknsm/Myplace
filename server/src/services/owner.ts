@@ -56,6 +56,7 @@ export interface ImprovementRow {
   cost_cents: string | number | null;
   cost_visibility: string;
   contractor: string | null;
+  scope: string | null;
   notes: string | null;
   visibility: string;
   transferability: string;
@@ -111,7 +112,7 @@ export async function loadImprovements(propertyId: string, viewerIsMaintainer: b
   const sql = getSql();
   const improvements = await sql<ImprovementRow[]>`
     SELECT improvement_id, property_id, created_by, title, category, performed_at::text AS performed_at, cost_cents,
-           cost_visibility, contractor, notes, visibility, transferability, created_at
+           cost_visibility, contractor, scope, notes, visibility, transferability, created_at
     FROM property_improvements
     WHERE property_id = ${propertyId} AND removed_at IS NULL
       AND ${viewerIsMaintainer ? sql`TRUE` : sql`visibility = 'public'`}

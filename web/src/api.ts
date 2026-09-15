@@ -262,6 +262,7 @@ export interface ImprovementInput {
   cost?: string | number | null;
   costVisibility?: string;
   contractor?: string | null;
+  scope?: string | null;
   notes?: string | null;
   visibility?: string;
 }
@@ -296,6 +297,7 @@ export interface Improvement {
   cost_cents: number | null;
   cost_visibility?: string;
   contractor: string | null;
+  scope: string | null;
   notes: string | null;
   visibility: string;
   transferability: string;
