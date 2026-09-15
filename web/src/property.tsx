@@ -1267,31 +1267,38 @@ function EyeClosed() {
   );
 }
 
-/** Open eye = public, closed eye = private. Icon only — no chip, no frame. */
+/** Open eye = public, closed eye = private. No chip, no frame. */
 function VisibilityToggle({
   value,
   onChange,
   busy = false,
+  labeled = false,
+  labelFirst = false,
   testId,
 }: {
   value: FieldVisibility | "public" | "private";
   onChange: (next: FieldVisibility) => void;
   busy?: boolean;
+  labeled?: boolean;
+  /** Put the word to the left of the eye, as in the amount-paid field. */
+  labelFirst?: boolean;
   testId?: string;
 }) {
   const isPrivate = value === "private";
+  const word = isPrivate ? "private" : "public";
   return (
     <button
       type="button"
-      className={`vis-toggle${isPrivate ? " is-private" : ""}`}
+      className={`vis-toggle${isPrivate ? " is-private" : ""}${labeled ? " is-labeled" : ""}${labelFirst ? " is-label-first" : ""}`}
       disabled={busy}
-      aria-label={isPrivate ? "Private" : "Public"}
       aria-pressed={!isPrivate}
       title={isPrivate ? "Private. Click to show on the public profile." : "Public. Click to keep it private."}
       data-testid={testId}
       onClick={() => onChange(isPrivate ? "public" : "private")}
     >
+      {labeled && labelFirst && <span className="vis-word">{word}</span>}
       {isPrivate ? <EyeClosed /> : <EyeOpen />}
+      {labeled && !labelFirst && <span className="vis-word">{word}</span>}
     </button>
   );
 }
@@ -1431,6 +1438,7 @@ function CardFoot({
     <div className="improvement-foot">
       <VisibilityToggle
         value={visibility === "private" ? "private" : "public"}
+        labeled
         onChange={(next) => void onVisibility(next)}
       />
       <button type="button" className="text-link" data-testid={editTestId} onClick={onEdit}>Edit</button>
@@ -1457,6 +1465,8 @@ function PriceField({
         <input className="field" inputMode="decimal" placeholder="$" value={cost} onChange={(event) => onCost(event.target.value)} data-testid="price-input" />
         <VisibilityToggle
           value={showPublic ? "public" : "private"}
+          labeled
+          labelFirst
           onChange={(next) => onShowPublic(next === "public")}
           testId="price-public"
         />

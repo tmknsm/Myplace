@@ -1491,11 +1491,13 @@ tr:last-child td { border-bottom: 0; }
 .about-empty p { margin: 0; max-width: 56ch; }
 .about-editor textarea { font-size: 16px; line-height: 1.5; }
 
-/* Open eye = public, closed eye = private. Icon only, no frame. */
+/* Open eye = public, closed eye = private. No chip, no frame.
+   Public keeps the current ink-soft color on icon and word; private is muted gray. */
 .vis-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -1509,9 +1511,17 @@ tr:last-child td { border-bottom: 0; }
   height: 22px;
   max-width: none;
   display: block;
+  flex: 0 0 auto;
+}
+.vis-toggle .vis-word {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
 }
 .vis-toggle.is-private { color: var(--muted); }
 .vis-toggle:hover { color: var(--ink); }
+.vis-toggle.is-private:hover { color: var(--ink-soft); }
 .vis-toggle:disabled { opacity: 0.45; cursor: wait; }
 .vis-toggle:focus-visible { outline: none; color: var(--accent); }
 .fact-value .vis-toggle { margin-left: 8px; vertical-align: middle; }
@@ -1521,7 +1531,8 @@ tr:last-child td { border-bottom: 0; }
   top: 0;
   right: 0;
   bottom: 0;
-  width: 44px;
+  width: auto;
+  padding: 0 12px;
 }
 
 /* Visibility chip */
@@ -1696,7 +1707,7 @@ a.text-btn { text-decoration: none; }
   font-weight: 500;
 }
 .price-wrap { position: relative; }
-.price-wrap .field { padding-right: 44px; }
+.price-wrap .field { padding-right: 96px; }
 .upload-card { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 .upload-card .stack { margin: 0; flex: 1 1 200px; }
 .inline-form { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
