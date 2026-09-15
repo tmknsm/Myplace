@@ -29,23 +29,24 @@ type PageData = { property: PropertyPage; viewer: Viewer };
 const SUMMARY_KEY = "profile.summary";
 
 /**
- * How the vocabulary is laid out on the profile. What a visitor most wants to
- * know comes first; the official parcel identity and record bookkeeping come
- * last. Any field that is not named here still renders, appended to the final
- * section, so nothing in the record is ever dropped.
+ * How the vocabulary is laid out on the page. The owner's half (what only they
+ * know) comes first; the county's half (official facts with their sources)
+ * follows, ending with parcel identity and record bookkeeping. Any field that
+ * is not named here still renders, appended to the final section, so nothing
+ * in the record is ever dropped.
  */
 const FACT_SECTIONS: Array<{ id: string; title: string; keys?: string[]; group?: string }> = [
-  { id: "systems", title: "Home systems", group: "owner" },
+  { id: "systems", title: "Systems", group: "owner" },
   {
     id: "location",
-    title: "Location & services",
+    title: "Location & utilities",
     keys: [
       "school_district", "fire_district", "ag.district",
       "utility.electric", "utility.gas", "utility.water", "utility.sewer", "utility.internet", "utility.trash",
       "geometry.kind",
     ],
   },
-  { id: "rules", title: "Rules & environment", group: "rules" },
+  { id: "rules", title: "Flood, zoning & historic", group: "rules" },
   {
     id: "assessment",
     title: "Assessment & taxes",
@@ -65,7 +66,7 @@ const FACT_SECTIONS: Array<{ id: string; title: string; keys?: string[]; group?:
   },
   {
     id: "records",
-    title: "Parcel & records",
+    title: "County record",
     keys: [
       "address", "municipality", "county", "parcel.sbl", "parcel.swis",
       "owner_name_public", "last_sale.date", "last_sale.price", "deed.book", "deed.page",
@@ -292,19 +293,32 @@ export function PropertyPageView() {
   const showPhotos = owner || available.length > 0;
   const showImprovements = owner || property.improvements.length > 0;
   const showSystems = owner || publicSystems.length > 0;
+  const showOwnerHalf = showAbout || showPhotos || showImprovements || showSystems;
+  const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id).length;
 
   const nav: Array<{ id: string; label: string }> = [
     ...(showAbout ? [{ id: "about", label: "About" }] : []),
     ...(showPhotos ? [{ id: "photos", label: "Photos" }] : []),
     ...(showImprovements ? [{ id: "improvements", label: "Improvements" }] : []),
-    ...(showSystems ? [{ id: "systems", label: "Home systems" }] : []),
+    ...(showSystems ? [{ id: "systems", label: "Systems" }] : []),
+    ...(owner ? [{ id: "vault", label: "Vault" }] : []),
     { id: "location", label: "Location" },
-    { id: "rules", label: "Rules & environment" },
+    { id: "rules", label: "Flood & zoning" },
     { id: "assessment", label: "Assessment & taxes" },
     { id: "building", label: "Building & lot" },
-    { id: "records", label: "Parcel & records" },
+    { id: "records", label: "County record" },
     { id: "history", label: "History" },
   ];
+
+  const copyLink = async () => {
+    const url = `${window.location.origin}/property/${id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast("Link copied. Send it instead of answering the DM.");
+    } catch {
+      window.prompt("Copy this link", url);
+    }
+  };
 
   const sectionProps = { owner, propertyId: id, onChange: refresh, toast: showToast };
 
@@ -366,14 +380,15 @@ export function PropertyPageView() {
             <>
               <span className="owner-chip" data-testid="owner-chip">
                 <i aria-hidden="true" />
-                {viewer.role === "co_owner" ? "Co-owner maintainer" : "Owner maintainer"}
-                {viewer.verifiedAt ? ` · since ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
+                {viewer.role === "co_owner" ? "Co-owner" : "Claimed"}
+                {viewer.verifiedAt ? ` · ${dateLabel(viewer.verifiedAt, { month: "short", year: "numeric" })}` : ""}
               </span>
               <div className="action-row compact">
                 <PhotoFileButton className="btn" busy={uploading} multiple testId="head-photo-input" onPick={(files) => uploadPhotos(files)} onError={reportPhotoError}>
                   Add photos
                 </PhotoFileButton>
                 <button type="button" className="btn secondary" onClick={() => { setImprovementFormOpen(true); scrollToId("improvements"); }}>Add improvement</button>
+                <button type="button" className="btn secondary" data-testid="copy-link" onClick={() => void copyLink()}>Copy link</button>
               </div>
             </>
           ) : (
@@ -381,7 +396,7 @@ export function PropertyPageView() {
               {maintained && (
                 <span className="owner-chip">
                   <i aria-hidden="true" />
-                  Owner-maintained record
+                  Owner-maintained
                 </span>
               )}
               {(!maintained || viewer.openClaim || viewer.invitation?.role === "owner") && (
@@ -390,13 +405,13 @@ export function PropertyPageView() {
                     <Link className="btn secondary" to={`/property/${id}/claim/${viewer.openClaim.claim_id}`}>Claim under review</Link>
                   ) : (
                     <button type="button" className="btn" data-testid="claim-button" onClick={startClaim}>
-                      {viewer.invitation?.role === "owner" ? "Continue handoff" : "Claim this property"}
+                      {viewer.invitation?.role === "owner" ? "Continue handoff" : "Claim this address"}
                     </button>
                   )}
                 </div>
               )}
               {!maintained && !viewer.openClaim && (
-                <p className="meta-line profile-nudge">No verified owner yet. Claiming unlocks photos, systems, and the story of this place.</p>
+                <p className="meta-line profile-nudge">Still just the county record. If it's yours, claim it and add what the county doesn't know.</p>
               )}
             </>
           )}
@@ -414,11 +429,11 @@ export function PropertyPageView() {
           {viewer.invitation && !owner && viewer.invitation.role === "co_owner" && (
             <div className="banner">
               <div>
-                <strong>{viewer.invitation.invited_by_name ?? "A maintainer"}</strong> invited you to co-maintain this record.
+                <strong>{viewer.invitation.invited_by_name ?? "The owner"}</strong> invited you to help keep this page.
               </div>
               <button type="button" className="btn" onClick={async () => {
                 await api.acceptInvitation(viewer.invitation!.invitation_id);
-                showToast("You are now a co-owner maintainer of this record.");
+                showToast("You're a co-owner on this page now.");
                 await load();
               }}>Accept invitation</button>
             </div>
@@ -427,7 +442,7 @@ export function PropertyPageView() {
           {viewer.invitation && !owner && viewer.invitation.role === "owner" && !viewer.openClaim && (
             <div className="banner">
               <div>
-                <strong>{viewer.invitation.invited_by_name ?? "The current owner"}</strong> invited you to take over this record.
+                <strong>{viewer.invitation.invited_by_name ?? "The current owner"}</strong> is handing this page to you.
               </div>
               <button type="button" className="btn" onClick={startClaim}>Continue handoff</button>
             </div>
@@ -449,6 +464,15 @@ export function PropertyPageView() {
                 if (target === "improvements") setImprovementFormOpen(true);
                 scrollToId(target);
               }}
+            />
+          )}
+
+          {showOwnerHalf && (
+            <HalfHead
+              kicker={owner ? "Your half" : "From the owner"}
+              note={owner
+                ? "What only you know. Public unless you mark it private, and it stays with the house after you sell."
+                : "What the owner has chosen to share. Labeled owner-reported, never mixed with the county's facts."}
             />
           )}
 
@@ -488,37 +512,41 @@ export function PropertyPageView() {
           {showSystems && (
             <FactSection
               id="systems"
-              title="Home systems"
+              title="Systems"
               description={owner
-                ? "What only you know: systems, dates, and work done. Everything here is public unless you mark it private."
-                : "Maintained by the verified owner. Not part of the official assessment record."}
+                ? "Roof, heat, water, wiring, septic: what's in the walls and when it went in. Public unless you mark it private."
+                : "Reported by the owner. Not part of the county record."}
               facts={owner ? systemsFacts : publicSystems}
               {...sectionProps}
             />
           )}
 
+          {owner && <VaultCard propertyId={id} count={vaultCount} maintainers={property.maintainers.length} />}
+
+          <HalfHead
+            kicker="The county's half"
+            note={owner
+              ? "Official facts with their sources. You can't overwrite these, but you can dispute one and fill any blank the county left; those are labeled owner-reported."
+              : "Official facts with their sources. Where the county has no record, the page says unknown instead of guessing."}
+          />
+
           <FactSection
             id="location"
-            title="Location & services"
-            description={owner ? "Fields without a connected source can be filled in by you. They are labeled owner-reported until an official source confirms them." : undefined}
+            title="Location & utilities"
             facts={sections.get("location") ?? []}
             before={(
-              <>
-                <div className="notice property-notice">
-                  {property.geometryNotice ?? "Lot lines are not available for this parcel."}
-                  {" "}Every important fact shows its source.
-                  {owner && " Official facts stay official; you maintain the owner layer."}
-                </div>
-              </>
+              <div className="notice property-notice">
+                {property.geometryNotice ?? "Lot lines aren't available for this parcel."}
+              </div>
             )}
             {...sectionProps}
           />
 
-          <FactSection id="rules" title="Rules & environment" facts={sections.get("rules") ?? []} {...sectionProps} />
+          <FactSection id="rules" title="Flood, zoning & historic" facts={sections.get("rules") ?? []} {...sectionProps} />
           <FactSection id="assessment" title="Assessment & taxes" facts={sections.get("assessment") ?? []} {...sectionProps} />
           <FactSection id="building" title="Building & lot" facts={sections.get("building") ?? []} {...sectionProps} />
-          <FactSection id="records" title="Parcel & records" facts={sections.get("records") ?? []} {...sectionProps}>
-            <h3 className="subhead">Record coverage</h3>
+          <FactSection id="records" title="County record" facts={sections.get("records") ?? []} {...sectionProps}>
+            <h3 className="subhead">Sources connected</h3>
             <div className="group coverage">
               {Object.entries(property.coverage).map(([key, value]) => (
                 <div key={key}><span>{key.replace("_", " ")}</span> {value}</div>
@@ -528,7 +556,7 @@ export function PropertyPageView() {
 
           <section className="section" id="history">
             <h2>History</h2>
-            <p className="meta-line section-note">{property.historyNote}</p>
+            <p className="meta-line section-note">{property.historyNote} Written once, never rewritten.</p>
             <div className="group">
               <ol className="timeline">
                 {property.events.map((event) => (
@@ -562,12 +590,45 @@ export function PropertyPageView() {
           onClaimed={(result: DebugClaimResult) => {
             setPinOpen(false);
             setData((current) => current ? applyClaimedOwner(current, result) : current);
-            showToast("Ownership verified. This is now your profile to build out.");
+            showToast("Verified. The page is yours now.");
             void load();
           }}
         />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page structure: the two halves, and the owner's pointer to the vault
+// ---------------------------------------------------------------------------
+
+/** A divider between the owner's half of the page and the county's. */
+function HalfHead({ kicker, note }: { kicker: string; note: string }) {
+  return (
+    <div className="half-head">
+      <div className="kicker">{kicker}</div>
+      <p className="meta-line">{note}</p>
+    </div>
+  );
+}
+
+/** The private half lives on the owner tools page; this is the door to it. */
+function VaultCard({ propertyId, count, maintainers }: { propertyId: string; count: number; maintainers: number }) {
+  const docs = count === 0 ? "Nothing in the vault yet" : `${count} document${count === 1 ? "" : "s"} in the vault`;
+  const people = maintainers > 1 ? `${maintainers} people can edit this page` : "Only you can edit this page";
+  return (
+    <section className="section" id="vault" data-testid="vault-card">
+      <h2>The private half</h2>
+      <p className="meta-line section-note">Deed, survey, permits, warranties, the boiler manual. Private by default, and you pick what travels with the house at closing.</p>
+      <div className="group vault-card">
+        <div>
+          <strong>{docs}</strong>
+          <div className="meta-line">{people}. Handoff and notifications live here too.</div>
+        </div>
+        <Link className="btn secondary" to={`/property/${propertyId}/manage`} data-testid="open-owner-tools">{count === 0 ? "Open the vault" : "Owner tools"}</Link>
+      </div>
+    </section>
   );
 }
 
@@ -836,7 +897,7 @@ function AboutSection({
             rows={6}
             autoFocus
             value={draft}
-            placeholder="When it was built and by whom, what has changed, what a neighbor would tell you. Written for whoever cares about this place next."
+            placeholder="When it was built and by whom, what's changed, the thing a neighbor would point out. Written for whoever cares about this place next."
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => { if (event.key === "Escape") setEditing(false); }}
             data-testid="about-input"
@@ -859,9 +920,9 @@ function AboutSection({
         </div>
       ) : (
         <div className="group empty-card about-empty">
-          <p>Every property has a story. Say what makes this one itself: when it was built, what has been done, what a neighbor would tell you.</p>
+          <p>Every house has a story. This is where you tell it: when it was built, what's been done, the thing a neighbor would point out.</p>
           {owner && (
-            <button type="button" className="btn secondary small" onClick={() => setEditing(true)} data-testid="about-start">Write about this place</button>
+            <button type="button" className="btn secondary small" onClick={() => setEditing(true)} data-testid="about-start">Tell the story</button>
           )}
         </div>
       )}
@@ -1107,7 +1168,7 @@ function DisputeForm({ fact, propertyId, onDone, onCancel }: { fact: Fact; prope
         setBusy(false);
       }
     }}>
-      <p className="meta-line">Official facts are never overwritten. Your dispute is recorded next to the fact and queued for review.</p>
+      <p className="meta-line">The county's value stays put. Your dispute sits next to it and goes to review.</p>
       <input className="field" autoFocus placeholder={`What you believe the ${fact.label.toLowerCase()} is`} value={proposed} onChange={(event) => setProposed(event.target.value)} />
       <textarea className="field" rows={2} placeholder="Why, or what evidence you have" value={note} onChange={(event) => setNote(event.target.value)} />
       {error && <p className="error">{error}</p>}
@@ -1138,11 +1199,11 @@ function ProfileChecklist({
 }) {
   const has = (key: string) => facts.some((fact) => fact.fieldKey === key && fact.status !== "unknown");
   const doc = (type: string) => documents.some((item) => item.document_type === type) || improvements.some((item) => item.documents.some((d) => d.document_type === type));
-  const items: Array<{ label: string; ok: boolean; target: string }> = [
+  const items: Array<{ label: string; ok: boolean; target: string; cta?: string }> = [
     { label: "Cover photo", ok: Boolean(cover), target: "photos" },
-    { label: "About this place", ok: has(SUMMARY_KEY), target: "about" },
+    { label: "The story", ok: has(SUMMARY_KEY), target: "about", cta: "Tell the story" },
     { label: "Photos", ok: documents.some(isImage), target: "photos" },
-    { label: "An improvement", ok: improvements.length > 0, target: "improvements" },
+    { label: "Work done", ok: improvements.length > 0, target: "improvements", cta: "Log the last big job" },
     { label: "Roof", ok: has("roof.type") || has("roof.year") || improvements.some((item) => item.category === "roof"), target: "systems" },
     { label: "Heating", ok: has("heating") || improvements.some((item) => item.category === "hvac"), target: "systems" },
     { label: "Cooling", ok: has("cooling"), target: "systems" },
@@ -1163,19 +1224,19 @@ function ProfileChecklist({
       <div className="group checklist-card">
         <div className="checklist-head">
           <div>
-            <div className="kicker">{complete ? "Profile complete" : "Build out this profile"}</div>
-            <strong>{done} of {items.length} documented</strong>
+            <div className="kicker">{complete ? "Page complete" : "Your page so far"}</div>
+            <strong>{done} of {items.length} filled in</strong>
           </div>
           {next && (
             <button type="button" className="btn small" onClick={() => onGo(next.target)}>
-              {next.label === "About this place" ? "Write about this place" : next.label === "An improvement" ? "Record an improvement" : `Add ${next.label.toLowerCase()}`}
+              {next.cta ?? `Add ${next.label.toLowerCase()}`}
             </button>
           )}
         </div>
         <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={items.length} aria-valuenow={done}>
           <i style={{ width: `${(done / items.length) * 100}%` }} />
         </div>
-        <p className="meta-line">Completeness of the record, not the condition of the property. Everything you add is public unless you mark it private.</p>
+        <p className="meta-line">How much of the page is filled in, not the condition of the house. Photos, work and systems are public unless you mark them private; the vault is private by default.</p>
         <div className="completeness-grid">
           {items.map((item) => item.ok ? (
             <span key={item.label} className="ok"><i aria-hidden="true">✓</i>{item.label}</span>
@@ -1222,9 +1283,9 @@ function ImprovementsSection({
       </div>
       <p className="meta-line section-note">
         {owner
-          ? "Work done on the property, with receipts and photos attached. Photos follow the improvement’s visibility; receipts always stay private and go with the property on handoff unless you mark them personal."
-          : "Work the verified owner chose to share publicly."}
-        {owner && total > 0 ? ` Recorded so far: ${money(total)}.` : ""}
+          ? "What was done, who did it, what it cost, and what it looks like now. Photos follow the improvement's visibility; receipts stay private and travel with the house at closing unless you keep them."
+          : "Work the owner has chosen to share, with the people who did it."}
+        {owner && total > 0 ? ` Logged so far: ${money(total)}.` : ""}
       </p>
       {owner && formOpen && (
         <ImprovementDialog title="Add improvement" onClose={() => setFormOpen(false)}>
@@ -1245,7 +1306,7 @@ function ImprovementsSection({
       )}
       {improvements.length === 0 && (
         <div className="group empty-card">
-          {owner ? "No improvements recorded yet. Start with the last big job: a roof, a boiler, a kitchen." : "None shared yet."}
+          {owner ? "Nothing logged yet. Start with the last big job: the roof, the kitchen, the guy who did the stairs." : "The owner hasn't shared any work yet."}
         </div>
       )}
       <div className="improvement-list">
@@ -1385,15 +1446,15 @@ function ImprovementForm({
           <input className="field" inputMode="decimal" placeholder="$" value={cost} onChange={(event) => setCost(event.target.value)} />
         </label>
         <label className="stack">
-          <span>Contractor</span>
-          <input className="field" value={contractor} placeholder="Company or person" onChange={(event) => setContractor(event.target.value)} />
+          <span>Who did it</span>
+          <input className="field" value={contractor} placeholder="Contractor, company, or you" onChange={(event) => setContractor(event.target.value)} />
         </label>
         <label className="stack span-2">
-          <span>Notes</span>
-          <textarea className="field" rows={2} value={notes} placeholder="Materials, warranty, what to know later" onChange={(event) => setNotes(event.target.value)} />
+          <span>Materials & finishes</span>
+          <textarea className="field" rows={2} value={notes} placeholder="Paint colors, materials, where they came from, the warranty" onChange={(event) => setNotes(event.target.value)} />
         </label>
         <label className="stack span-2">
-          <span>Receipts and photos</span>
+          <span>Photos and receipts</span>
           <input className="field file" type="file" multiple accept="image/*,application/pdf,.heic" onChange={(event) => setFiles(Array.from(event.target.files ?? []))} data-testid="improvement-files" />
           {editing && item && item.documents.length > 0 && (
             <small className="meta-line">{item.documents.length} already attached. New files are added to those.</small>
@@ -1932,10 +1993,10 @@ function PhotosSection({
           </PhotoFileButton>
         )}
       </div>
-      {owner && <p className="meta-line section-note">Photos are public unless you make them private. The cover is the first thing a visitor sees.{photos.some((doc) => !hasFile(doc)) ? " Cards marked “file missing” need the original photo reattached; after that they stay in Cloudflare." : ""}</p>}
+      {owner && <p className="meta-line section-note">Public unless you say otherwise. The cover is what a neighbor sees first.{photos.some((doc) => !hasFile(doc)) ? " Cards marked “file missing” need the original photo reattached; after that they stay in Cloudflare." : ""}</p>}
       {uploadError && <p className="error" role="alert">{uploadError}</p>}
       {photos.length === 0 && pendingCount === 0 ? (
-        <div className="group empty-card">{owner ? "No photos yet. Exterior, roof, mechanicals, and before-and-after shots all belong here." : "None shared yet."}</div>
+        <div className="group empty-card">{owner ? "No photos yet. Start with the exterior and the room you'd show off. Before-and-afters earn their keep later." : "The owner hasn't shared photos yet."}</div>
       ) : (
         <div className={`photo-grid ${photos.length + pendingCount > 2 ? "featured" : ""}`}>
           {photos.map((doc, index) => (

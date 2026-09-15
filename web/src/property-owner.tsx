@@ -10,10 +10,10 @@ import { dateLabel, DOCUMENT_TYPE_LABEL, fileSize, fileUrl, isImage, type Toast 
  */
 
 const PREFERENCE_LABEL: Record<string, { label: string; help: string }> = {
-  contribution_requests: { label: "Contribution requests", help: "Someone proposes a change to this record." },
-  ownership_security: { label: "Ownership & security", help: "Claims, handoffs, and maintainer changes. Always sent." },
-  official_changes: { label: "Official record changes", help: "Assessment, sale, permit, or parcel updates from a source." },
-  property_digest: { label: "Property digest", help: "A summary of what changed around this property." },
+  contribution_requests: { label: "Change requests", help: "Someone proposes a change to this page." },
+  ownership_security: { label: "Ownership & security", help: "Claims, handoffs, and who can edit. Always sent." },
+  official_changes: { label: "County record changes", help: "Assessment, sale, permit, or parcel updates from a source." },
+  property_digest: { label: "Digest", help: "A summary of what changed around this house." },
 };
 
 const OPTION_LABEL: Record<string, string> = {
@@ -107,7 +107,7 @@ export function DocumentsSection({
         <h2>Documents</h2>
       </div>
       <p className="meta-line section-note">
-        Surveys, permits, plans, and manuals go with the property when it changes hands. Mortgage, insurance, and personal notes stay with you. Nothing here is public unless you say so.
+        Deed, survey, permits, warranties, the boiler manual. Private by default. Mark what travels with the house at closing; mortgage, insurance and personal notes stay with you unless you say otherwise.
       </p>
       <div className="group form-card upload-card">
         <label className="stack">
@@ -121,7 +121,7 @@ export function DocumentsSection({
           <input type="file" multiple disabled={busy} data-testid="document-input" onChange={(event) => { void upload(event.target.files); event.target.value = ""; }} />
         </label>
       </div>
-      {files.length === 0 && <div className="group empty-card">The vault is empty. A survey or the last permit is a good first upload.</div>}
+      {files.length === 0 && <div className="group empty-card">Empty so far. The survey or the last permit is a good first upload.</div>}
       {transferable.length > 0 && (
         <>
           <h3 className="subhead">Goes with the property</h3>
@@ -146,7 +146,7 @@ export function DisputesSection({ disputes, onChange, toast }: { disputes: Prope
   return (
     <section className="section" id="disputes">
       <h2>Open disputes</h2>
-      <p className="meta-line section-note">Official facts you have flagged. A reviewer resolves each one; the official value stays visible meanwhile.</p>
+      <p className="meta-line section-note">Official facts you've flagged. A reviewer settles each one; the county's value stays visible meanwhile.</p>
       <div className="group">
         {disputes.map((dispute) => (
           <div key={dispute.contributionId} className="row">
@@ -193,8 +193,8 @@ export function MaintainersSection({
   const pending = invitations.filter((invitation) => invitation.role === "co_owner");
   return (
     <section className="section" id="maintainers">
-      <h2>Maintainers</h2>
-      <p className="meta-line section-note">People who can maintain this record with you. Co-owners see everything you see. Maintainer rights end when ownership transfers.</p>
+      <h2>Who can edit</h2>
+      <p className="meta-line section-note">Co-owners see everything you see and can change anything you can. Everyone's access ends at handoff.</p>
       <div className="group">
         {maintainers.map((maintainer) => (
           <div key={maintainer.maintainer_id} className="row">
@@ -254,7 +254,7 @@ export function NotificationsSection({ propertyId, preferences, options, toast }
   return (
     <section className="section" id="notifications">
       <h2>Email notifications</h2>
-      <p className="meta-line section-note">Delivered through Postmark. Ownership and security notices cannot be turned off.</p>
+      <p className="meta-line section-note">How often we write to you about this page. Ownership and security notices can't be turned off.</p>
       <div className="group">
         {keys.map((key) => {
           const choices = options[key] ?? [prefs[key] ?? "immediate"];
@@ -295,7 +295,7 @@ export function HandoffSection({ propertyId, toast, onChange }: { propertyId: st
     <section className="section" id="handoff">
       <h2>Handoff</h2>
       <p className="meta-line section-note">
-        Selling? Invite the buyer to claim this property. Once they are verified, your maintainer access ends. Documents marked “goes with the property” transfer; personal documents never do.
+        Selling? Send the buyer one invitation. Once they're verified, the page is theirs and your access ends. Documents marked “goes with the property” travel; the rest stay with you.
       </p>
       <form className="inline-form" onSubmit={async (event) => {
         event.preventDefault();
@@ -313,7 +313,7 @@ export function HandoffSection({ propertyId, toast, onChange }: { propertyId: st
         }
       }}>
         <input className="field" type="email" placeholder="Buyer’s email" value={email} onChange={(event) => setEmail(event.target.value)} />
-        <button type="submit" className="btn secondary" disabled={busy || !email.includes("@")}>{busy ? "Sending…" : "Send handoff invitation"}</button>
+        <button type="submit" className="btn secondary" disabled={busy || !email.includes("@")}>{busy ? "Sending…" : "Invite the new owner"}</button>
       </form>
       {error && <p className="error">{error}</p>}
     </section>

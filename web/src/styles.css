@@ -1010,6 +1010,28 @@ tr:last-child td { border-bottom: 0; }
 .profile .section-head { align-items: center; margin-bottom: 6px; }
 .profile .section-note { margin-bottom: 12px; }
 .profile .subhead { margin-top: 20px; }
+/* The seam between the owner's half of the page and the county's. */
+.profile .half-head {
+  margin: 44px 4px 0;
+  padding-top: 22px;
+  border-top: 1px solid var(--hairline);
+}
+.profile .half-head .kicker { color: var(--accent); }
+.profile .half-head .meta-line { margin: 4px 0 0; max-width: 62ch; }
+.profile .half-head + .section { margin-top: 22px; }
+.profile-main > .half-head:first-child,
+.profile-main > .toast + .half-head,
+.profile-main > .banner + .half-head { margin-top: 0; padding-top: 0; border-top: 0; }
+.vault-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+}
+.vault-card strong { display: block; font-size: 15px; }
+.vault-card .meta-line { margin: 2px 0 0; }
+.vault-card .btn { flex-shrink: 0; }
 
 /* ---- Owner tools pages (documents, maintainers, handoff; notifications) -- */
 /* A flex column so the call to action sits at the viewport bottom on a short

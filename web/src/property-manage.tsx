@@ -156,7 +156,7 @@ export function PropertyManagePage() {
     >
       {({ property, viewer }, refresh, toast) => (
         <>
-          <p className="meta-line manage-lede">Your vault, the people who maintain this record with you, how you are notified, and what happens when it changes hands.</p>
+          <p className="meta-line manage-lede">The private half: the vault, who else can edit, how you're notified, and what happens at closing.</p>
           <DocumentsSection
             propertyId={id!}
             documents={property.documents.filter((doc) => !doc.improvement_id)}
@@ -254,13 +254,13 @@ function InboxList({ propertyId, onChange, toast }: { propertyId: string; onChan
     <section className="section" id="inbox" data-testid="owner-inbox">
       <h2>Messages</h2>
       <p className="meta-line section-note">
-        Requests to change this record, disputes you have filed, and notices from official sources. Accepting a change writes it to the owner layer.
+        Requests to change this page, disputes you've filed, and notices from official sources. Accepting a request writes it to the owner layer.
       </p>
       {error && <p className="error">{error}</p>}
       {items === null && !error && <div className="group empty-card">Loading messages…</div>}
       {items && items.length === 0 && (
         <div className="group empty-card" data-testid="inbox-empty">
-          Nothing waiting. When someone proposes a change, or a dispute or official update needs your eye, it will show up here.
+          Nothing waiting. Requests, disputes and county updates land here.
         </div>
       )}
       {items && items.length > 0 && (
