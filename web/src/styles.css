@@ -1270,26 +1270,6 @@ tr:last-child td { border-bottom: 0; }
 .improvement-card.is-private,
 .photo-card.is-private { box-shadow: var(--shadow), inset 0 0 0 1.5px #f1dfc2; }
 
-/* Lightbox */
-.lightbox { background: rgba(29, 29, 31, 0.86); flex-direction: row; gap: 12px; }
-.lightbox .modal-close { position: fixed; top: max(14px, env(safe-area-inset-top)); right: 14px; background: rgba(255, 255, 255, 0.14); color: #fff; }
-.lightbox-figure { margin: 0; max-width: min(1200px, 92vw); display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.lightbox-figure img { max-width: 100%; max-height: 82vh; border-radius: 14px; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4); object-fit: contain; }
-.lightbox-figure figcaption { color: #fff; text-align: center; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
-.lightbox-figure figcaption .meta-line { color: rgba(255, 255, 255, 0.7); }
-.lightbox-step {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 0;
-  flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-  font-size: 28px;
-  line-height: 1;
-}
-.lightbox-step:hover { background: rgba(255, 255, 255, 0.24); }
-
 /* ---- Owner state on the property page -------------------------------- */
 .owner-chip {
   display: inline-flex;
@@ -1627,7 +1607,7 @@ tr:last-child td { border-bottom: 0; }
 .photo-missing-copy strong,
 .photo-missing-label { font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; }
 .photo-missing input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.lightbox-figure .photo-missing {
+.lightbox-slide .photo-missing {
   min-height: min(70vh, 640px);
   width: min(100%, 960px);
   border-radius: 16px;
@@ -1663,33 +1643,84 @@ tr:last-child td { border-bottom: 0; }
 .caption-input::placeholder { color: var(--muted); }
 .photo-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
 
-.lightbox { background: rgba(29, 29, 31, 0.86); flex-direction: row; align-items: center; justify-content: center; gap: 12px; padding: 16px; }
+/* ---- Lightbox ---------------------------------------------------------- */
+/* Full-bleed viewer. A scroll-snap track (same mechanics as the hero) holds
+   one viewport-wide slide per photo; the photo spans the full width and sits
+   centered, letterboxed top and bottom when its aspect ratio calls for it. */
+.lightbox {
+  display: block;
+  padding: 0;
+  background: rgba(29, 29, 31, 0.96);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 .lightbox .modal-close {
   position: fixed;
   top: max(14px, env(safe-area-inset-top));
   right: max(14px, env(safe-area-inset-right));
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
-  z-index: 1;
+  z-index: 2;
 }
-.lightbox-figure {
-  margin: 0;
-  max-width: min(1200px, 92vw);
+.lightbox-track {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.lightbox-track::-webkit-scrollbar { display: none; }
+.lightbox-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  min-width: 100%;
+  height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lightbox-slide img {
+  display: block;
+  width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 0;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+.lightbox-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
-}
-.lightbox-figure img {
-  max-width: 100%;
-  max-height: min(72vh, 720px);
-  border-radius: 14px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
-  object-fit: contain;
-}
-.lightbox-figure figcaption {
+  padding: 56px 16px max(16px, env(safe-area-inset-bottom));
   color: #fff;
   text-align: center;
+  background: linear-gradient(to top, rgba(29, 29, 31, 0.78), rgba(29, 29, 31, 0));
+  pointer-events: none;
+}
+.lightbox-bar > * { pointer-events: auto; }
+/* Reuse the hero dots, but flow them in the bar rather than pinning to the hero. */
+.lightbox-dots {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  width: max-content;
+  max-width: 100%;
+}
+.lightbox-caption {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1697,7 +1728,7 @@ tr:last-child td { border-bottom: 0; }
   font-size: 14px;
   width: min(100%, 420px);
 }
-.lightbox-figure figcaption .meta-line { color: rgba(255, 255, 255, 0.7); }
+.lightbox-caption .meta-line { color: rgba(255, 255, 255, 0.7); }
 .lightbox-actions {
   display: flex;
   gap: 10px;
@@ -1707,18 +1738,6 @@ tr:last-child td { border-bottom: 0; }
 }
 .lightbox-actions .btn { min-width: 120px; flex: 1 1 140px; }
 .lightbox-confirm { color: #fff; justify-content: center; }
-.lightbox-step {
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
-  font-size: 28px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-.lightbox-step:hover { background: rgba(255, 255, 255, 0.24); }
 
 table small { display: block; }
 
@@ -2266,8 +2285,6 @@ html.dialog-open body {
     margin-right: calc(-1 * var(--page-inline-end));
   }
   .map-card { height: 260px; }
-  .lightbox { gap: 6px; padding: 8px; }
-  .lightbox-step { width: 36px; height: 36px; font-size: 22px; }
   .map-page { height: calc(100dvh - 8.5rem); }
   .fact { grid-template-columns: 1fr; gap: 3px; padding: 14px 16px; }
   .coverage { grid-template-columns: 1fr; }
@@ -2349,9 +2366,6 @@ html.dialog-open body {
   .improvement-form .form-grid .span-2 { grid-column: 1 / -1; }
   .pin-cell { height: 56px; font-size: 26px; }
   .upload-card .file-btn { width: 100%; }
-  .lightbox { gap: 8px; padding: 12px; }
-  .lightbox-figure img { max-height: 58vh; }
-  .lightbox-step { width: 40px; height: 40px; font-size: 24px; }
 }
 
 @media (max-width: 420px) {

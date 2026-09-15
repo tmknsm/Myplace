@@ -214,7 +214,12 @@ export function PropertyPageView() {
   // Keep the last sheet's content mounted while it animates out.
   const lastSheet = useRef<SheetState>(null);
   if (sheet) lastSheet.current = sheet;
-  const [lightbox, setLightbox] = useState<number | null>(null);
+  // The lightbox pages through whichever set the tapped photo came from.
+  const [lightbox, setLightbox] = useState<{ source: "hero" | "gallery"; index: number } | null>(null);
+  const setLightboxIndex = useCallback((index: number) => {
+    setLightbox((current) => (current && current.index !== index ? { ...current, index } : current));
+  }, []);
+  const closeLightbox = useCallback(() => setLightbox(null), []);
   const [heroIndex, setHeroIndex] = useState(0);
   const [photoUploads, setPhotoUploads] = useState(0);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -284,6 +289,7 @@ export function PropertyPageView() {
   const available = photos.filter(hasFile);
   const cover = available.find((doc) => doc.is_cover) ?? available[0] ?? null;
   const photoSlides = cover ? [cover, ...available.filter((doc) => doc !== cover)] : [];
+  const lightboxPhotos = lightbox?.source === "hero" ? photoSlides : galleryPhotos;
   const mapSlideIndex = photoSlides.length;
   const heroSlideCount = mapSlideIndex + 1;
   const heroSlide = Math.min(heroIndex, Math.max(0, heroSlideCount - 1));
@@ -412,7 +418,7 @@ export function PropertyPageView() {
         title={title}
         index={heroSlide}
         onIndex={setHeroIndex}
-        onOpen={(doc) => setLightbox(photos.indexOf(doc))}
+        onOpen={(doc) => setLightbox({ source: "hero", index: photoSlides.indexOf(doc) })}
         map={heroMap}
       />
       <figcaption className="hero-overlay">
@@ -559,10 +565,7 @@ export function PropertyPageView() {
               uploadError={photoError}
               onUpload={(files) => uploadPhotos(files)}
               onUploadError={reportPhotoError}
-              onOpen={(index) => {
-                const doc = galleryPhotos[index];
-                setLightbox(doc ? photos.indexOf(doc) : null);
-              }}
+              onOpen={(index) => setLightbox({ source: "gallery", index })}
               {...sectionProps}
             />
           )}
@@ -695,8 +698,8 @@ export function PropertyPageView() {
         />
       )}
 
-      {lightbox !== null && photos[lightbox] && (
-        <PhotoLightbox photos={photos} index={lightbox} owner={owner} onIndex={setLightbox} onClose={() => setLightbox(null)} onChange={refresh} toast={showToast} />
+      {lightbox && lightboxPhotos[lightbox.index] && (
+        <PhotoLightbox photos={lightboxPhotos} index={lightbox.index} owner={owner} onIndex={setLightboxIndex} onClose={closeLightbox} onChange={refresh} toast={showToast} />
       )}
 
       {pinOpen && (
@@ -824,6 +827,68 @@ function placeHeroThumb(el: HTMLElement | null, progress: number, count: number)
 }
 
 /**
+ * Drives a native scroll-snap track: keeps the track on `current` when the
+ * index or slide count changes from outside, reports the settled slide back
+ * through `onIndex` as the user swipes, and morphs the dot thumb in between.
+ * Returns a `goTo` for dot taps and keyboard steps.
+ */
+function useSnapTrack({
+  trackRef,
+  thumbRef,
+  count,
+  current,
+  onIndex,
+}: {
+  trackRef: React.RefObject<HTMLDivElement | null>;
+  thumbRef: React.RefObject<HTMLSpanElement | null>;
+  count: number;
+  current: number;
+  onIndex: (index: number) => void;
+}) {
+  // Runs before the scroll reader below so an initial non-zero `current`
+  // (opening the lightbox on the third photo) isn't read back as slide 0.
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const width = track.clientWidth;
+    const settled = Math.max(0, Math.min(current, count - 1));
+    if (width && Math.round(track.scrollLeft / width) !== settled) {
+      track.scrollTo({ left: settled * width, behavior: "auto" });
+    }
+  }, [count, current, trackRef]);
+
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    let frame = 0;
+    const read = () => {
+      const width = track.clientWidth || 1;
+      const progress = Math.max(0, Math.min(count - 1, track.scrollLeft / width));
+      placeHeroThumb(thumbRef.current, progress, count);
+      onIndex(Math.round(progress));
+    };
+    const onScroll = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(read);
+    };
+    read();
+    track.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      track.removeEventListener("scroll", onScroll);
+    };
+  }, [count, onIndex, thumbRef, trackRef]);
+
+  return useCallback((next: number) => {
+    const track = trackRef.current;
+    if (!track) return;
+    const target = Math.max(0, Math.min(count - 1, next));
+    const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    track.scrollTo({ left: target * track.clientWidth, behavior: reduce ? "auto" : "smooth" });
+  }, [count, trackRef]);
+}
+
+/**
  * Swipeable hero. A native scroll-snap track does the gesture work; we only
  * read which slide has settled so the dots can follow.
  */
@@ -848,46 +913,12 @@ function HeroCarousel({
   const count = mapIndex + 1;
   const current = Math.min(index, Math.max(0, count - 1));
 
-  useEffect(() => {
-    const track = trackRef.current;
-    if (!track) return;
-    let frame = 0;
-    const read = () => {
-      const width = track.clientWidth || 1;
-      const progress = Math.max(0, Math.min(count - 1, track.scrollLeft / width));
-      placeHeroThumb(thumbRef.current, progress, count);
-      onIndex(Math.round(progress));
-    };
-    const onScroll = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(read);
-    };
-    read();
-    track.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      cancelAnimationFrame(frame);
-      track.removeEventListener("scroll", onScroll);
-    };
-  }, [count, onIndex]);
-
-  // A shorter list (photo removed) can leave the track past its last slide.
+  // A shorter list (photo removed) can leave the index past the last slide.
   useEffect(() => {
     if (index > count - 1) onIndex(count - 1);
-    const track = trackRef.current;
-    if (!track) return;
-    const width = track.clientWidth;
-    const settled = Math.min(current, count - 1);
-    if (width && Math.round(track.scrollLeft / width) !== settled) {
-      track.scrollTo({ left: settled * width, behavior: "auto" });
-    }
-  }, [count, current, index, onIndex]);
+  }, [count, index, onIndex]);
 
-  const goTo = (next: number) => {
-    const track = trackRef.current;
-    if (!track) return;
-    const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    track.scrollTo({ left: next * track.clientWidth, behavior: reduce ? "auto" : "smooth" });
-  };
+  const goTo = useSnapTrack({ trackRef, thumbRef, count, current, onIndex });
 
   return (
     <>
@@ -2546,26 +2577,32 @@ function PhotoLightbox({
   onChange: PageRefresh;
   toast: (message: string) => void;
 }) {
-  const photo = photos[index];
+  const count = photos.length;
+  const current = Math.max(0, Math.min(index, count - 1));
+  const photo = photos[current];
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const thumbRef = useRef<HTMLSpanElement | null>(null);
 
-  const step = useCallback((delta: number) => {
-    if (!photos.length) return;
-    onIndex((index + delta + photos.length) % photos.length);
+  // Swiping to another photo drops any pending delete confirmation.
+  const settle = useCallback((next: number) => {
+    onIndex(next);
     setConfirm(false);
-  }, [index, onIndex, photos.length]);
+  }, [onIndex]);
+
+  const goTo = useSnapTrack({ trackRef, thumbRef, count, current, onIndex: settle });
 
   useLockPageScroll(true);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
-      if (event.key === "ArrowRight") step(1);
-      if (event.key === "ArrowLeft") step(-1);
+      if (event.key === "ArrowRight") goTo(current + 1);
+      if (event.key === "ArrowLeft") goTo(current - 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, step]);
+  }, [current, goTo, onClose]);
 
   if (!photo) return null;
   const missing = !hasFile(photo);
@@ -2588,8 +2625,8 @@ function PhotoLightbox({
       await api.deleteDocument(photo.document_id);
       toast("Photo deleted.");
       await onChange();
-      if (photos.length <= 1) onClose();
-      else onIndex(Math.min(index, photos.length - 2));
+      if (count <= 1) onClose();
+      else onIndex(Math.min(current, count - 2));
     } finally {
       setBusy(false);
       setConfirm(false);
@@ -2597,24 +2634,49 @@ function PhotoLightbox({
   };
 
   return (
-    <div
-      className="modal-backdrop lightbox"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Photo"
-    >
+    <div className="modal-backdrop lightbox" role="dialog" aria-modal="true" aria-label="Photo">
       <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>×</button>
-      {photos.length > 1 && <button type="button" className="lightbox-step prev" aria-label="Previous photo" onClick={() => step(-1)}>‹</button>}
-      <figure className="lightbox-figure">
-        {missing ? (
-          <RestorePhoto doc={photo} busy={busy} onPick={(file) => void replace(file)} />
-        ) : (
-          <img src={fileUrl(photo)} alt={photo.caption ?? photo.original_filename} />
+      <div ref={trackRef} className="lightbox-track" data-testid="lightbox-track">
+        {photos.map((doc, i) => (
+          <div
+            key={doc.document_id}
+            className="lightbox-slide"
+            aria-hidden={i !== current}
+            onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+          >
+            {hasFile(doc) ? (
+              <img
+                src={fileUrl(doc)}
+                alt={doc.caption ?? doc.original_filename}
+                loading={Math.abs(i - current) <= 1 ? "eager" : "lazy"}
+                draggable={false}
+              />
+            ) : (
+              <RestorePhoto doc={doc} busy={busy && i === current} onPick={(file) => void replace(file)} />
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="lightbox-bar">
+        {count > 1 && (
+          <div className="hero-dots lightbox-dots" role="tablist" aria-label="Photos">
+            <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
+            {photos.map((doc, i) => (
+              <button
+                key={doc.document_id}
+                type="button"
+                role="tab"
+                aria-selected={i === current}
+                aria-label={`Photo ${i + 1}`}
+                className={i === current ? "on" : ""}
+                onClick={() => goTo(i)}
+              />
+            ))}
+          </div>
         )}
-        <figcaption>
+        <div className="lightbox-caption">
           {photo.caption && <strong>{photo.caption}</strong>}
-          <span className="meta-line">{photos.length > 1 ? `${index + 1} of ${photos.length}` : ""}{photo.created_at ? `${photos.length > 1 ? " · " : ""}${dateLabel(photo.created_at)}` : ""}</span>
+          <span className="meta-line">{count > 1 ? `${current + 1} of ${count}` : ""}{photo.created_at ? `${count > 1 ? " · " : ""}${dateLabel(photo.created_at)}` : ""}</span>
           {owner && (
             <div className="lightbox-actions">
               <label className={`btn secondary file-btn ${busy ? "is-busy" : ""}`}>
@@ -2642,9 +2704,8 @@ function PhotoLightbox({
               )}
             </div>
           )}
-        </figcaption>
-      </figure>
-      {photos.length > 1 && <button type="button" className="lightbox-step next" aria-label="Next photo" onClick={() => step(1)}>›</button>}
+        </div>
+      </div>
     </div>
   );
 }
