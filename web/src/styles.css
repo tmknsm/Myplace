@@ -531,7 +531,7 @@ label.stack span { display: block; margin-bottom: 6px; font-size: 13px; color: v
   min-height: 40px;
   color: var(--muted);
   text-decoration: none;
-  border-radius: 8px;
+  border-radius: 100px;
   font-weight: 500;
 }
 .side-nav .on { color: var(--ink); background: var(--surface); box-shadow: var(--shadow); }
@@ -792,7 +792,7 @@ tr:last-child td { border-bottom: 0; }
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 .profile-head h1 {
   font-size: clamp(34px, 5.4vw, 56px);
@@ -2350,7 +2350,7 @@ html.dialog-open body {
   .property-page .profile-head { margin-bottom: var(--gutter); }
   .property-page .stat-strip { margin-top: 0; margin-bottom: var(--gutter); }
   .profile-head h1 { font-size: clamp(30px, 9vw, 40px); margin: 4px 0 6px; }
-  .profile-title .profile-chips { margin-bottom: 4px; }
+  .profile-title .profile-chips { margin-bottom: 8px; }
   .profile-actions { width: 100%; }
   .profile-actions .action-row.compact { width: 100%; }
   .profile-actions .btn { flex: 0 0 auto; }
