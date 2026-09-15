@@ -1134,9 +1134,10 @@ function HeroCarousel({
       window.clearTimeout(hideTimer.current);
       hideTimer.current = window.setTimeout(() => setDotsOn(false), 1000);
     };
-    hideSoon();
+    // Stay visible until the first swipe. After that, hide on the post-swipe
+    // delay and only come back when the user swipes again.
     const track = trackRef.current;
-    if (!track) return () => window.clearTimeout(hideTimer.current);
+    if (!track) return;
 
     const begin = (event: PointerEvent | TouchEvent) => {
       armed.current = true;
@@ -1153,14 +1154,17 @@ function HeroCarousel({
     };
     const end = () => {
       if (!armed.current && !swiping.current) return;
+      const didSwipe = swiping.current;
       armed.current = false;
-      if (swiping.current) hideSoon();
+      swiping.current = false;
+      if (didSwipe) hideSoon();
     };
     const onScroll = () => {
-      if (armed.current) swiping.current = true;
-      if (!swiping.current) return;
+      // Only an in-progress swipe counts. Snap, momentum, and goTo() must
+      // not bring the dots back after they've hidden.
+      if (!armed.current) return;
+      swiping.current = true;
       show();
-      if (!armed.current) hideSoon();
     };
 
     // Capture: the slides are buttons, and a native swipe cancels the pointer
