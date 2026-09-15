@@ -956,6 +956,20 @@ tr:last-child td { border-bottom: 0; }
   z-index: 2;
   pointer-events: none;
 }
+.profile-hero .hero-dots {
+  justify-content: center;
+  gap: 0;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.profile-hero .hero-dots.is-on { opacity: 1; }
+.hero-dots-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--dot);
+  gap: var(--dot-gap);
+}
 .hero-dot-thumb {
   position: absolute;
   left: 0;

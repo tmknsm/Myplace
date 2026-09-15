@@ -1054,6 +1054,10 @@ function HeroCarousel({
   const mapIndex = photos.length;
   const count = mapIndex + 1;
   const current = Math.min(index, Math.max(0, count - 1));
+  const [dotsOn, setDotsOn] = useState(true);
+  const hideTimer = useRef(0);
+  const pointerDown = useRef(false);
+  const swiping = useRef(false);
 
   // A shorter list (photo removed) can leave the index past the last slide.
   useEffect(() => {
@@ -1061,6 +1065,45 @@ function HeroCarousel({
   }, [count, index, onIndex]);
 
   const goTo = useSnapTrack({ trackRef, thumbRef, count, current, onIndex });
+
+  useEffect(() => {
+    const show = () => {
+      setDotsOn(true);
+      window.clearTimeout(hideTimer.current);
+    };
+    const hideSoon = () => {
+      window.clearTimeout(hideTimer.current);
+      hideTimer.current = window.setTimeout(() => setDotsOn(false), 1000);
+    };
+    hideSoon();
+    const track = trackRef.current;
+    if (!track) return () => window.clearTimeout(hideTimer.current);
+    const onDown = () => {
+      pointerDown.current = true;
+      swiping.current = false;
+    };
+    const onUp = () => {
+      pointerDown.current = false;
+      if (swiping.current) hideSoon();
+    };
+    const onScroll = () => {
+      if (pointerDown.current) swiping.current = true;
+      if (!swiping.current) return;
+      show();
+      if (!pointerDown.current) hideSoon();
+    };
+    track.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    track.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.clearTimeout(hideTimer.current);
+      track.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      track.removeEventListener("scroll", onScroll);
+    };
+  }, []);
 
   return (
     <>
@@ -1087,27 +1130,31 @@ function HeroCarousel({
         </div>
       </div>
       {count > 1 && (
-        <div className="hero-dots" role="tablist" aria-label="Hero">
-          <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
-          {photos.map((doc, i) => (
+        <div className={`hero-dots${dotsOn ? " is-on" : ""}`} role="tablist" aria-label="Hero">
+          <div className="hero-dots-inner">
+            <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
+            {photos.map((doc, i) => (
+              <button
+                key={doc.document_id}
+                type="button"
+                role="tab"
+                aria-selected={i === current}
+                aria-label={`Photo ${i + 1}`}
+                className={i === current ? "on" : ""}
+                tabIndex={dotsOn ? 0 : -1}
+                onClick={() => goTo(i)}
+              />
+            ))}
             <button
-              key={doc.document_id}
               type="button"
               role="tab"
-              aria-selected={i === current}
-              aria-label={`Photo ${i + 1}`}
-              className={i === current ? "on" : ""}
-              onClick={() => goTo(i)}
+              aria-selected={current === mapIndex}
+              aria-label="Map"
+              className={current === mapIndex ? "on" : ""}
+              tabIndex={dotsOn ? 0 : -1}
+              onClick={() => goTo(mapIndex)}
             />
-          ))}
-          <button
-            type="button"
-            role="tab"
-            aria-selected={current === mapIndex}
-            aria-label="Map"
-            className={current === mapIndex ? "on" : ""}
-            onClick={() => goTo(mapIndex)}
-          />
+          </div>
         </div>
       )}
     </>
