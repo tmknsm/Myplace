@@ -373,7 +373,7 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
             {signup ? (
               <>Already have an account? <Link to={otherHref("/signin")}>Sign in</Link></>
             ) : (
-              <>Don't have an account? <Link to={otherHref("/signup")}>Create an account</Link></>
+              <>Don't have an account? <Link to={otherHref("/signup")}>Sign up</Link></>
             )}
           </p>
 
