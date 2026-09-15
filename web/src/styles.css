@@ -130,7 +130,7 @@ img, svg { max-width: 100%; }
   letter-spacing: -0.02em;
 }
 .brand span { display: none; }
-.search-wrap, .header-search, .hero-search { position: relative; }
+.search-wrap, .header-search, .hero-search { position: relative; overflow: visible; }
 .header-search { flex: 1; max-width: 420px; }
 .top-links {
   margin-left: auto;
@@ -715,6 +715,28 @@ tr:last-child td { border-bottom: 0; }
   border-right-color: #fff;
 }
 .text-btn .spinner { width: 12px; height: 12px; margin-right: 6px; }
+.page-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100dvh - var(--topbar-height, 84px));
+}
+.page-spinner .spinner {
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+}
+.empty-card:has(.spinner) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88px;
+}
+.empty-card .spinner {
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+}
 .field.file { padding: 8px 10px; }
 .segmented {
   display: inline-flex;
@@ -983,6 +1005,28 @@ tr:last-child td { border-bottom: 0; }
 .stat strong small { font-size: 13px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
 .stat .badge { margin: 4px 0 0; font-style: normal; }
 .stat.is-private { box-shadow: var(--shadow), inset 0 0 0 1.5px #f1dfc2; }
+/* Unclaimed page: the character slots still empty, drawn as outlines that open the claim flow. */
+.stat-ghost {
+  appearance: none;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  background: none;
+  box-shadow: none;
+  border: 1.5px dashed color-mix(in srgb, var(--ink) 18%, transparent);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.stat-ghost:hover {
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.stat-ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stat-ghost strong { color: var(--muted); font-weight: 450; }
+.swatch-empty {
+  background: none;
+  box-shadow: none;
+  border: 1.5px dashed color-mix(in srgb, var(--ink) 35%, transparent);
+}
 
 /* Topic cards: one subject each (Paint colors, Roof), edited in a sheet. */
 .topic-list { display: grid; gap: 6px; }
@@ -1033,6 +1077,33 @@ tr:last-child td { border-bottom: 0; }
 .topic-empty-title { color: var(--accent); font-weight: 600; font-size: 15px; }
 .topic-empty-title::before { content: "+ "; }
 .topic-empty .meta-line { margin: 0; max-width: 52ch; }
+/* Unclaimed page: the owner's sections as outlines. Quieter than the owner's
+   own empty cards (grey dash, ink title) so a reader after county facts can
+   pass them by; the accent sits only on the claim line. */
+.preview-card {
+  gap: 3px;
+  border-color: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.preview-card:hover {
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.preview-card-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+.preview-card .meta-line { max-width: 56ch; }
+.preview-card-cta { margin-top: 6px; font-size: 13px; font-weight: 560; color: var(--accent); }
+.claim-preview-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 0 4px;
+}
+.claim-preview-foot .meta-line { margin: 0; max-width: 52ch; }
+@media (min-width: 881px) {
+  .claim-preview .topic-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .claim-preview .topic-list > .group + .group { margin-top: 0; }
+}
 .topic-card .photo-strip,
 .improvement-card .photo-strip {
   display: grid;
@@ -1074,7 +1145,9 @@ tr:last-child td { border-bottom: 0; }
 .profile-main > .section:first-child,
 .profile-main > .toast + .section,
 .profile-main > .banner + .section { margin-top: 0; }
-.profile .section { margin-top: 36px; scroll-margin-top: calc(var(--topbar-height, 84px) + var(--profile-nav-height, 0px) + 12px); }
+.profile .section,
+.profile .preview-card { scroll-margin-top: calc(var(--topbar-height, 84px) + var(--profile-nav-height, 0px) + 12px); }
+.profile .section { margin-top: 36px; }
 .profile .section h2 {
   font-size: 20px;
   font-weight: 650;
@@ -2338,7 +2411,9 @@ html.dialog-open body {
     font-size: 13px;
   }
   .profile-grid .profile-nav a.on { color: #fff; background: var(--ink); box-shadow: none; }
-  .profile .section { margin-top: 28px; scroll-margin-top: calc(var(--topbar-height, 112px) + var(--profile-nav-height, 68px)); }
+  .profile .section,
+  .profile .preview-card { scroll-margin-top: calc(var(--topbar-height, 112px) + var(--profile-nav-height, 68px)); }
+  .profile .section { margin-top: 28px; }
 
   /*
    * Search hand-off. The tabs stick under the brand row, not under the whole
@@ -2369,7 +2444,8 @@ html.dialog-open body {
       animation-timeline: --profile-grid;
       animation-range: cover 0px cover var(--search-row-height);
     }
-    .profile .section { scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
+    .profile .section,
+    .profile .preview-card { scroll-margin-top: calc(var(--topbar-main-height, 64px) + var(--profile-nav-height, 68px)); }
   }
   @keyframes chrome-sheet-grow {
     from { height: var(--topbar-height, 0px); }
@@ -2380,7 +2456,10 @@ html.dialog-open body {
     to { transform: translateY(calc(-1 * var(--search-row-height))); }
   }
   @keyframes search-row-tuck {
-    from { transform: translateY(0); clip-path: inset(0 0 0 0); }
+    /* A zero inset still clips overflowing descendants, so the results
+       sheet (positioned below the field) would be cropped by this row.
+       Leave the bottom open at rest; close it only as the row tucks away. */
+    from { transform: translateY(0); clip-path: inset(0 0 -100vmax 0); }
     to { transform: translateY(calc(-1 * var(--search-row-height))); clip-path: inset(var(--search-row-height) 0 0 0); }
   }
   .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
