@@ -1406,7 +1406,7 @@ tr:last-child td { border-bottom: 0; }
   max-width: 68ch;
   overflow-wrap: anywhere;
 }
-.about-foot { margin-top: 10px; display: flex; gap: 12px; }
+.about-card.is-private { box-shadow: var(--shadow), inset 0 0 0 1.5px #f1dfc2; }
 .about-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
 .about-empty p { margin: 0; max-width: 56ch; }
 .about-editor textarea { font-size: 16px; line-height: 1.5; }

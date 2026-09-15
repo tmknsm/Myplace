@@ -631,8 +631,10 @@ export function PropertyPageView() {
           {showAbout && summary && (
             <AboutSection
               fact={summary}
+              owner={owner}
+              propertyId={id}
               onEdit={() => openSheet({ kind: "about" })}
-              {...sectionProps}
+              onChange={refresh}
             />
           )}
 
@@ -1213,36 +1215,36 @@ function AboutSection({
   propertyId,
   onEdit,
   onChange,
-  toast,
 }: {
   fact: Fact;
   owner: boolean;
   propertyId: string;
   onEdit: () => void;
   onChange: PageRefresh;
-  toast: Toast;
 }) {
   const text = typeof fact.value === "string" ? fact.value : "";
   return (
     <section className="section about" id="about">
       <div className="section-head">
         <h2>About this place</h2>
-        {owner && fact.visibility && text && (
-          <VisibilityChip visibility={fact.visibility} onToggle={async () => {
-            const next = fact.visibility === "private" ? "public" : "private";
-            await api.setFieldVisibility(propertyId, SUMMARY_KEY, next);
-            toast(next === "private" ? "About this place is now private." : "About this place is now public.");
-            await onChange();
-          }} />
-        )}
       </div>
       {text ? (
-        <div className="group about-card">
+        <div className={`group about-card${fact.visibility === "private" ? " is-private" : ""}`}>
           <p className="about-text">{text}</p>
           {owner && (
-            <div className="about-foot">
-              <button type="button" className="text-link" onClick={onEdit} data-testid="about-edit">Edit</button>
-            </div>
+            <CardFoot
+              visibility={fact.visibility ?? "public"}
+              onVisibility={async (next) => {
+                if (fact.visibility === next) return;
+                await api.setFieldVisibility(propertyId, SUMMARY_KEY, next);
+                await onChange((page) => ({
+                  ...page,
+                  facts: page.facts.map((row) => row.fieldKey === SUMMARY_KEY ? { ...row, visibility: next } : row),
+                }));
+              }}
+              onEdit={onEdit}
+              editTestId="about-edit"
+            />
           )}
         </div>
       ) : (
@@ -1315,7 +1317,7 @@ function VisibilityChoice({ value, onChange }: { value: FieldVisibility; onChang
   );
 }
 
-/** Visibility on the left, Edit on the right — same bar on rooms, topics, and improvements. */
+/** Visibility on the left, Edit on the right — same bar on about, rooms, topics, and improvements. */
 function CardFoot({
   visibility,
   onVisibility,
