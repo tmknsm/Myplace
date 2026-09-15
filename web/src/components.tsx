@@ -1,9 +1,30 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api, type Fact, type SearchHit } from "./api";
 import { useMeta } from "./meta";
+
+const PropertyReadyContext = createContext<Dispatch<SetStateAction<boolean>>>(() => {});
+
+/** Lets the header know the property spinner has finished, so share can enter. */
+export function PropertyReadyProvider({
+  onReady,
+  children,
+}: {
+  onReady: Dispatch<SetStateAction<boolean>>;
+  children: React.ReactNode;
+}) {
+  return <PropertyReadyContext.Provider value={onReady}>{children}</PropertyReadyContext.Provider>;
+}
+
+export function useReportPropertyReady(ready: boolean) {
+  const setReady = useContext(PropertyReadyContext);
+  useEffect(() => {
+    setReady(ready);
+    return () => setReady(false);
+  }, [ready, setReady]);
+}
 
 /** The same ring used in busy buttons, photo tiles, and full-page waits. */
 export function Spinner() {

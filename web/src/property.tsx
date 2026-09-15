@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
-import { actorLabel, eventLabel, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
+import { actorLabel, eventLabel, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint, useReportPropertyReady } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
 import { useMeta } from "./meta";
 import { DisputesSection } from "./property-owner";
@@ -321,6 +321,7 @@ export function PropertyPageView() {
 
   const sections = useMemo(() => organizeFacts(data?.property.facts ?? []), [data]);
   const closeSheet = useCallback(() => setSheet(null), []);
+  useReportPropertyReady(Boolean(id && (data || error)));
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!data || !id) return <PageSpinner label="Loading record" />;
