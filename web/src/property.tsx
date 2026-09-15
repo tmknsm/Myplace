@@ -1246,19 +1246,58 @@ function HeroCarousel({
 // Visibility
 // ---------------------------------------------------------------------------
 
-function VisibilityChip({ visibility, onToggle, busy = false }: { visibility: FieldVisibility; onToggle: () => void; busy?: boolean }) {
-  const isPrivate = visibility === "private";
+function EyeOpen() {
+  return (
+    <svg className="vis-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.2 12s3.5-6.4 9.8-6.4S21.8 12 21.8 12s-3.5 6.4-9.8 6.4S2.2 12 2.2 12z" />
+      <circle cx="12" cy="12" r="2.6" />
+    </svg>
+  );
+}
+
+function EyeClosed() {
+  return (
+    <svg className="vis-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3.2 9.4C5.7 12.6 8.7 14.2 12 14.2s6.3-1.6 8.8-4.8" />
+      <path d="M4.1 15.4 6.2 12.9" />
+      <path d="M19.9 15.4 17.8 12.9" />
+      <path d="M9.1 17.6 9.7 14.5" />
+      <path d="M14.9 17.6 14.3 14.5" />
+    </svg>
+  );
+}
+
+/** Open eye = public, closed eye = private. Icon only — no chip, no frame. */
+function VisibilityToggle({
+  value,
+  onChange,
+  busy = false,
+  testId,
+}: {
+  value: FieldVisibility | "public" | "private";
+  onChange: (next: FieldVisibility) => void;
+  busy?: boolean;
+  testId?: string;
+}) {
+  const isPrivate = value === "private";
   return (
     <button
       type="button"
-      className={`vis-chip ${isPrivate ? "is-private" : ""}`}
+      className={`vis-toggle${isPrivate ? " is-private" : ""}`}
       disabled={busy}
-      title={isPrivate ? "Only maintainers can see this. Click to share it on the public profile." : "Shown on the public profile. Click to keep it private."}
-      onClick={onToggle}
+      aria-label={isPrivate ? "Private" : "Public"}
+      aria-pressed={!isPrivate}
+      title={isPrivate ? "Private. Click to show on the public profile." : "Public. Click to keep it private."}
+      data-testid={testId}
+      onClick={() => onChange(isPrivate ? "public" : "private")}
     >
-      {isPrivate ? "Private" : "Public"}
+      {isPrivate ? <EyeClosed /> : <EyeOpen />}
     </button>
   );
+}
+
+function VisibilityChip({ visibility, onToggle, busy = false }: { visibility: FieldVisibility; onToggle: () => void; busy?: boolean }) {
+  return <VisibilityToggle value={visibility} busy={busy} onChange={() => onToggle()} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -1363,13 +1402,10 @@ function AboutForm({ fact, propertyId, onSaved, onCancel }: { fact: Fact; proper
 
 function VisibilityChoice({ value, onChange }: { value: FieldVisibility; onChange: (next: FieldVisibility) => void }) {
   return (
-    <label className="stack inline-choice">
+    <div className="stack inline-choice vis-field">
       <span>Visibility</span>
-      <div className="segmented">
-        <button type="button" className={value === "public" ? "on" : ""} onClick={() => onChange("public")}>Public</button>
-        <button type="button" className={value === "private" ? "on" : ""} onClick={() => onChange("private")}>Private</button>
-      </div>
-    </label>
+      <VisibilityToggle value={value} onChange={onChange} />
+    </div>
   );
 }
 
@@ -1387,10 +1423,10 @@ function CardFoot({
 }) {
   return (
     <div className="improvement-foot">
-      <div className="segmented small">
-        <button type="button" className={visibility === "public" ? "on" : ""} onClick={() => void onVisibility("public")}>Public</button>
-        <button type="button" className={visibility === "private" ? "on" : ""} onClick={() => void onVisibility("private")}>Private</button>
-      </div>
+      <VisibilityToggle
+        value={visibility === "private" ? "private" : "public"}
+        onChange={(next) => void onVisibility(next)}
+      />
       <button type="button" className="text-link" data-testid={editTestId} onClick={onEdit}>Edit</button>
     </div>
   );
@@ -1413,17 +1449,11 @@ function PriceField({
       <span>Amount paid</span>
       <div className="price-field-row">
         <input className="field" inputMode="decimal" placeholder="$" value={cost} onChange={(event) => onCost(event.target.value)} data-testid="price-input" />
-        <button
-          type="button"
-          className={`price-toggle${showPublic ? " on" : ""}`}
-          role="switch"
-          aria-checked={showPublic}
-          data-testid="price-public"
-          onClick={() => onShowPublic(!showPublic)}
-        >
-          <i aria-hidden="true" />
-          <span>{showPublic ? "Public" : "Private"}</span>
-        </button>
+        <VisibilityToggle
+          value={showPublic ? "public" : "private"}
+          onChange={(next) => onShowPublic(next === "public")}
+          testId="price-public"
+        />
       </div>
     </div>
   );
@@ -2722,13 +2752,9 @@ function ImprovementForm({
           {files.length > 0 && <small className="meta-line">{files.map((file) => file.name).join(", ")}</small>}
         </label>
         <PriceField cost={cost} onCost={setCost} showPublic={costPublic} onShowPublic={setCostPublic} />
-        <label className="stack span-2 inline-choice">
-          <span>Visibility</span>
-          <div className="segmented">
-            <button type="button" className={visibility === "public" ? "on" : ""} onClick={() => setVisibility("public")}>Public</button>
-            <button type="button" className={visibility === "private" ? "on" : ""} onClick={() => setVisibility("private")}>Private</button>
-          </div>
-        </label>
+        <div className="span-2">
+          <VisibilityChoice value={visibility as FieldVisibility} onChange={(next) => setVisibility(next)} />
+        </div>
       </div>
       {error && <p className="error">{error}</p>}
       {editing && item && onDeleted && (
