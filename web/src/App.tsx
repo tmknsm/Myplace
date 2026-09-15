@@ -40,21 +40,25 @@ function Layout({ children }: { children: React.ReactNode }) {
       // whatever docks beneath the header under its edge.
       const rect = node.getBoundingClientRect();
       const main = node.querySelector(".topbar-main")?.getBoundingClientRect();
-      // Freeze these on auth so a locked header height cannot rewrite the
-      // page min-height (and bounce the sticky button) while you scroll.
-      if (onAuth) return;
       document.documentElement.style.setProperty("--topbar-height", `${rect.height}px`);
       // Bottom of the brand row; on narrow screens the search row sits below it.
       document.documentElement.style.setProperty("--topbar-main-height", `${main ? main.bottom - rect.top : rect.height}px`);
-      document.documentElement.style.setProperty("--topbar-from-height", `${rect.height}px`);
     };
     sync();
     const observer = new ResizeObserver(sync);
     observer.observe(node);
     window.addEventListener("resize", sync);
+    // iOS: pull-to-refresh, bfcache, and backing out of the email keyboard
+    // all leave sticky chrome and --topbar-height stale unless we remasure.
+    window.addEventListener("pageshow", sync);
+    window.visualViewport?.addEventListener("resize", sync);
+    window.visualViewport?.addEventListener("scroll", sync);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", sync);
+      window.removeEventListener("pageshow", sync);
+      window.visualViewport?.removeEventListener("resize", sync);
+      window.visualViewport?.removeEventListener("scroll", sync);
     };
   }, [headerSearch, user, meta?.debug, onAuth]);
   return (

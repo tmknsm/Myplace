@@ -84,6 +84,9 @@ img, svg { max-width: 100%; }
   left: 0;
   right: 0;
   height: var(--topbar-height, 0px);
+  /* After iOS keyboard or pull-to-refresh, --topbar-height can briefly be 0.
+     Keep a brand-row-sized sheet so content never paints through the header. */
+  min-height: calc(env(safe-area-inset-top) + 52px);
   background: var(--chrome-fill);
   backdrop-filter: var(--chrome-blur);
   -webkit-backdrop-filter: var(--chrome-blur);
@@ -101,16 +104,6 @@ img, svg { max-width: 100%; }
 .topbar-main,
 .header-search {
   pointer-events: auto;
-}
-/* Auth pages keep the header at the height of the page you left, so the
-   logo does not jump when Map / Sign up / search leave the bar. */
-.topbar.is-auth {
-  height: var(--topbar-from-height, var(--topbar-height));
-}
-.topbar.is-auth .topbar-main {
-  height: 100%;
-  padding-top: 0;
-  padding-bottom: 0;
 }
 .topbar.is-auth .header-search,
 .topbar.is-auth .header-actions,
@@ -694,7 +687,7 @@ input[type="file"] {
   display: flex;
   flex-direction: column;
   max-width: none;
-  min-height: calc(100svh - var(--topbar-from-height, var(--topbar-height, 84px)));
+  min-height: calc(100svh - var(--topbar-height, 84px));
   padding-bottom: 0;
 }
 .auth-form {
