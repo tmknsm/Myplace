@@ -12,9 +12,12 @@ const PROPERTY_ID = "prop_76045741fc817ccf3afcfc4c40";
 
 /** Missing character fields, plus year/link/notes the topic sheets added. */
 const FIELDS: Record<string, unknown> = {
-  "exterior.color": "Hudson brick, the body never painted, #8a4a32",
-  "exterior.trim": "Benjamin Moore White Dove on the cornice and sash, #efeae1",
-  "exterior.door": "Black four-panel stoop door, original box lock, #1b1b1b",
+  "exterior.color": "Hudson brick, the body never painted",
+  "exterior.color.hex": "#8a4a32",
+  "exterior.trim": "Benjamin Moore White Dove on the cornice and sash",
+  "exterior.trim.hex": "#efeae1",
+  "exterior.door": "Black four-panel stoop door, original box lock",
+  "exterior.door.hex": "#1b1b1b",
   "paint.year": 2023,
   "paint.link": "https://www.benjaminmoore.com/en-us/color-overview/find-your-color/color/oc-17/white-dove",
   "paint.notes": "The brick is the body. Paint is the wood: cornice, sash, the stoop door. Sash last done with the 2021 restoration; the door in 2023.",

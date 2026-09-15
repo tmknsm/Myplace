@@ -32,12 +32,22 @@ import {
   isImage,
   money,
   FIELD_HINTS,
+  hexFieldKey,
   MULTILINE_FIELDS,
+  parseHex,
   scrollToId,
   splitSwatch,
   useToast,
   type Toast,
 } from "./property-shared";
+
+function factHex(fieldKey: string, facts: Fact[]): string | null {
+  const key = hexFieldKey(fieldKey);
+  if (!key) return null;
+  const fact = facts.find((item) => item.fieldKey === key);
+  const raw = fact?.display ?? (typeof fact?.value === "string" ? fact.value : null);
+  return raw;
+}
 
 type PageData = { property: PropertyPage; viewer: Viewer };
 
@@ -730,7 +740,7 @@ function StatStrip({ facts }: { facts: Fact[] }) {
       return [{ key: tile.key, label: tile.label, text: year, swatch: null as string | null, isPrivate: fact.visibility === "private" }];
     }
     if (!fact.display) return [];
-    const { text, swatch } = splitSwatch(tile.key, fact.display);
+    const { text, swatch } = splitSwatch(tile.key, fact.display, factHex(tile.key, facts));
     return [{ key: tile.key, label: tile.label, text, swatch, isPrivate: fact.visibility === "private" }];
   }).slice(0, STRIP_MAX);
   if (tiles.length === 0) return null;
@@ -1089,7 +1099,7 @@ function TopicCard({ topic, facts, owner, onOpen }: { topic: Topic; facts: Fact[
         {filled.map(({ field, fact }) => (
           <div key={fact.fieldKey} className="topic-row" data-field={fact.fieldKey}>
             <dt>{field.label ?? fact.label}</dt>
-            <dd><TopicValue field={field} fact={fact} /></dd>
+            <dd><TopicValue field={field} fact={fact} facts={facts} /></dd>
           </div>
         ))}
       </dl>
@@ -1097,14 +1107,14 @@ function TopicCard({ topic, facts, owner, onOpen }: { topic: Topic; facts: Fact[
   );
 }
 
-function TopicValue({ field, fact }: { field: TopicField; fact: Fact }) {
+function TopicValue({ field, fact, facts }: { field: TopicField; fact: Fact; facts: Fact[] }) {
   if (field.kind === "link" && typeof fact.value === "string") {
     return <a href={fact.value} target="_blank" rel="noopener noreferrer" className="topic-link">{linkLabel(fact.value)}</a>;
   }
   if (field.kind === "date" && typeof fact.value === "string") {
     return <>{dateLabel(fact.value) ?? fact.display}</>;
   }
-  const { text, swatch } = splitSwatch(fact.fieldKey, fact.display);
+  const { text, swatch } = splitSwatch(fact.fieldKey, fact.display, factHex(fact.fieldKey, facts));
   return (
     <>
       {swatch && <i className="swatch" style={{ background: swatch }} aria-hidden="true" />}
@@ -1284,6 +1294,12 @@ function TopicForm({
           payload[row.fact.fieldKey] = year;
           continue;
         }
+        if (row.kind === "hex") {
+          const hex = parseHex(next);
+          if (!hex) throw new Error(`${row.field.label ?? row.fact.label} should be a hex color, like #30474f.`);
+          payload[row.fact.fieldKey] = hex;
+          continue;
+        }
         payload[row.fact.fieldKey] = next;
       }
       const changedKeys = Object.keys(payload);
@@ -1331,7 +1347,8 @@ function TopicForm({
                   type={kind === "date" ? "date" : "text"}
                   inputMode={kind === "year" || kind === "number" ? "decimal" : kind === "link" ? "url" : undefined}
                   autoComplete={kind === "link" ? "url" : "off"}
-                  autoCapitalize={kind === "link" ? "off" : undefined}
+                  autoCapitalize={kind === "link" || kind === "hex" ? "off" : undefined}
+                  spellCheck={kind === "hex" ? false : undefined}
                   value={value}
                   placeholder={placeholder}
                   autoFocus={fact.fieldKey === firstWritable}

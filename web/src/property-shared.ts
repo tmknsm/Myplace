@@ -9,9 +9,12 @@ export const MULTILINE_FIELDS = new Set([
 /** Example answers shown as placeholders so the owner knows what kind of thing goes in the box. */
 export const FIELD_HINTS: Record<string, string> = {
   "style.architecture": "Greek Revival farmhouse, with an 1880s porch",
-  "exterior.color": "Farrow & Ball Hague Blue, #30474f",
-  "exterior.trim": "Benjamin Moore Simply White, #f4f2ea",
+  "exterior.color": "Farrow & Ball Hague Blue",
+  "exterior.color.hex": "#30474f",
+  "exterior.trim": "Benjamin Moore Simply White",
+  "exterior.trim.hex": "#f4f2ea",
   "exterior.door": "Oxblood, original oak underneath",
+  "exterior.door.hex": "#4a0e0e",
   "exterior.siding": "Cedar clapboard, painted",
   "interior.floors": "Wide-plank pine upstairs, oak strip below",
   "interior.kitchen": "Soapstone counters, inset Shaker cabinets",
@@ -35,15 +38,22 @@ export const FIELD_HINTS: Record<string, string> = {
 export const COLOR_FIELDS = new Set(["exterior.color", "exterior.trim", "exterior.door", "interior.palette"]);
 
 const HEX = /#(?:[0-9a-f]{6}|[0-9a-f]{3})\b/i;
+const HEX_ONLY = /^#?(?:[0-9a-f]{6}|[0-9a-f]{3})$/i;
 
-/**
- * Pull a hex color out of an owner-written value like "Hague Blue, #30474f".
- * Returns the swatch and the text with the hex removed, so the page can show
- * the color instead of the code.
- */
-export function splitSwatch(fieldKey: string, display: string | null): { text: string; swatch: string | null } {
-  if (!display) return { text: "", swatch: null };
-  if (!COLOR_FIELDS.has(fieldKey)) return { text: display, swatch: null };
+/** Companion field that holds the swatch for a paint color, e.g. exterior.color → exterior.color.hex. */
+export function hexFieldKey(colorKey: string): string | null {
+  return COLOR_FIELDS.has(colorKey) && colorKey !== "interior.palette" ? `${colorKey}.hex` : null;
+}
+
+/** Accept "#30474f", "30474f", or "#abc". Returns a #hex string, or null. */
+export function parseHex(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const text = raw.trim();
+  if (!HEX_ONLY.test(text)) return null;
+  return text.startsWith("#") ? text : `#${text}`;
+}
+
+function stripEmbeddedHex(display: string): { text: string; swatch: string | null } {
   const match = display.match(HEX);
   if (!match) return { text: display, swatch: null };
   const text = display
@@ -54,6 +64,22 @@ export function splitSwatch(fieldKey: string, display: string | null): { text: s
     .replace(/\s{2,}/g, " ")
     .trim();
   return { text: text || match[0], swatch: match[0] };
+}
+
+/**
+ * Resolve a paint swatch. Prefers the dedicated hex field; older values that
+ * still have a hex code in the color name keep working.
+ */
+export function splitSwatch(fieldKey: string, display: string | null, hex?: string | null): { text: string; swatch: string | null } {
+  if (!display && !hex) return { text: "", swatch: null };
+  if (!COLOR_FIELDS.has(fieldKey)) return { text: display ?? "", swatch: null };
+  const dedicated = parseHex(hex);
+  if (dedicated) {
+    const stripped = display ? stripEmbeddedHex(display).text : "";
+    return { text: stripped || display || dedicated, swatch: dedicated };
+  }
+  if (!display) return { text: "", swatch: null };
+  return stripEmbeddedHex(display);
 }
 
 export const CATEGORY_LABEL: Record<string, string> = {

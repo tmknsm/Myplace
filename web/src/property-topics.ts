@@ -1,6 +1,6 @@
 import type { Fact } from "./api";
 
-export type TopicFieldKind = "text" | "multiline" | "year" | "date" | "number" | "link";
+export type TopicFieldKind = "text" | "multiline" | "year" | "date" | "number" | "link" | "hex";
 
 export interface TopicField {
   key: string;
@@ -38,12 +38,15 @@ export const TOPICS: Topic[] = [
     id: "paint",
     section: "character",
     title: "Paint colors",
-    lede: "Name the colors so nobody has to ask. Put a hex code after the name and the page shows a swatch.",
+    lede: "Name the colors so nobody has to ask. A hex code next to the name puts a swatch on the page.",
     cta: "Name the paint",
     fields: [
-      { key: "exterior.color", label: "Body", hint: "Farrow & Ball Hague Blue, #30474f" },
-      { key: "exterior.trim", label: "Trim", hint: "Benjamin Moore Simply White, #f4f2ea" },
-      { key: "exterior.door", label: "Front door", hint: "Oxblood, original oak underneath" },
+      { key: "exterior.color", label: "Body", hint: "Farrow & Ball Hague Blue", half: true },
+      { key: "exterior.color.hex", label: "Hex", kind: "hex", hint: "#30474f", half: true },
+      { key: "exterior.trim", label: "Trim", hint: "Benjamin Moore Simply White", half: true },
+      { key: "exterior.trim.hex", label: "Hex", kind: "hex", hint: "#f4f2ea", half: true },
+      { key: "exterior.door", label: "Front door", hint: "Oxblood, original oak underneath", half: true },
+      { key: "exterior.door.hex", label: "Hex", kind: "hex", hint: "#4a0e0e", half: true },
       { key: "paint.year", label: "Year painted", kind: "year", hint: "2022", half: true },
       link("paint.link", "Where you bought it, or the painter"),
       { key: "paint.notes", label: "Notes", kind: "multiline", hint: "Sheen, primer, who did it, how it's held up" },
@@ -211,7 +214,7 @@ export function topicFacts(topic: Topic, facts: Fact[]): Array<{ field: TopicFie
 }
 
 export function filledTopicFacts(topic: Topic, facts: Fact[]): Array<{ field: TopicField; fact: Fact }> {
-  return topicFacts(topic, facts).filter(({ fact }) => fact.status !== "unknown" && fact.display);
+  return topicFacts(topic, facts).filter(({ field, fact }) => field.kind !== "hex" && fact.status !== "unknown" && fact.display);
 }
 
 /** Accept "hudsonpaint.com" as well as a full URL; reject anything that isn't http(s). */
