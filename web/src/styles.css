@@ -1492,7 +1492,9 @@ tr:last-child td { border-bottom: 0; }
 .about-editor textarea { font-size: 16px; line-height: 1.5; }
 
 /* Open eye = public, closed eye = private. No chip, no frame.
-   Public keeps the current ink-soft color on icon and word; private is muted gray. */
+   Public keeps ink-soft on icon and word; private is muted gray on both.
+   Color is set on the children so a sticky :hover after tap cannot keep
+   the public ink on a private control. */
 .vis-toggle {
   display: inline-flex;
   align-items: center;
@@ -1512,18 +1514,22 @@ tr:last-child td { border-bottom: 0; }
   max-width: none;
   display: block;
   flex: 0 0 auto;
+  color: inherit;
+  stroke: currentColor;
 }
 .vis-toggle .vis-word {
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
   letter-spacing: 0;
+  color: inherit;
 }
-.vis-toggle.is-private { color: var(--muted); }
-.vis-toggle:hover { color: var(--ink); }
-.vis-toggle.is-private:hover { color: var(--ink-soft); }
+.vis-toggle.is-private,
+.vis-toggle.is-private .vis-word,
+.vis-toggle.is-private .vis-glyph { color: var(--muted); }
 .vis-toggle:disabled { opacity: 0.45; cursor: wait; }
-.vis-toggle:focus-visible { outline: none; color: var(--accent); }
+.vis-toggle:focus-visible { outline: none; }
+.vis-toggle:focus-visible .vis-glyph { color: var(--accent); }
 .fact-value .vis-toggle { margin-left: 8px; vertical-align: middle; }
 .vis-field .vis-toggle { margin-top: 4px; }
 .price-wrap .vis-toggle {
