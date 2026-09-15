@@ -685,8 +685,12 @@ export function PropertyPageView() {
         >
           <div className="peek-gate-scrim" aria-hidden="true" />
           <div className="peek-gate-lockup">
-            <h2>Sign up to see claimed properties</h2>
-            <Link className="btn" to={`/signin?next=/property/${id}`} data-testid="peek-gate-signup">Sign up</Link>
+            <span className="peek-gate-kicker">Claimed by the owner</span>
+            <h2>Sign up to see<br />claimed properties</h2>
+            <div className="peek-gate-actions">
+              <Link className="btn" to={`/signin?next=/property/${id}`} data-testid="peek-gate-signup">Sign up</Link>
+              <Link className="peek-gate-signin" to={`/signin?next=/property/${id}`}>Already a member? Sign in</Link>
+            </div>
           </div>
           <p className="peek-gate-note">The owner keeps this page. Create a free account to see everything they've added.</p>
         </div>
