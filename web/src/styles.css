@@ -2208,7 +2208,7 @@ html.dialog-open body {
 /* The address card reads as type on the canvas: no fill, flush with the page. */
 .property-page .profile-head,
 .property-page .profile-head.group {
-  padding: var(--card-pad) 0;
+  padding: 10px 0 12px;
   margin-bottom: var(--gutter);
   background: none;
   box-shadow: none;
