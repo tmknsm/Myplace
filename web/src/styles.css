@@ -1894,11 +1894,13 @@ html.dialog-open body {
   display: flex;
   flex-direction: column;
   width: min(100%, 560px);
+  max-width: 100%;
   max-height: min(90dvh, 820px);
   background: var(--canvas);
   border-radius: 24px;
   box-shadow: 0 24px 64px rgba(20, 18, 14, 0.28);
   overflow: hidden;
+  overflow-x: hidden;
   animation: pop-in 220ms var(--sheet-settle);
   will-change: transform;
   touch-action: pan-y;
@@ -1925,12 +1927,16 @@ html.dialog-open body {
 .sheet-panel-head .modal-close { position: static; flex-shrink: 0; }
 .sheet-grabber { display: none; }
 .sheet-panel-body {
+  --sheet-inline: 24px;
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  overscroll-behavior-x: none;
   -webkit-overflow-scrolling: touch;
-  padding: 0 24px;
+  padding: 0;
   touch-action: pan-y;
 }
 /* The title and body arrive a beat after the panel so the sheet reads as a
@@ -1945,7 +1951,9 @@ html.dialog-open body {
 .improvement-form {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 100%;
+  padding: 0 var(--sheet-inline);
 }
 .sheet-form .form-grid { grid-template-columns: 1fr 1fr; }
 .sheet-form .form-grid .stack { margin: 8px 0; }
@@ -1959,8 +1967,8 @@ html.dialog-open body {
   position: sticky;
   bottom: 0;
   z-index: 2;
-  margin: auto -24px 0;
-  padding: 12px 24px calc(12px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px));
+  margin: auto calc(-1 * var(--sheet-inline)) 0;
+  padding: 12px var(--sheet-inline) calc(12px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px));
   border-top: 1px solid var(--hairline);
   background: var(--chrome-fill);
   backdrop-filter: var(--chrome-blur);
@@ -2313,13 +2321,7 @@ html.dialog-open body {
     border-radius: 2px;
     background: color-mix(in srgb, var(--accent) 70%, var(--canvas));
   }
-  .sheet-panel-body { padding: 0 16px; }
-  .sheet-actions {
-    margin-left: -16px;
-    margin-right: -16px;
-    padding-left: 16px;
-    padding-right: 16px;
-  }
+  .sheet-panel-body { --sheet-inline: 16px; padding: 0; }
   .sheet-form .form-grid,
   .improvement-form .form-grid { grid-template-columns: 1fr 1fr; }
   .sheet-form .form-grid .span-2,
