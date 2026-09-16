@@ -1317,14 +1317,14 @@ tr:last-child td { border-bottom: 0; }
 }
 .page-toast {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: env(safe-area-inset-bottom);
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
   z-index: 40;
-  width: 100%;
+  width: auto;
   max-width: none;
   padding: 14px 16px;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border-radius: var(--radius-sm);
   background: var(--ink);
   color: #fff;
   font-size: 14px;
