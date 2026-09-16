@@ -129,8 +129,8 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
             saveHandle();
           }}
         >
-          <label className="stack profile-handle-label">
-            <span>Handle</span>
+          <label className="profile-handle-label">
+            <strong>Handle</strong>
             <span className={`profile-handle${handleError ? " is-error" : ""}`}>
               <span className="profile-handle-at" aria-hidden="true">@</span>
               <input
@@ -149,7 +149,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
                 data-testid="profile-handle"
               />
             </span>
-            <span className={`profile-handle-hint${handleError ? " is-error" : ""}`} data-testid="profile-handle-hint">
+            <span className={`meta-line${handleError ? " is-error" : ""}`} data-testid="profile-handle-hint">
               {handleError ?? (user.handle ? "Shown on property pages when you anonymize." : "Add a handle to anonymize.")}
             </span>
           </label>

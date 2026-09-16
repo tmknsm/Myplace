@@ -1217,27 +1217,23 @@ tr:last-child td { border-bottom: 0; }
   text-align: left;
 }
 .profile-card-settings .row:hover { background: none; }
-.profile-handle-row { align-items: flex-start; display: block; }
-.profile-handle-label { flex: 1; margin: 0; }
-.profile-handle-label > span:first-child {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-}
+.profile-handle-row { display: block; }
+.profile-handle-label { display: block; }
+.profile-handle-label strong { display: block; }
 .profile-handle {
   display: flex;
   align-items: center;
+  margin: 8px 0 6px;
   background: var(--surface-2);
   border-radius: 12px;
   padding-left: 12px;
 }
-label.stack .profile-handle,
-label.stack .profile-handle-at { display: flex; margin-bottom: 0; }
 .profile-handle-at {
+  display: flex;
+  align-items: center;
   color: var(--muted);
   font-weight: 520;
   flex: 0 0 auto;
-  align-items: center;
 }
 .profile-handle .field {
   flex: 1;
@@ -1254,14 +1250,7 @@ label.stack .profile-handle-at { display: flex; margin-bottom: 0; }
   box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--danger) 55%, transparent);
 }
 .profile-handle .field:focus { background: transparent; box-shadow: none; }
-.profile-handle-hint {
-  display: block;
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--muted);
-  min-height: 1.35em;
-}
-.profile-handle-hint.is-error { color: var(--danger); }
+.profile-card-settings .meta-line.is-error { color: var(--danger); }
 .account-page {
   display: flex;
   flex-direction: column;
