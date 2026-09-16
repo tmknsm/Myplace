@@ -64,7 +64,6 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
 
   const handle = formatHandle(user.handle);
   const label = ownerLabel(user);
-  const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ") || user.display_name || user.primary_email;
   const dirty = handleDraft.trim().toLowerCase().replace(/^@+/, "") !== (user.handle ?? "");
   const canSaveHandle = dirty && !handleError && Boolean(handleDraft.trim());
 
@@ -92,97 +91,99 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
     }, "That photo could not be uploaded.");
 
   return (
-    <section className="profile-card" data-testid="profile-card">
-      <label className={`profile-card-avatar file-btn${busy === "photo" ? " is-busy" : ""}`} aria-label="Change photo" aria-busy={busy === "photo"}>
-        <img src={ownerPhoto(user)} alt="" width={96} height={96} data-testid="profile-avatar" />
-        <span className="profile-card-avatar-cam" aria-hidden="true">
-          <CameraIcon />
-        </span>
-        {busy === "photo" && <span className="profile-card-avatar-busy"><Spinner /></span>}
-        <input
-          type="file"
-          accept="image/*"
-          data-testid="avatar-input"
-          disabled={busy !== null}
-          onChange={(event) => {
-            const picked = event.target.files?.[0];
-            // Copy before the handler returns; iOS revokes picker files after.
-            const copy = picked ? snapshotPhotoFile(picked) : null;
-            event.target.value = "";
-            if (!copy) return;
-            void copy.then(uploadPhoto).catch((err) => showToast(err instanceof Error ? err.message : "That photo could not be read."));
-          }}
-        />
-      </label>
-      <h1 className="display profile-card-name" data-testid="profile-name">{label}</h1>
-      <p className="meta-line profile-card-sub">
-        {user.anonymize ? fullName : handle ?? "No handle yet"}
-        <span aria-hidden="true"> · </span>
-        {user.primary_email}
-      </p>
-
-      <div className="group profile-card-settings">
-        <form
-          className="row profile-handle-row"
-          onSubmit={(event) => {
-            event.preventDefault();
-            saveHandle();
-          }}
-        >
-          <label className="profile-handle-label">
-            <strong>Handle</strong>
-            <span className={`profile-handle${handleError ? " is-error" : ""}`}>
-              <span className="profile-handle-at" aria-hidden="true">@</span>
-              <input
-                className="field"
-                type="text"
-                autoComplete="username"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-                maxLength={24}
-                value={handleDraft}
-                onChange={(event) => setHandleDraft(event.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
-                onBlur={() => saveHandle()}
-                placeholder="yourname"
-                aria-invalid={Boolean(handleError)}
-                data-testid="profile-handle"
-              />
-            </span>
-            <span className={`meta-line${handleError ? " is-error" : ""}`} data-testid="profile-handle-hint">
-              {handleError ?? (user.handle ? "Shown on property pages when you anonymize." : "Add a handle to anonymize.")}
-            </span>
-          </label>
-        </form>
-        <div className="row">
-          <div>
-            <strong>Anonymize</strong>
-            <div className="meta-line">
-              {user.anonymize
-                ? `Property pages show ${handle ?? "your handle"} instead of your name.`
-                : user.handle
-                  ? `Show ${handle} instead of your name on property pages. Your photo stays the same.`
-                  : "Add a handle to show it instead of your name on property pages."}
-            </div>
-          </div>
-          <button
-            type="button"
-            className={`switch${user.anonymize ? " on" : ""}`}
-            role="switch"
-            aria-checked={user.anonymize}
-            aria-label="Anonymize"
-            disabled={busy !== null || !user.handle}
-            data-testid="anonymize-toggle"
-            onClick={() => void flip()}
+    <>
+      <section className="profile-card" data-testid="profile-card">
+        <label className={`profile-card-avatar file-btn${busy === "photo" ? " is-busy" : ""}`} aria-label="Change photo" aria-busy={busy === "photo"}>
+          <img src={ownerPhoto(user)} alt="" width={96} height={96} data-testid="profile-avatar" />
+          <span className="profile-card-avatar-cam" aria-hidden="true">
+            <CameraIcon />
+          </span>
+          {busy === "photo" && <span className="profile-card-avatar-busy"><Spinner /></span>}
+          <input
+            type="file"
+            accept="image/*"
+            data-testid="avatar-input"
+            disabled={busy !== null}
+            onChange={(event) => {
+              const picked = event.target.files?.[0];
+              // Copy before the handler returns; iOS revokes picker files after.
+              const copy = picked ? snapshotPhotoFile(picked) : null;
+              event.target.value = "";
+              if (!copy) return;
+              void copy.then(uploadPhoto).catch((err) => showToast(err instanceof Error ? err.message : "That photo could not be read."));
+            }}
+          />
+        </label>
+        <h1 className="display profile-card-name" data-testid="profile-name">{label}</h1>
+        <p className="meta-line profile-card-sub" data-testid="profile-sub">
+          {user.anonymize ? "Real name is never displayed." : user.primary_email}
+        </p>
+      </section>
+      <section className="section" data-testid="visibility-section">
+        <h2>Visibility</h2>
+        <div className="group profile-card-settings">
+          <form
+            className="row profile-handle-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveHandle();
+            }}
           >
-            <span className="visually-hidden">{user.anonymize ? "On" : "Off"}</span>
-          </button>
+            <label className="profile-handle-label">
+              <strong>Handle</strong>
+              <span className={`profile-handle${handleError ? " is-error" : ""}`}>
+                <span className="profile-handle-at" aria-hidden="true">@</span>
+                <input
+                  className="field"
+                  type="text"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  maxLength={24}
+                  value={handleDraft}
+                  onChange={(event) => setHandleDraft(event.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
+                  onBlur={() => saveHandle()}
+                  placeholder="yourname"
+                  aria-invalid={Boolean(handleError)}
+                  data-testid="profile-handle"
+                />
+              </span>
+              <span className={`meta-line${handleError ? " is-error" : ""}`} data-testid="profile-handle-hint">
+                {handleError ?? (user.handle ? "Shown on property pages when Anonymous is on." : "Add a handle to go anonymous.")}
+              </span>
+            </label>
+          </form>
+          <div className="row">
+            <div>
+              <strong>Anonymous</strong>
+              <div className="meta-line">
+                {user.anonymize
+                  ? `Property pages show ${handle ?? "your handle"} instead of your name.`
+                  : user.handle
+                    ? `Show ${handle} instead of your name on property pages. Your photo stays the same.`
+                    : "Add a handle to show it instead of your name on property pages."}
+              </div>
+            </div>
+            <button
+              type="button"
+              className={`switch${user.anonymize ? " on" : ""}`}
+              role="switch"
+              aria-checked={user.anonymize}
+              aria-label="Anonymous"
+              disabled={busy !== null || !user.handle}
+              data-testid="anonymize-toggle"
+              onClick={() => void flip()}
+            >
+              <span className="visually-hidden">{user.anonymize ? "On" : "Off"}</span>
+            </button>
+          </div>
         </div>
-      </div>
+      </section>
       {toast && (
         <div className="page-toast" role="status" data-testid="profile-toast">{toast}</div>
       )}
-    </section>
+    </>
   );
 }
 
