@@ -1,37 +1,62 @@
 import { useEffect, useRef, useState } from "react";
-import { formatHandle, ownerLabel, ownerPhoto } from "../../shared/profile";
+import { formatHandle, ownerLabel, ownerPhoto, parseHandle } from "../../shared/profile";
 import { api, type User } from "./api";
 import { Spinner } from "./components";
 import { snapshotPhotoFile } from "./optimize-photo";
+import { useToast } from "./property-shared";
 
 /**
- * The top of the account page: one photo, the name the property page shows,
- * and the anonymize switch. Anonymize only swaps the name for the handle; the
- * photo is whatever the person chose, so a faceless picture is a photo change,
- * not a second stored image.
+ * The top of the account page: one photo (tap the camera to change it), the
+ * name property pages show, then handle + anonymize. Anonymize only swaps the
+ * name for the handle; the photo is whatever they last chose.
  */
 export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promise<void> }) {
   const [busy, setBusy] = useState<"anonymize" | "handle" | "photo" | null>(null);
-  const [note, setNote] = useState<{ text: string; error?: boolean } | null>(null);
+  const [toast, showToast] = useToast();
   const [handleDraft, setHandleDraft] = useState((user.handle ?? "").replace(/^@+/, ""));
-  const noteTimer = useRef(0);
+  const [handleError, setHandleError] = useState<string | null>(null);
+  const checkGen = useRef(0);
   useEffect(() => {
     setHandleDraft((user.handle ?? "").replace(/^@+/, ""));
+    setHandleError(null);
   }, [user.handle]);
-  useEffect(() => () => window.clearTimeout(noteTimer.current), []);
 
-  const say = (text: string, error = false) => {
-    setNote({ text, error });
-    window.clearTimeout(noteTimer.current);
-    noteTimer.current = window.setTimeout(() => setNote(null), error ? 6000 : 3000);
-  };
+  useEffect(() => {
+    const raw = handleDraft.trim();
+    if (!raw) {
+      setHandleError(user.handle ? "Choose a handle." : null);
+      return;
+    }
+    const parsed = parseHandle(raw);
+    if ("error" in parsed) {
+      setHandleError(parsed.error);
+      return;
+    }
+    if (parsed.handle === user.handle) {
+      setHandleError(null);
+      return;
+    }
+    const gen = ++checkGen.current;
+    const timer = window.setTimeout(() => {
+      void api.handleAvailable(parsed.handle).then((res) => {
+        if (gen !== checkGen.current) return;
+        setHandleError(res.available ? null : "That handle is already taken.");
+      }).catch(() => {
+        if (gen !== checkGen.current) return;
+      });
+    }, 320);
+    return () => window.clearTimeout(timer);
+  }, [handleDraft, user.handle]);
+
   const run = async (kind: NonNullable<typeof busy>, work: () => Promise<string>, failure: string) => {
     if (busy) return;
     setBusy(kind);
     try {
-      say(await work());
+      showToast(await work());
     } catch (err) {
-      say(err instanceof Error ? err.message : failure, true);
+      const message = err instanceof Error ? err.message : failure;
+      if (kind === "handle") setHandleError(message);
+      showToast(message);
     } finally {
       setBusy(null);
     }
@@ -40,6 +65,8 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
   const handle = formatHandle(user.handle);
   const label = ownerLabel(user);
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ") || user.display_name || user.primary_email;
+  const dirty = handleDraft.trim().toLowerCase().replace(/^@+/, "") !== (user.handle ?? "");
+  const canSaveHandle = dirty && !handleError && Boolean(handleDraft.trim());
 
   const flip = () =>
     run("anonymize", async () => {
@@ -48,12 +75,14 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
       return saved.user.anonymize ? "Property pages now show your handle." : "Property pages now show your name.";
     }, "Could not update that.");
 
-  const saveHandle = () =>
-    run("handle", async () => {
-      await api.updateMe({ handle: handleDraft.trim() });
+  const saveHandle = () => {
+    if (busy || !canSaveHandle) return;
+    void run("handle", async () => {
+      const saved = await api.updateMe({ handle: handleDraft.trim() });
       await onUser();
-      return "Handle saved.";
+      return `Handle is now ${formatHandle(saved.user.handle)}.`;
     }, "Could not save that handle.");
+  };
 
   const uploadPhoto = (file: File) =>
     run("photo", async () => {
@@ -62,19 +91,29 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
       return "Photo updated.";
     }, "That photo could not be uploaded.");
 
-  const usePreset = (preset: "abstract" | "default") =>
-    run("photo", async () => {
-      await api.updateMe({ avatar: preset });
-      await onUser();
-      return preset === "abstract" ? "Your photo is now an abstract mark." : "Back to the default photo.";
-    }, "Could not change the photo.");
-
   return (
     <section className="profile-card" data-testid="profile-card">
-      <div className="profile-card-avatar">
+      <label className={`profile-card-avatar file-btn${busy === "photo" ? " is-busy" : ""}`} aria-label="Change photo" aria-busy={busy === "photo"}>
         <img src={ownerPhoto(user)} alt="" width={96} height={96} data-testid="profile-avatar" />
+        <span className="profile-card-avatar-cam" aria-hidden="true">
+          <CameraIcon />
+        </span>
         {busy === "photo" && <span className="profile-card-avatar-busy"><Spinner /></span>}
-      </div>
+        <input
+          type="file"
+          accept="image/*"
+          data-testid="avatar-input"
+          disabled={busy !== null}
+          onChange={(event) => {
+            const picked = event.target.files?.[0];
+            // Copy before the handler returns; iOS revokes picker files after.
+            const copy = picked ? snapshotPhotoFile(picked) : null;
+            event.target.value = "";
+            if (!copy) return;
+            void copy.then(uploadPhoto).catch((err) => showToast(err instanceof Error ? err.message : "That photo could not be read."));
+          }}
+        />
+      </label>
       <h1 className="display profile-card-name" data-testid="profile-name">{label}</h1>
       <p className="meta-line profile-card-sub">
         {user.anonymize ? fullName : handle ?? "No handle yet"}
@@ -82,41 +121,18 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
         {user.primary_email}
       </p>
 
-      <div className="profile-card-photo-actions">
-        <label className={`text-btn accent file-btn${busy === "photo" ? " is-busy" : ""}`} aria-busy={busy === "photo"}>
-          Change photo
-          <input
-            type="file"
-            accept="image/*"
-            data-testid="avatar-input"
-            disabled={busy !== null}
-            onChange={(event) => {
-              const picked = event.target.files?.[0];
-              // Copy before the handler returns; iOS revokes picker files after.
-              const copy = picked ? snapshotPhotoFile(picked) : null;
-              event.target.value = "";
-              if (!copy) return;
-              void copy.then(uploadPhoto).catch((err) => say(err instanceof Error ? err.message : "That photo could not be read.", true));
-            }}
-          />
-        </label>
-        <span className="profile-card-dot" aria-hidden="true">·</span>
-        <button type="button" className="text-btn" disabled={busy !== null} data-testid="avatar-abstract" onClick={() => void usePreset("abstract")}>
-          Use an abstract mark
-        </button>
-      </div>
-
       <div className="group profile-card-settings">
-        {!user.handle && (
-          <form
-            className="row"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void saveHandle();
-            }}
-          >
-            <label className="stack" style={{ flex: 1 }}>
-              <span>Handle</span>
+        <form
+          className="row profile-handle-row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveHandle();
+          }}
+        >
+          <label className="stack profile-handle-label">
+            <span>Handle</span>
+            <span className="profile-handle">
+              <span className="profile-handle-at" aria-hidden="true">@</span>
               <input
                 className="field"
                 type="text"
@@ -127,15 +143,20 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
                 maxLength={24}
                 value={handleDraft}
                 onChange={(event) => setHandleDraft(event.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
-                placeholder="@yourname"
-                data-testid="anonymize-handle"
+                onBlur={() => saveHandle()}
+                placeholder="yourname"
+                aria-invalid={Boolean(handleError)}
+                data-testid="profile-handle"
               />
-            </label>
-            <button type="submit" className="btn small secondary" disabled={busy !== null || !handleDraft.trim()}>
-              {busy === "handle" ? "Saving…" : "Save"}
-            </button>
-          </form>
-        )}
+            </span>
+            <span className={`profile-handle-hint${handleError ? " is-error" : ""}`} data-testid="profile-handle-hint">
+              {handleError ?? (user.handle ? "Shown on property pages when you anonymize." : "Add a handle to anonymize.")}
+            </span>
+          </label>
+          <button type="submit" className="btn small secondary" disabled={busy !== null || !canSaveHandle} data-testid="profile-handle-save">
+            {busy === "handle" ? "Saving…" : "Save"}
+          </button>
+        </form>
         <div className="row">
           <div>
             <strong>Anonymize</strong>
@@ -161,11 +182,18 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
           </button>
         </div>
       </div>
-      {note && (
-        <p className={`meta-line profile-card-note${note.error ? " is-error" : ""}`} role="status" data-testid="profile-note">
-          {note.text}
-        </p>
+      {toast && (
+        <div className="page-toast" role="status" data-testid="profile-toast">{toast}</div>
       )}
     </section>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8.6h2.1l1.5-2.3h8.8l1.5 2.3H20a2 2 0 0 1 2 2v8.2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10.6a2 2 0 0 1 2-2Z" />
+      <circle cx="12" cy="14.2" r="3.2" />
+    </svg>
   );
 }

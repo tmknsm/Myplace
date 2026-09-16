@@ -868,6 +868,44 @@ test("anonymize swaps the name, never the photo; the photo is its own change", a
   expect(gone.status).toBe(404);
 });
 
+test("handles are unique and the availability check knows your own", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  await sql`UPDATE users SET handle = 'hudsonowner' WHERE primary_email = 'owner@example.com'`;
+  const otherCookie = await signIn("kelsey@example.com");
+  await sql`UPDATE users SET handle = 'ktmkns' WHERE primary_email = 'kelsey@example.com'`;
+
+  const own = await app.request("http://localhost/api/handles/hudsonowner", { headers: { cookie: ownerCookie } });
+  expect(own.status).toBe(200);
+  expect((await own.json()).available).toBe(true);
+
+  const taken = await app.request("http://localhost/api/handles/ktmkns", { headers: { cookie: ownerCookie } });
+  expect(taken.status).toBe(200);
+  expect((await taken.json()).available).toBe(false);
+
+  const free = await app.request("http://localhost/api/handles/newhandle");
+  expect(free.status).toBe(200);
+  expect((await free.json()).available).toBe(true);
+
+  const junk = await app.request("http://localhost/api/handles/1bad");
+  expect(junk.status).toBe(400);
+
+  const steal = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ handle: "ktmkns" }),
+  });
+  expect(steal.status).toBe(409);
+
+  const rename = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: otherCookie },
+    body: JSON.stringify({ handle: "kelseyt" }),
+  });
+  expect(rename.status).toBe(200);
+  expect((await rename.json()).user.handle).toBe("kelseyt");
+});
+
 test("each maintainer anonymizes independently", async () => {
   await seedProperty();
   const ownerCookie = await verifiedOwner("owner@example.com");

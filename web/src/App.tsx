@@ -578,9 +578,6 @@ function AccountPage() {
   return (
     <div className="page account-page">
       <ProfileCard user={user} onUser={refresh} />
-      <div className="action-row narrow-only">
-        <button className="btn secondary" onClick={() => signOut()}>Sign out</button>
-      </div>
       <section className="section">
         <h2>Properties</h2>
         <div className="group">
@@ -601,6 +598,9 @@ function AccountPage() {
           ))}
         </div>
       </section>
+      <div className="action-row account-signout">
+        <button className="btn secondary" onClick={() => signOut()} data-testid="account-signout">Sign out</button>
+      </div>
     </div>
   );
 }

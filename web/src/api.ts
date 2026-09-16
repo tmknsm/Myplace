@@ -55,6 +55,8 @@ export const api = {
   signOut: () => request<{ ok: boolean }>("/api/auth/sign-out", { method: "POST" }),
   updateMe: (body: { anonymize?: boolean; handle?: string; avatar?: "abstract" | "default" }) =>
     request<{ user: User }>("/api/me", { method: "PATCH", body: JSON.stringify(body) }),
+  handleAvailable: (handle: string) =>
+    request<{ available: boolean; handle: string }>(`/api/handles/${encodeURIComponent(handle)}`),
   uploadAvatar: async (file: File) => {
     const { optimizePhotoFile } = await import("./optimize-photo");
     const photo = await optimizePhotoFile(file);

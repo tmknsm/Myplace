@@ -274,6 +274,18 @@ app.patch("/api/me", async (c) => {
   return c.json({ user: next });
 });
 
+/** Whether a handle is free. Your own current handle counts as available. */
+app.get("/api/handles/:handle", async (c) => {
+  const parsed = parseHandle(c.req.param("handle"));
+  if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+  const viewer = c.get("user");
+  const taken = await getSql()<{ user_id: string }[]>`
+    SELECT user_id FROM users WHERE lower(handle) = ${parsed.handle}
+  `;
+  const available = !taken[0] || taken[0].user_id === viewer?.user_id;
+  return c.json({ available, handle: parsed.handle });
+});
+
 /** Point the account at a new photo and drop the upload it replaces. */
 async function setAvatar(user: AuthedUser, avatarUrl: string, avatarKey: string | null): Promise<void> {
   await getSql()`
