@@ -1224,6 +1224,50 @@ tr:last-child td { border-bottom: 0; }
 .profile-handle-row { display: block; }
 .profile-handle-label { display: block; }
 .profile-handle-label strong { display: block; }
+.profile-handle-accept {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: 0;
+  transition: grid-template-rows 320ms var(--share-ease), margin-top 320ms var(--share-ease);
+}
+.profile-handle-accept.is-on {
+  grid-template-rows: 1fr;
+  margin-top: 12px;
+}
+.profile-handle-accept-slot {
+  overflow: hidden;
+  min-height: 0;
+}
+.profile-handle-accept-btn {
+  width: 100%;
+  opacity: 0;
+  transform: scale(0.5);
+  visibility: hidden;
+  pointer-events: none;
+  transform-origin: 50% 50%;
+  transition:
+    opacity 140ms ease,
+    transform 200ms var(--share-ease),
+    visibility 0s linear 200ms,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+.profile-handle-accept.is-on .profile-handle-accept-btn {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity 180ms ease 90ms,
+    transform 320ms var(--share-pop) 90ms,
+    visibility 0s,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+.profile-handle-accept.is-on:active .profile-handle-accept-btn {
+  transform: scale(0.94);
+  transition-duration: 80ms;
+}
 .profile-handle {
   display: flex;
   align-items: center;
@@ -1253,8 +1297,13 @@ tr:last-child td { border-bottom: 0; }
 .profile-handle.is-error:focus-within {
   box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--danger) 55%, transparent);
 }
+.profile-handle.is-ok,
+.profile-handle.is-ok:focus-within {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--ok) 55%, transparent);
+}
 .profile-handle .field:focus { background: transparent; box-shadow: none; }
 .profile-card-settings .meta-line.is-error { color: var(--danger); }
+.profile-card-settings .meta-line.is-ok { color: var(--ok); }
 .account-page {
   display: flex;
   flex-direction: column;

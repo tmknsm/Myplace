@@ -14,37 +14,43 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
   const [busy, setBusy] = useState<"anonymize" | "handle" | "photo" | null>(null);
   const [toast, showToast] = useToast();
   const [handleDraft, setHandleDraft] = useState((user.handle ?? "").replace(/^@+/, ""));
-  const [handleError, setHandleError] = useState<string | null>(null);
+  const [availability, setAvailability] = useState<"idle" | "checking" | "available" | "unavailable" | "invalid">("idle");
+  const [handleHint, setHandleHint] = useState<string | null>(null);
   const checkGen = useRef(0);
   useEffect(() => {
     setHandleDraft((user.handle ?? "").replace(/^@+/, ""));
-    setHandleError(null);
+    setAvailability("idle");
+    setHandleHint(null);
   }, [user.handle]);
 
   useEffect(() => {
     const raw = handleDraft.trim();
-    if (!raw) {
-      setHandleError(user.handle ? "Choose a handle." : null);
+    const current = user.handle ?? "";
+    if (!raw || raw.toLowerCase() === current) {
+      setAvailability("idle");
+      setHandleHint(null);
       return;
     }
     const parsed = parseHandle(raw);
     if ("error" in parsed) {
-      setHandleError(parsed.error);
-      return;
-    }
-    if (parsed.handle === user.handle) {
-      setHandleError(null);
+      setAvailability("invalid");
+      setHandleHint(parsed.error);
       return;
     }
     const gen = ++checkGen.current;
+    setAvailability("checking");
+    setHandleHint(null);
     const timer = window.setTimeout(() => {
       void api.handleAvailable(parsed.handle).then((res) => {
         if (gen !== checkGen.current) return;
-        setHandleError(res.available ? null : "That handle is already taken.");
+        setAvailability(res.available ? "available" : "unavailable");
+        setHandleHint(null);
       }).catch(() => {
         if (gen !== checkGen.current) return;
+        setAvailability("invalid");
+        setHandleHint("Could not check that handle.");
       });
-    }, 320);
+    }, 280);
     return () => window.clearTimeout(timer);
   }, [handleDraft, user.handle]);
 
@@ -55,7 +61,10 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
       showToast(await work());
     } catch (err) {
       const message = err instanceof Error ? err.message : failure;
-      if (kind === "handle") setHandleError(message);
+      if (kind === "handle") {
+        setAvailability("unavailable");
+        setHandleHint(message);
+      }
       showToast(message);
     } finally {
       setBusy(null);
@@ -64,8 +73,17 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
 
   const handle = formatHandle(user.handle);
   const label = ownerLabel(user);
-  const dirty = handleDraft.trim().toLowerCase().replace(/^@+/, "") !== (user.handle ?? "");
-  const canSaveHandle = dirty && !handleError && Boolean(handleDraft.trim());
+  const canSaveHandle = availability === "available";
+  const hintClass = availability === "available"
+    ? " is-ok"
+    : availability === "unavailable" || availability === "invalid"
+      ? " is-error"
+      : "";
+  const hintText = availability === "available"
+    ? "Available"
+    : availability === "unavailable"
+      ? "Unavailable"
+      : handleHint ?? (user.handle ? "Shown on property pages when Anonymous is on." : "Add a handle to go anonymous.");
 
   const flip = () =>
     run("anonymize", async () => {
@@ -131,7 +149,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
           >
             <label className="profile-handle-label">
               <strong>Handle</strong>
-              <span className={`profile-handle${handleError ? " is-error" : ""}`}>
+              <span className={`profile-handle${availability === "unavailable" || availability === "invalid" ? " is-error" : availability === "available" ? " is-ok" : ""}`}>
                 <span className="profile-handle-at" aria-hidden="true">@</span>
                 <input
                   className="field"
@@ -143,16 +161,28 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
                   maxLength={24}
                   value={handleDraft}
                   onChange={(event) => setHandleDraft(event.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
-                  onBlur={() => saveHandle()}
                   placeholder="yourname"
-                  aria-invalid={Boolean(handleError)}
+                  aria-invalid={availability === "unavailable" || availability === "invalid"}
                   data-testid="profile-handle"
                 />
               </span>
-              <span className={`meta-line${handleError ? " is-error" : ""}`} data-testid="profile-handle-hint">
-                {handleError ?? (user.handle ? "Shown on property pages when Anonymous is on." : "Add a handle to go anonymous.")}
+              <span className={`meta-line${hintClass}`} data-testid="profile-handle-hint">
+                {hintText}
               </span>
             </label>
+            <div className={`profile-handle-accept${canSaveHandle ? " is-on" : ""}`}>
+              <div className="profile-handle-accept-slot">
+                <button
+                  type="submit"
+                  className="btn small profile-handle-accept-btn"
+                  disabled={!canSaveHandle || busy !== null}
+                  tabIndex={canSaveHandle ? 0 : -1}
+                  data-testid="profile-handle-accept"
+                >
+                  {busy === "handle" ? "Saving…" : "Accept"}
+                </button>
+              </div>
+            </div>
           </form>
           <div className="row">
             <div>
