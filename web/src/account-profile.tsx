@@ -131,7 +131,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
         >
           <label className="stack profile-handle-label">
             <span>Handle</span>
-            <span className="profile-handle">
+            <span className={`profile-handle${handleError ? " is-error" : ""}`}>
               <span className="profile-handle-at" aria-hidden="true">@</span>
               <input
                 className="field"
@@ -153,9 +153,6 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
               {handleError ?? (user.handle ? "Shown on property pages when you anonymize." : "Add a handle to anonymize.")}
             </span>
           </label>
-          <button type="submit" className="btn small secondary" disabled={busy !== null || !canSaveHandle} data-testid="profile-handle-save">
-            {busy === "handle" ? "Saving…" : "Save"}
-          </button>
         </form>
         <div className="row">
           <div>

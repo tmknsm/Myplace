@@ -1179,19 +1179,20 @@ tr:last-child td { border-bottom: 0; }
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.36);
-  color: #fff;
   pointer-events: none;
-  transition: background 160ms ease;
 }
 .profile-card-avatar-cam svg {
-  width: 28px;
-  height: 28px;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+  width: 36px;
+  height: 36px;
+  padding: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
-.profile-card-avatar:hover .profile-card-avatar-cam,
-.profile-card-avatar:focus-within .profile-card-avatar-cam {
-  background: rgba(255, 255, 255, 0.48);
+.profile-card-avatar:hover .profile-card-avatar-cam svg,
+.profile-card-avatar:focus-within .profile-card-avatar-cam svg {
+  background: rgba(255, 255, 255, 0.88);
 }
 .profile-card-avatar-busy {
   position: absolute;
@@ -1216,7 +1217,7 @@ tr:last-child td { border-bottom: 0; }
   text-align: left;
 }
 .profile-card-settings .row:hover { background: none; }
-.profile-handle-row { align-items: flex-start; }
+.profile-handle-row { align-items: flex-start; display: block; }
 .profile-handle-label { flex: 1; margin: 0; }
 .profile-handle-label > span:first-child {
   font-size: 13px;
@@ -1226,14 +1227,33 @@ tr:last-child td { border-bottom: 0; }
 .profile-handle {
   display: flex;
   align-items: center;
-  gap: 2px;
+  background: var(--surface-2);
+  border-radius: 12px;
+  padding-left: 12px;
 }
+label.stack .profile-handle,
+label.stack .profile-handle-at { display: flex; margin-bottom: 0; }
 .profile-handle-at {
   color: var(--muted);
   font-weight: 520;
-  padding: 0 2px 0 2px;
+  flex: 0 0 auto;
+  align-items: center;
 }
-.profile-handle .field { flex: 1; min-width: 0; }
+.profile-handle .field {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  padding-left: 2px;
+}
+.profile-handle:focus-within {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.profile-handle.is-error,
+.profile-handle.is-error:focus-within {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--danger) 55%, transparent);
+}
+.profile-handle .field:focus { background: transparent; box-shadow: none; }
 .profile-handle-hint {
   display: block;
   margin-top: 6px;
@@ -1255,7 +1275,7 @@ tr:last-child td { border-bottom: 0; }
 .page-toast {
   position: fixed;
   left: 50%;
-  bottom: max(20px, calc(12px + env(safe-area-inset-bottom)));
+  bottom: max(88px, calc(72px + env(safe-area-inset-bottom)));
   z-index: 40;
   max-width: min(420px, calc(100vw - 32px));
   padding: 12px 16px;
