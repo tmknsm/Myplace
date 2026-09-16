@@ -2798,10 +2798,6 @@ html.peek-gated body {
   overflow: hidden;
   padding-bottom: 0;
 }
-.property-page.is-gated .owner-byline {
-  position: relative;
-  z-index: 20;
-}
 .property-page.is-gated .stat strong {
   visibility: hidden;
 }

@@ -609,7 +609,7 @@ export function PropertyPageView() {
 
       <header className="profile-head group">
         <div className="profile-title">
-          {pageOwner && (
+          {pageOwner && user && (
             <div className="owner-byline" data-testid="owner-byline">
               <img src={pageOwner.photo_url} alt="" width={16} height={16} />
               <span>{pageOwner.label}</span>
