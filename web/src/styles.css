@@ -1121,14 +1121,18 @@ tr:last-child td { border-bottom: 0; }
 }
 .profile-title { min-width: 0; flex: 1 1 420px; }
 .owner-byline {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
   margin: 0 0 8px;
+  padding: 3px 10px 3px 3px;
   font-size: 13px;
   line-height: 1.2;
   font-weight: 520;
-  color: var(--ink-soft);
+  color: var(--ink);
+  background: var(--surface);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
 }
 .owner-byline img {
   width: 16px;
@@ -1138,7 +1142,11 @@ tr:last-child td { border-bottom: 0; }
   flex: 0 0 16px;
   background: var(--surface-2);
 }
-.owner-byline-preview { margin: 8px 0 0; }
+.owner-byline-preview {
+  margin: 8px 0 0;
+  box-shadow: none;
+  background: var(--surface-2);
+}
 .profile-title .profile-chips {
   display: flex;
   flex-wrap: wrap;
@@ -2789,6 +2797,10 @@ html.peek-gated body {
   max-height: 100dvh;
   overflow: hidden;
   padding-bottom: 0;
+}
+.property-page.is-gated .owner-byline {
+  position: relative;
+  z-index: 20;
 }
 .property-page.is-gated .stat strong {
   visibility: hidden;
