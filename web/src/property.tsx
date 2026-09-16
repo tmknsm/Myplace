@@ -622,7 +622,6 @@ export function PropertyPageView() {
                 >
                   <img src={person.photo_url} alt="" width={16} height={16} />
                   <span>{person.label}</span>
-                  {person.role === "co_owner" && <span className="owner-byline-role">Co-owner</span>}
                 </div>
               ))}
             </div>
