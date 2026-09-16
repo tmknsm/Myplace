@@ -233,13 +233,35 @@ app.post("/api/auth/verify", async (c) => {
 
 app.patch("/api/me", async (c) => {
   const user = requireUser(c);
-  const body = await c.req.json<{ anonymize?: boolean }>();
-  if (typeof body.anonymize !== "boolean") return c.json({ error: "Say whether to anonymize." }, 400);
-  if (body.anonymize && !user.handle) {
+  const body = await c.req.json<{ anonymize?: boolean; handle?: string }>();
+  if (body.anonymize !== undefined && typeof body.anonymize !== "boolean") {
+    return c.json({ error: "Say whether to anonymize." }, 400);
+  }
+  if (body.anonymize === undefined && body.handle === undefined) {
+    return c.json({ error: "Say what to change." }, 400);
+  }
+
+  const sql = getSql();
+  let handle = user.handle;
+  if (body.handle !== undefined && body.handle !== "") {
+    const parsed = parseHandle(body.handle);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    const taken = await sql<{ user_id: string }[]>`
+      SELECT user_id FROM users WHERE lower(handle) = ${parsed.handle} AND user_id <> ${user.user_id}
+    `;
+    if (taken[0]) return c.json({ error: "That handle is already taken." }, 409);
+    handle = parsed.handle;
+  }
+  const anonymize = body.anonymize ?? user.anonymize;
+  if (anonymize && !handle) {
     return c.json({ error: "Add a handle before you anonymize." }, 400);
   }
-  const sql = getSql();
-  await sql`UPDATE users SET anonymize = ${body.anonymize} WHERE user_id = ${user.user_id}`;
+  await sql`
+    UPDATE users
+    SET anonymize = ${anonymize},
+        handle = ${handle}
+    WHERE user_id = ${user.user_id}
+  `;
   const next = await loadUser(user.user_id);
   return c.json({ user: next });
 });

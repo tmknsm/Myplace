@@ -53,7 +53,7 @@ export const api = {
   verify: (email: string, code: string, names?: { firstName?: string; lastName?: string; handle?: string }) =>
     request<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ email, code, ...names }) }),
   signOut: () => request<{ ok: boolean }>("/api/auth/sign-out", { method: "POST" }),
-  updateMe: (body: { anonymize: boolean }) =>
+  updateMe: (body: { anonymize?: boolean; handle?: string }) =>
     request<{ user: User }>("/api/me", { method: "PATCH", body: JSON.stringify(body) }),
   search: (q: string) => request<{ results: SearchHit[] }>(`/api/search?q=${encodeURIComponent(q)}`),
   parcels: (bbox: string) => request<ParcelCollection>(`/api/parcels?bbox=${bbox}`),

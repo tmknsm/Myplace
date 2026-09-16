@@ -450,7 +450,10 @@ export function PropertyPageView() {
   const summary = property.facts.find((fact) => fact.fieldKey === SUMMARY_KEY) ?? null;
   const hasSummary = Boolean(summary?.display);
   const maintained = property.maintainers.length > 0;
-  const pageOwner = property.maintainers.find((row) => row.role === "owner") ?? property.maintainers[0] ?? null;
+  const pagePeople = [...property.maintainers].sort((a, b) => {
+    if (a.role === b.role) return 0;
+    return a.role === "owner" ? -1 : 1;
+  });
   const historicDistrict = isOfficialHistoricDistrict(property.facts);
   // Visitors only see topics with something public in them; the owner sees every card.
   const topicHasPhotos = (topic: Topic) => property.documents.some((doc) => doc.topic_id === topic.id && isImage(doc) && hasFile(doc));
@@ -609,10 +612,19 @@ export function PropertyPageView() {
 
       <header className="profile-head group">
         <div className="profile-title">
-          {pageOwner && user && (
-            <div className="owner-byline" data-testid="owner-byline">
-              <img src={pageOwner.photo_url} alt="" width={16} height={16} />
-              <span>{pageOwner.label}</span>
+          {user && pagePeople.length > 0 && (
+            <div className="owner-bylines">
+              {pagePeople.map((person) => (
+                <div
+                  key={person.maintainer_id}
+                  className="owner-byline"
+                  data-testid={person.role === "co_owner" ? "co-owner-byline" : "owner-byline"}
+                >
+                  <img src={person.photo_url} alt="" width={16} height={16} />
+                  <span>{person.label}</span>
+                  {person.role === "co_owner" && <span className="owner-byline-role">Co-owner</span>}
+                </div>
+              ))}
             </div>
           )}
           {((maintained && !owner) || historicDistrict) && (

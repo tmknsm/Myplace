@@ -258,6 +258,10 @@ export function AnonymizeSection({
   toast: Toast;
 }) {
   const [busy, setBusy] = useState(false);
+  const [handleDraft, setHandleDraft] = useState((user.handle ?? "").replace(/^@+/, ""));
+  useEffect(() => {
+    setHandleDraft((user.handle ?? "").replace(/^@+/, ""));
+  }, [user.handle]);
   const preview = {
     anonymize: user.anonymize,
     handle: user.handle,
@@ -268,13 +272,68 @@ export function AnonymizeSection({
     anonymous_avatar_url: user.anonymous_avatar_url,
   };
   const handle = formatHandle(user.handle);
+  const flip = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const saved = await api.updateMe({ anonymize: !user.anonymize });
+      await onUser();
+      toast(saved.user.anonymize ? "The page now shows your handle." : "The page now shows your name.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not update that.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveHandle = async () => {
+    if (busy || !handleDraft.trim()) return;
+    setBusy(true);
+    try {
+      await api.updateMe({ handle: handleDraft.trim() });
+      await onUser();
+      toast("Handle saved.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not save that handle.");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <section className="section" id="anonymize" data-testid="anonymize-section">
       <h2>On the property page</h2>
       <p className="meta-line section-note">
-        Your name and photo sit above the address. Anonymize to show {handle ?? "your @handle"} and a faceless mark instead.
+        Your name and photo sit above the address. Anonymize to show {handle ?? "your @handle"} and a faceless mark instead. Co-owners set this on their own account.
       </p>
       <div className="group">
+        {!user.handle && (
+          <form
+            className="row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveHandle();
+            }}
+          >
+            <label className="stack" style={{ flex: 1 }}>
+              <span>Handle</span>
+              <input
+                className="field"
+                type="text"
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                maxLength={24}
+                value={handleDraft}
+                onChange={(event) => setHandleDraft(event.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
+                placeholder="@yourname"
+                data-testid="anonymize-handle"
+              />
+            </label>
+            <button type="submit" className="btn small secondary" disabled={busy || !handleDraft.trim()}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+          </form>
+        )}
         <div className="row">
           <div>
             <strong>Anonymize</strong>
@@ -290,23 +349,15 @@ export function AnonymizeSection({
           </div>
           <button
             type="button"
-            className={`btn small${user.anonymize ? "" : " secondary"}`}
-            disabled={busy || (!user.handle && !user.anonymize)}
+            className={`switch${user.anonymize ? " on" : ""}`}
+            role="switch"
+            aria-checked={user.anonymize}
+            aria-label="Anonymize"
+            disabled={busy || !user.handle}
             data-testid="anonymize-toggle"
-            onClick={async () => {
-              setBusy(true);
-              try {
-                const saved = await api.updateMe({ anonymize: !user.anonymize });
-                await onUser();
-                toast(saved.user.anonymize ? "The page now shows your handle." : "The page now shows your name.");
-              } catch (err) {
-                toast(err instanceof Error ? err.message : "Could not update that.");
-              } finally {
-                setBusy(false);
-              }
-            }}
+            onClick={() => void flip()}
           >
-            {busy ? "Saving…" : user.anonymize ? "On" : "Off"}
+            <span className="visually-hidden">{user.anonymize ? "On" : "Off"}</span>
           </button>
         </div>
       </div>

@@ -788,6 +788,44 @@ test("anonymize shows the handle on the public property page", async () => {
   expect(hidden.property.maintainers[0].display_name).toBeUndefined();
 });
 
+test("each maintainer anonymizes independently", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  await sql`UPDATE users SET handle = 'hudsonowner', first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
+
+  const coCookie = await signIn("kelsey@example.com");
+  await sql`UPDATE users SET handle = 'ktmkns', first_name = 'Kelsey', last_name = 'Tomkins', display_name = 'Kelsey Tomkins' WHERE primary_email = 'kelsey@example.com'`;
+  const [co] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'kelsey@example.com'`;
+  await sql`
+    INSERT INTO property_maintainers (maintainer_id, property_id, user_id, role)
+    VALUES ('mnt_co', 'prop_test', ${co.user_id}, 'co_owner')
+  `;
+
+  const hideOwner = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ anonymize: true }),
+  });
+  expect(hideOwner.status).toBe(200);
+
+  const afterOwner = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  const people = afterOwner.property.maintainers as Array<{ role: string; label: string }>;
+  expect(people.find((row) => row.role === "owner")?.label).toBe("@hudsonowner");
+  expect(people.find((row) => row.role === "co_owner")?.label).toBe("Kelsey Tomkins");
+
+  const hideCo = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: coCookie },
+    body: JSON.stringify({ anonymize: true }),
+  });
+  expect(hideCo.status).toBe(200);
+
+  const afterBoth = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  const next = afterBoth.property.maintainers as Array<{ role: string; label: string }>;
+  expect(next.find((row) => row.role === "owner")?.label).toBe("@hudsonowner");
+  expect(next.find((row) => row.role === "co_owner")?.label).toBe("@ktmkns");
+});
+
 test("debug sign-in accepts the 000000 shortcut", async () => {
   const res = await app.request("http://localhost/api/auth/verify", {
     method: "POST",
