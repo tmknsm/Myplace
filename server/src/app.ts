@@ -11,6 +11,7 @@ import {
   hashesMatch,
   isMaintainer,
   randomCode,
+  loadUser,
   requireAdmin,
   requireUser,
   upsertUser,
@@ -32,6 +33,7 @@ import {
   sendMail,
 } from "./services/mail.ts";
 import { COUNTY_PROFILES, DEFAULT_MAP, isGeometryQuality } from "./counties.ts";
+import { parseHandle } from "../../shared/profile.ts";
 import { isRoomKind, normalizeRoomDescription, normalizeRoomDetails } from "../../shared/rooms.ts";
 import { isTopicId } from "../../shared/topics.ts";
 import {
@@ -187,13 +189,20 @@ app.post("/api/auth/request-code", async (c) => {
 });
 
 app.post("/api/auth/verify", async (c) => {
-  const body = await c.req.json<{ email?: string; code?: string; firstName?: string; lastName?: string }>();
+  const body = await c.req.json<{ email?: string; code?: string; firstName?: string; lastName?: string; handle?: string }>();
   const email = body.email?.trim().toLowerCase() ?? "";
   const code = (body.code ?? "").replace(/\s/g, "");
   const firstName = body.firstName?.replace(/\s+/g, " ").trim() ?? "";
   const lastName = body.lastName?.replace(/\s+/g, " ").trim() ?? "";
   if (!email || !code) return c.json({ error: "Email and code are required." }, 400);
   if (firstName.length > 80 || lastName.length > 80) return c.json({ error: "That name is too long." }, 400);
+
+  let handle: string | null = null;
+  if (body.handle !== undefined && body.handle !== "") {
+    const parsed = parseHandle(body.handle);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    handle = parsed.handle;
+  }
 
   const sql = getSql();
   const debugBypass = isFixedSignin(email, code);
@@ -210,10 +219,29 @@ app.post("/api/auth/verify", async (c) => {
     }
     await sql`UPDATE auth_codes SET consumed_at = now() WHERE code_id = ${match.code_id}`;
   }
-  const user = await upsertUser(email, { firstName, lastName });
+  if (handle) {
+    const taken = await sql<{ user_id: string }[]>`
+      SELECT user_id FROM users WHERE lower(handle) = ${handle} AND primary_email <> ${email}
+    `;
+    if (taken[0]) return c.json({ error: "That handle is already taken." }, 409);
+  }
+  const user = await upsertUser(email, { firstName, lastName, handle });
   const sessionId = await createSession(user.user_id);
   attachSessionCookie(c, sessionId);
   return c.json({ user });
+});
+
+app.patch("/api/me", async (c) => {
+  const user = requireUser(c);
+  const body = await c.req.json<{ anonymize?: boolean }>();
+  if (typeof body.anonymize !== "boolean") return c.json({ error: "Say whether to anonymize." }, 400);
+  if (body.anonymize && !user.handle) {
+    return c.json({ error: "Add a handle before you anonymize." }, 400);
+  }
+  const sql = getSql();
+  await sql`UPDATE users SET anonymize = ${body.anonymize} WHERE user_id = ${user.user_id}`;
+  const next = await loadUser(user.user_id);
+  return c.json({ user: next });
 });
 
 app.post("/api/auth/sign-out", async (c) => {

@@ -50,9 +50,11 @@ export const api = {
   me: () => request<{ user: User | null }>("/api/auth/me"),
   requestCode: (email: string) =>
     request<{ ok: boolean }>("/api/auth/request-code", { method: "POST", body: JSON.stringify({ email }) }),
-  verify: (email: string, code: string, names?: { firstName?: string; lastName?: string }) =>
+  verify: (email: string, code: string, names?: { firstName?: string; lastName?: string; handle?: string }) =>
     request<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ email, code, ...names }) }),
   signOut: () => request<{ ok: boolean }>("/api/auth/sign-out", { method: "POST" }),
+  updateMe: (body: { anonymize: boolean }) =>
+    request<{ user: User }>("/api/me", { method: "PATCH", body: JSON.stringify(body) }),
   search: (q: string) => request<{ results: SearchHit[] }>(`/api/search?q=${encodeURIComponent(q)}`),
   parcels: (bbox: string) => request<ParcelCollection>(`/api/parcels?bbox=${bbox}`),
   property: (id: string) => request<{ property: PropertyPage; viewer: Viewer }>(`/api/properties/${id}`),
@@ -183,7 +185,28 @@ export interface User {
   display_name: string | null;
   first_name: string | null;
   last_name: string | null;
+  handle: string | null;
+  anonymize: boolean;
+  avatar_url: string | null;
+  anonymous_avatar_url: string | null;
   is_admin: boolean;
+}
+
+export interface Maintainer {
+  maintainer_id: string;
+  user_id: string;
+  role: string;
+  verified_at: string;
+  handle: string | null;
+  anonymize: boolean;
+  label: string;
+  photo_url: string;
+  display_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  primary_email?: string;
+  avatar_url?: string | null;
+  anonymous_avatar_url?: string | null;
 }
 
 export interface SearchHit {
@@ -361,7 +384,7 @@ export interface PropertyPage {
     effective_at: string | null;
     created_at: string;
   }>;
-  maintainers: Array<{ maintainer_id: string; user_id: string; role: string; verified_at: string; display_name: string | null; primary_email: string }>;
+  maintainers: Maintainer[];
   coverage: Record<string, string>;
   historyNote: string;
   improvements: Improvement[];

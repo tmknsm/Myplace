@@ -320,6 +320,7 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
   const navigate = useNavigate();
   const [firstName, setFirstName] = useState(params.get("first") ?? "");
   const [lastName, setLastName] = useState(params.get("last") ?? "");
+  const [handle, setHandle] = useState((params.get("handle") ?? "").replace(/^@+/, ""));
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
@@ -344,7 +345,7 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
     return search ? `${path}?${search}` : path;
   };
 
-  const readyToSend = Boolean(email.trim() && (!signup || firstName.trim()));
+  const readyToSend = Boolean(email.trim() && (!signup || (firstName.trim() && handle.trim())));
   const sendCode = async () => {
     if (!readyToSend || busy) return;
     setBusy(true);
@@ -364,9 +365,13 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
       setError("Enter your first name.");
       return;
     }
+    if (signup && !handle.trim()) {
+      setError("Choose a handle.");
+      return;
+    }
     setBusy(true);
     try {
-      await api.verify(email.trim(), code, signup ? { firstName: firstName.trim(), lastName: lastName.trim() } : undefined);
+      await api.verify(email.trim(), code, signup ? { firstName: firstName.trim(), lastName: lastName.trim(), handle: handle.trim() } : undefined);
       await refresh();
       navigate(next);
     } catch (err) {
@@ -445,6 +450,24 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
                     />
                   </label>
                 </div>
+              )}
+              {signup && (
+                <label className="stack">
+                  <span>Handle</span>
+                  <input
+                    className="field"
+                    type="text"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    required
+                    maxLength={24}
+                    value={handle}
+                    onChange={(e) => setHandle(e.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
+                    placeholder="@yourname"
+                  />
+                </label>
               )}
               <label className="stack">
                 <span>Email</span>

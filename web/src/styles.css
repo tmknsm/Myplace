@@ -1120,6 +1120,25 @@ tr:last-child td { border-bottom: 0; }
   margin-bottom: 18px;
 }
 .profile-title { min-width: 0; flex: 1 1 420px; }
+.owner-byline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 520;
+  color: var(--ink-soft);
+}
+.owner-byline img {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 16px;
+  background: var(--surface-2);
+}
+.owner-byline-preview { margin: 8px 0 0; }
 .profile-title .profile-chips {
   display: flex;
   flex-wrap: wrap;

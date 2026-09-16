@@ -750,17 +750,42 @@ test("sign-up stores first and last name", async () => {
   res = await app.request("http://localhost/api/auth/verify", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, code, firstName: "Ada", lastName: "Lovelace" }),
+    body: JSON.stringify({ email, code, firstName: "Ada", lastName: "Lovelace", handle: "adalovelace" }),
   });
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.user.first_name).toBe("Ada");
   expect(body.user.last_name).toBe("Lovelace");
   expect(body.user.display_name).toBe("Ada Lovelace");
-  const rows = await sql<{ first_name: string; last_name: string; display_name: string }[]>`
-    SELECT first_name, last_name, display_name FROM users WHERE primary_email = ${email}
+  expect(body.user.handle).toBe("adalovelace");
+  const rows = await sql<{ first_name: string; last_name: string; display_name: string; handle: string }[]>`
+    SELECT first_name, last_name, display_name, handle FROM users WHERE primary_email = ${email}
   `;
-  expect(rows[0]).toEqual({ first_name: "Ada", last_name: "Lovelace", display_name: "Ada Lovelace" });
+  expect(rows[0]).toEqual({ first_name: "Ada", last_name: "Lovelace", display_name: "Ada Lovelace", handle: "adalovelace" });
+});
+
+test("anonymize shows the handle on the public property page", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("owner@example.com");
+  await sql`UPDATE users SET handle = 'hudsonowner', first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
+
+  const named = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(named.property.maintainers[0].label).toBe("Sam Ellison");
+  expect(named.property.maintainers[0].anonymize).toBe(false);
+
+  const hide = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ anonymize: true }),
+  });
+  expect(hide.status).toBe(200);
+  expect((await hide.json()).user.anonymize).toBe(true);
+
+  const hidden = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(hidden.property.maintainers[0].label).toBe("@hudsonowner");
+  expect(hidden.property.maintainers[0].anonymize).toBe(true);
+  expect(hidden.property.maintainers[0].primary_email).toBeUndefined();
+  expect(hidden.property.maintainers[0].display_name).toBeUndefined();
 });
 
 test("debug sign-in accepts the 000000 shortcut", async () => {

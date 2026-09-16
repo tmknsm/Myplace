@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Doc, type PageRefresh, type PropertyPage, type Viewer } from "./api";
+import { formatHandle, ownerLabel, ownerPhoto } from "../../shared/profile";
+import { api, type Doc, type PageRefresh, type PropertyPage, type User, type Viewer } from "./api";
 import { dateLabel, DOCUMENT_TYPE_LABEL, fileSize, fileUrl, isImage, type Toast } from "./property-shared";
 
 /**
@@ -199,8 +200,8 @@ export function MaintainersSection({
         {maintainers.map((maintainer) => (
           <div key={maintainer.maintainer_id} className="row">
             <div>
-              <strong>{maintainer.display_name || maintainer.primary_email}{maintainer.user_id === currentUserId ? " (you)" : ""}</strong>
-              <div className="meta-line">{maintainer.primary_email} · {maintainer.role === "co_owner" ? "co-owner" : "owner"} · since {dateLabel(maintainer.verified_at)}</div>
+              <strong>{maintainer.label || maintainer.display_name || maintainer.primary_email}{maintainer.user_id === currentUserId ? " (you)" : ""}</strong>
+              <div className="meta-line">{[maintainer.primary_email, maintainer.role === "co_owner" ? "co-owner" : "owner", `since ${dateLabel(maintainer.verified_at)}`].filter(Boolean).join(" · ")}</div>
             </div>
             {viewer.role === "owner" && maintainer.role === "co_owner" && maintainer.user_id !== currentUserId && (
               <button type="button" className="text-link danger" onClick={async () => {
@@ -243,6 +244,72 @@ export function MaintainersSection({
         <button type="submit" className="btn secondary" disabled={busy || !email.includes("@")}>{busy ? "Sending…" : "Invite"}</button>
       </form>
       {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
+export function AnonymizeSection({
+  user,
+  onUser,
+  toast,
+}: {
+  user: User;
+  onUser: () => void | Promise<void>;
+  toast: Toast;
+}) {
+  const [busy, setBusy] = useState(false);
+  const preview = {
+    anonymize: user.anonymize,
+    handle: user.handle,
+    first_name: user.first_name,
+    last_name: user.last_name,
+    display_name: user.display_name,
+    avatar_url: user.avatar_url,
+    anonymous_avatar_url: user.anonymous_avatar_url,
+  };
+  const handle = formatHandle(user.handle);
+  return (
+    <section className="section" id="anonymize" data-testid="anonymize-section">
+      <h2>On the property page</h2>
+      <p className="meta-line section-note">
+        Your name and photo sit above the address. Anonymize to show {handle ?? "your @handle"} and a faceless mark instead.
+      </p>
+      <div className="group">
+        <div className="row">
+          <div>
+            <strong>Anonymize</strong>
+            <div className="meta-line">
+              {user.anonymize
+                ? `${handle ?? "Your handle"} and an abstract mark. Neighbors won’t see your name.`
+                : "Your first and last name, with your photo."}
+            </div>
+            <div className="owner-byline owner-byline-preview" aria-hidden="true">
+              <img src={ownerPhoto(preview)} alt="" width={16} height={16} />
+              <span>{ownerLabel(preview)}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className={`btn small${user.anonymize ? "" : " secondary"}`}
+            disabled={busy || (!user.handle && !user.anonymize)}
+            data-testid="anonymize-toggle"
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const saved = await api.updateMe({ anonymize: !user.anonymize });
+                await onUser();
+                toast(saved.user.anonymize ? "The page now shows your handle." : "The page now shows your name.");
+              } catch (err) {
+                toast(err instanceof Error ? err.message : "Could not update that.");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Saving…" : user.anonymize ? "On" : "Off"}
+          </button>
+        </div>
+      </div>
     </section>
   );
 }

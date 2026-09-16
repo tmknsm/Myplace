@@ -4,7 +4,7 @@ import { api, type InboxItem, type PageRefresh, type PropertyPage, type Viewer }
 import { useAuth } from "./auth";
 import { PageSpinner, Spinner } from "./components";
 import { useMeta } from "./meta";
-import { DocumentsSection, HandoffSection, MaintainersSection, NotificationsSection } from "./property-owner";
+import { AnonymizeSection, DocumentsSection, HandoffSection, MaintainersSection, NotificationsSection } from "./property-owner";
 import { DOCUMENT_TYPE_LABEL, dateLabel, useToast, type Toast } from "./property-shared";
 
 /**
@@ -127,7 +127,7 @@ function OwnerPage({
 
 export function PropertyManagePage() {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, refresh: refreshAuth } = useAuth();
   const meta = useMeta();
   return (
     <OwnerPage
@@ -174,6 +174,16 @@ export function PropertyManagePage() {
             onChange={refresh}
             toast={toast}
           />
+          {user && (
+            <AnonymizeSection
+              user={user}
+              onUser={async () => {
+                await refreshAuth();
+                await refresh();
+              }}
+              toast={toast}
+            />
+          )}
           {viewer.preferences && (
             <NotificationsSection
               propertyId={id!}

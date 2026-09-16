@@ -1,6 +1,49 @@
+import { ownerLabel, ownerPhoto } from "../../../shared/profile.ts";
 import { geometryNotice, isGeometryQuality, QUALITY_LABEL } from "../counties.ts";
 import { getSql } from "../db.ts";
 import { assembleFacts, loadAssertionRows } from "./assertions.ts";
+
+interface MaintainerRow {
+  maintainer_id: string;
+  user_id: string;
+  role: string;
+  verified_at: Date | string;
+  display_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  handle: string | null;
+  anonymize: boolean;
+  avatar_url: string | null;
+  anonymous_avatar_url: string | null;
+  primary_email: string;
+}
+
+export function presentMaintainer(row: MaintainerRow, includePrivate: boolean) {
+  const anonymize = Boolean(row.anonymize);
+  const labeled = { ...row, anonymize };
+  const label = ownerLabel(labeled);
+  const photo_url = ownerPhoto(labeled);
+  const publicFields = {
+    maintainer_id: row.maintainer_id,
+    user_id: row.user_id,
+    role: row.role,
+    verified_at: row.verified_at,
+    handle: row.handle,
+    anonymize,
+    label,
+    photo_url,
+  };
+  if (!includePrivate && anonymize) return publicFields;
+  return {
+    ...publicFields,
+    display_name: row.display_name,
+    first_name: row.first_name,
+    last_name: row.last_name,
+    primary_email: row.primary_email,
+    avatar_url: row.avatar_url,
+    anonymous_avatar_url: row.anonymous_avatar_url,
+  };
+}
 
 export interface PropertyCore {
   property_id: string;
@@ -49,12 +92,16 @@ export async function loadPropertyPage(propertyId: string, options: { viewerIsMa
     ORDER BY created_at DESC
     LIMIT 50
   `;
-  const maintainers = await sql`
-    SELECT m.maintainer_id, m.user_id, m.role, m.verified_at, u.display_name, u.primary_email
+  const maintainerRows = await sql<MaintainerRow[]>`
+    SELECT m.maintainer_id, m.user_id, m.role, m.verified_at,
+           u.display_name, u.first_name, u.last_name, u.handle, u.anonymize,
+           u.avatar_url, u.anonymous_avatar_url, u.primary_email
     FROM property_maintainers m
     JOIN users u ON u.user_id = m.user_id
     WHERE m.property_id = ${propertyId} AND m.revoked_at IS NULL
+    ORDER BY m.verified_at ASC
   `;
+  const maintainers = maintainerRows.map((row) => presentMaintainer(row, options.viewerIsMaintainer ?? false));
   const coverage = {
     assessments: facts.some((f) => f.fieldKey.startsWith("assessment.") && f.status !== "unknown")
       ? "Connected"

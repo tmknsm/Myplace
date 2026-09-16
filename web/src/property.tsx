@@ -22,6 +22,7 @@ import {
   type TopicField,
   type TopicFieldKind,
 } from "./property-topics";
+import { ownerLabel, ownerPhoto } from "../../shared/profile";
 import { fieldsForRoom, ROOM_KIND_LABEL, ROOM_KINDS, ROOM_PAID_KEY, ROOM_PAID_PUBLIC_KEY, roomPaidCents, roomPaidPublic, type RoomField } from "../../shared/rooms";
 import { isTopicId } from "../../shared/topics";
 import {
@@ -215,6 +216,10 @@ function applyClaimedOwner(data: PageData, result: DebugClaimResult): PageData {
             verified_at: now,
             display_name: result.user.display_name,
             primary_email: result.user.primary_email,
+            handle: result.user.handle,
+            anonymize: result.user.anonymize,
+            label: ownerLabel(result.user),
+            photo_url: ownerPhoto(result.user),
           },
         ],
     },
@@ -445,6 +450,7 @@ export function PropertyPageView() {
   const summary = property.facts.find((fact) => fact.fieldKey === SUMMARY_KEY) ?? null;
   const hasSummary = Boolean(summary?.display);
   const maintained = property.maintainers.length > 0;
+  const pageOwner = property.maintainers.find((row) => row.role === "owner") ?? property.maintainers[0] ?? null;
   const historicDistrict = isOfficialHistoricDistrict(property.facts);
   // Visitors only see topics with something public in them; the owner sees every card.
   const topicHasPhotos = (topic: Topic) => property.documents.some((doc) => doc.topic_id === topic.id && isImage(doc) && hasFile(doc));
@@ -603,6 +609,12 @@ export function PropertyPageView() {
 
       <header className="profile-head group">
         <div className="profile-title">
+          {pageOwner && (
+            <div className="owner-byline" data-testid="owner-byline">
+              <img src={pageOwner.photo_url} alt="" width={16} height={16} />
+              <span>{pageOwner.label}</span>
+            </div>
+          )}
           {((maintained && !owner) || historicDistrict) && (
             <div className="profile-chips">
               {maintained && !owner && (

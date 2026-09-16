@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Context, Next } from "hono";
+import { DEFAULT_ANONYMOUS_AVATAR_URL, DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
 import { config } from "./config.ts";
 import { getSql } from "./db.ts";
 import { id } from "./ids.ts";
@@ -11,6 +12,10 @@ export interface AuthedUser {
   display_name: string | null;
   first_name: string | null;
   last_name: string | null;
+  handle: string | null;
+  anonymize: boolean;
+  avatar_url: string | null;
+  anonymous_avatar_url: string | null;
   is_admin: boolean;
 }
 
@@ -81,7 +86,8 @@ export async function authMiddleware(c: Context<AppEnv>, next: Next): Promise<Re
   }
   const sql = getSql();
   const rows = await sql<AuthedUser[]>`
-    SELECT u.user_id, u.primary_email, u.display_name, u.first_name, u.last_name, u.is_admin
+    SELECT u.user_id, u.primary_email, u.display_name, u.first_name, u.last_name,
+           u.handle, u.anonymize, u.avatar_url, u.anonymous_avatar_url, u.is_admin
     FROM sessions s
     JOIN users u ON u.user_id = s.user_id
     WHERE s.session_id = ${sessionId} AND s.expires_at > now()
@@ -102,13 +108,25 @@ export function requireAdmin(c: Context<AppEnv>): AuthedUser {
   return user;
 }
 
-export async function upsertUser(email: string, names?: { firstName?: string; lastName?: string }): Promise<AuthedUser> {
+export async function loadUser(userId: string): Promise<AuthedUser | null> {
+  const sql = getSql();
+  const rows = await sql<AuthedUser[]>`
+    SELECT user_id, primary_email, display_name, first_name, last_name,
+           handle, anonymize, avatar_url, anonymous_avatar_url, is_admin
+    FROM users WHERE user_id = ${userId}
+  `;
+  return rows[0] ?? null;
+}
+
+export async function upsertUser(email: string, names?: { firstName?: string; lastName?: string; handle?: string | null }): Promise<AuthedUser> {
   const sql = getSql();
   const normalized = email.trim().toLowerCase();
   const firstName = cleanName(names?.firstName);
   const lastName = cleanName(names?.lastName);
+  const handle = names?.handle ?? null;
   const existing = await sql<AuthedUser[]>`
-    SELECT user_id, primary_email, display_name, first_name, last_name, is_admin
+    SELECT user_id, primary_email, display_name, first_name, last_name,
+           handle, anonymize, avatar_url, anonymous_avatar_url, is_admin
     FROM users WHERE primary_email = ${normalized}
   `;
   if (existing[0]) {
@@ -116,21 +134,39 @@ export async function upsertUser(email: string, names?: { firstName?: string; la
     const nextFirst = current.first_name || firstName;
     const nextLast = current.last_name || lastName;
     const nextDisplay = current.display_name || displayFromNames(nextFirst, nextLast, normalized.split("@")[0] || normalized);
+    const nextHandle = current.handle || handle;
     await sql`
       UPDATE users
       SET email_verified_at = COALESCE(email_verified_at, now()),
           first_name = COALESCE(first_name, ${nextFirst}),
           last_name = COALESCE(last_name, ${nextLast}),
-          display_name = COALESCE(display_name, ${nextDisplay})
+          display_name = COALESCE(display_name, ${nextDisplay}),
+          handle = COALESCE(handle, ${nextHandle}),
+          avatar_url = COALESCE(avatar_url, ${DEFAULT_AVATAR_URL}),
+          anonymous_avatar_url = COALESCE(anonymous_avatar_url, ${DEFAULT_ANONYMOUS_AVATAR_URL})
       WHERE user_id = ${current.user_id}
     `;
-    return { ...current, first_name: nextFirst, last_name: nextLast, display_name: nextDisplay };
+    return {
+      ...current,
+      first_name: nextFirst,
+      last_name: nextLast,
+      display_name: nextDisplay,
+      handle: nextHandle,
+      avatar_url: current.avatar_url || DEFAULT_AVATAR_URL,
+      anonymous_avatar_url: current.anonymous_avatar_url || DEFAULT_ANONYMOUS_AVATAR_URL,
+    };
   }
   const userId = id("usr");
   const displayName = displayFromNames(firstName, lastName, normalized.split("@")[0] || normalized);
   await sql`
-    INSERT INTO users (user_id, primary_email, email_verified_at, display_name, first_name, last_name)
-    VALUES (${userId}, ${normalized}, now(), ${displayName}, ${firstName}, ${lastName})
+    INSERT INTO users (
+      user_id, primary_email, email_verified_at, display_name, first_name, last_name,
+      handle, anonymize, avatar_url, anonymous_avatar_url
+    )
+    VALUES (
+      ${userId}, ${normalized}, now(), ${displayName}, ${firstName}, ${lastName},
+      ${handle}, false, ${DEFAULT_AVATAR_URL}, ${DEFAULT_ANONYMOUS_AVATAR_URL}
+    )
   `;
   await sql`
     INSERT INTO user_emails (user_email_id, user_id, email, verified_at)
@@ -142,6 +178,10 @@ export async function upsertUser(email: string, names?: { firstName?: string; la
     display_name: displayName,
     first_name: firstName,
     last_name: lastName,
+    handle,
+    anonymize: false,
+    avatar_url: DEFAULT_AVATAR_URL,
+    anonymous_avatar_url: DEFAULT_ANONYMOUS_AVATAR_URL,
     is_admin: false,
   };
 }
