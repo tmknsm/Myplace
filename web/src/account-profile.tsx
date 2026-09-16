@@ -161,7 +161,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
                 {user.anonymize
                   ? `Property pages show ${handle ?? "your handle"} instead of your name.`
                   : user.handle
-                    ? `Show ${handle} instead of your name on property pages. Your photo stays the same.`
+                    ? `Show ${handle} instead of your name on property pages.`
                     : "Add a handle to show it instead of your name on property pages."}
               </div>
             </div>
