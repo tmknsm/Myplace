@@ -11,6 +11,7 @@ import { runWithRuntime } from "./runtime.ts";
 import { assembleFacts, type AssertionRow } from "./services/assertions.ts";
 import { memoryStore, type DocumentStore } from "./services/storage.ts";
 import { DEBUG_CLAIM_PIN, TEST_PROD_CODE, TEST_PROD_EMAIL } from "./debug.ts";
+import { ABSTRACT_AVATAR_URL, DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
 
 const url = process.env.DATABASE_URL ?? "postgres://ubuntu:myplace@localhost:5432/myplace_test";
 if (isHostedDatabase(url) && !process.env.ALLOW_HOSTED_DB_TESTS) {
@@ -786,6 +787,85 @@ test("anonymize shows the handle on the public property page", async () => {
   expect(hidden.property.maintainers[0].anonymize).toBe(true);
   expect(hidden.property.maintainers[0].primary_email).toBeUndefined();
   expect(hidden.property.maintainers[0].display_name).toBeUndefined();
+});
+
+test("anonymize swaps the name, never the photo; the photo is its own change", async () => {
+  const cloud = memoryStore();
+  await seedProperty();
+  const cookie = await withStore(cloud, () => verifiedOwner("owner@example.com"));
+  await sql`UPDATE users SET handle = 'hudsonowner', first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
+
+  const before = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  const facePhoto = before.property.maintainers[0].photo_url as string;
+  expect(facePhoto).toBe(DEFAULT_AVATAR_URL);
+
+  const hide = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ anonymize: true }),
+  });
+  expect(hide.status).toBe(200);
+  const hidden = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(hidden.property.maintainers[0].label).toBe("@hudsonowner");
+  expect(hidden.property.maintainers[0].photo_url).toBe(facePhoto);
+
+  const abstract = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ avatar: "abstract" }),
+  });
+  expect(abstract.status).toBe(200);
+  expect((await abstract.json()).user.avatar_url).toBe(ABSTRACT_AVATAR_URL);
+  const marked = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(marked.property.maintainers[0].photo_url).toBe(ABSTRACT_AVATAR_URL);
+
+  const bogus = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ avatar: "https://evil.example/x.png" }),
+  });
+  expect(bogus.status).toBe(400);
+
+  const form = new FormData();
+  form.append("file", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])], "me.jpeg", { type: "image/jpeg" }));
+  const upload = await withStore(cloud, () => app.request("http://localhost/api/me/avatar", {
+    method: "POST",
+    headers: { cookie },
+    body: form,
+  }));
+  expect(upload.status).toBe(201);
+  const uploaded = (await upload.json()).user as { user_id: string; avatar_url: string; avatar_key: string };
+  expect(uploaded.avatar_url).toMatch(new RegExp(`^/api/users/${uploaded.user_id}/avatar\\?v=`));
+  expect(uploaded.avatar_key).toMatch(/^user-avatars\//);
+
+  const file = await withStore(cloud, () => app.request(`http://localhost/api/users/${uploaded.user_id}/avatar`));
+  expect(file.status).toBe(200);
+  expect(file.headers.get("content-type")).toBe("image/jpeg");
+  expect(new Uint8Array(await file.arrayBuffer())).toEqual(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]));
+
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(page.property.maintainers[0].photo_url).toBe(uploaded.avatar_url);
+  expect(page.property.maintainers[0].label).toBe("@hudsonowner");
+
+  const notImage = new FormData();
+  notImage.append("file", new File([new Uint8Array([1, 2, 3])], "deed.pdf", { type: "application/pdf" }));
+  const rejected = await withStore(cloud, () => app.request("http://localhost/api/me/avatar", {
+    method: "POST",
+    headers: { cookie },
+    body: notImage,
+  }));
+  expect(rejected.status).toBe(400);
+
+  // Going back to a preset drops the upload from storage.
+  const reset = await withStore(cloud, () => app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ avatar: "default" }),
+  }));
+  expect(reset.status).toBe(200);
+  expect(await cloud.has(uploaded.avatar_key)).toBe(false);
+  const gone = await withStore(cloud, () => app.request(`http://localhost/api/users/${uploaded.user_id}/avatar`));
+  expect(gone.status).toBe(404);
 });
 
 test("each maintainer anonymizes independently", async () => {

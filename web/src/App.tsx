@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ProfileCard } from "./account-profile";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary } from "./api";
 import { useAuth } from "./auth";
 import { eventLabel, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
@@ -565,7 +566,7 @@ function EyeIcon() {
 }
 
 function AccountPage() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, refresh } = useAuth();
   const [properties, setProperties] = useState<{ property_id: string; formatted: string | null }[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   useEffect(() => {
@@ -575,10 +576,8 @@ function AccountPage() {
   }, [user]);
   if (!user) return <Navigate to="/signin" replace />;
   return (
-    <div className="page">
-      <div className="kicker">Account</div>
-      <h1 className="display">{user.display_name || user.primary_email}</h1>
-      <p className="meta-line">{user.primary_email}</p>
+    <div className="page account-page">
+      <ProfileCard user={user} onUser={refresh} />
       <div className="action-row narrow-only">
         <button className="btn secondary" onClick={() => signOut()}>Sign out</button>
       </div>

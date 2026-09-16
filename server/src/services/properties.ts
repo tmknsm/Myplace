@@ -14,7 +14,6 @@ interface MaintainerRow {
   handle: string | null;
   anonymize: boolean;
   avatar_url: string | null;
-  anonymous_avatar_url: string | null;
   primary_email: string;
 }
 
@@ -22,7 +21,7 @@ export function presentMaintainer(row: MaintainerRow, includePrivate: boolean) {
   const anonymize = Boolean(row.anonymize);
   const labeled = { ...row, anonymize };
   const label = ownerLabel(labeled);
-  const photo_url = ownerPhoto(labeled);
+  const photo_url = ownerPhoto(row);
   const publicFields = {
     maintainer_id: row.maintainer_id,
     user_id: row.user_id,
@@ -41,7 +40,6 @@ export function presentMaintainer(row: MaintainerRow, includePrivate: boolean) {
     last_name: row.last_name,
     primary_email: row.primary_email,
     avatar_url: row.avatar_url,
-    anonymous_avatar_url: row.anonymous_avatar_url,
   };
 }
 
@@ -95,7 +93,7 @@ export async function loadPropertyPage(propertyId: string, options: { viewerIsMa
   const maintainerRows = await sql<MaintainerRow[]>`
     SELECT m.maintainer_id, m.user_id, m.role, m.verified_at,
            u.display_name, u.first_name, u.last_name, u.handle, u.anonymize,
-           u.avatar_url, u.anonymous_avatar_url, u.primary_email
+           u.avatar_url, u.primary_email
     FROM property_maintainers m
     JOIN users u ON u.user_id = m.user_id
     WHERE m.property_id = ${propertyId} AND m.revoked_at IS NULL

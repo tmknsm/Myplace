@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import {
   AppEnv,
+  type AuthedUser,
   attachSessionCookie,
   authMiddleware,
   clearSessionCookie,
@@ -33,7 +34,7 @@ import {
   sendMail,
 } from "./services/mail.ts";
 import { COUNTY_PROFILES, DEFAULT_MAP, isGeometryQuality } from "./counties.ts";
-import { parseHandle } from "../../shared/profile.ts";
+import { AVATAR_PRESETS, isAvatarPreset, parseHandle, type AvatarPreset } from "../../shared/profile.ts";
 import { isRoomKind, normalizeRoomDescription, normalizeRoomDetails } from "../../shared/rooms.ts";
 import { isTopicId } from "../../shared/topics.ts";
 import {
@@ -67,8 +68,9 @@ import {
   TILE_MAX_ZOOM,
   TILE_MIN_ZOOM,
 } from "./services/properties.ts";
-import { storeUpload, type OptimizedPhoto } from "./services/photos.ts";
-import { getDocument } from "./services/storage.ts";
+import { optimizePhoto, storeUpload, type OptimizedPhoto } from "./services/photos.ts";
+import { avatarKey, deleteDocumentObject, getDocument, putDocument } from "./services/storage.ts";
+import { deferTask } from "./runtime.ts";
 import { FIELD_BY_KEY, FIELD_VOCAB, ownerWritable } from "./vocab.ts";
 
 export const app = new Hono<AppEnv>();
@@ -233,11 +235,14 @@ app.post("/api/auth/verify", async (c) => {
 
 app.patch("/api/me", async (c) => {
   const user = requireUser(c);
-  const body = await c.req.json<{ anonymize?: boolean; handle?: string }>();
+  const body = await c.req.json<{ anonymize?: boolean; handle?: string; avatar?: string }>();
   if (body.anonymize !== undefined && typeof body.anonymize !== "boolean") {
     return c.json({ error: "Say whether to anonymize." }, 400);
   }
-  if (body.anonymize === undefined && body.handle === undefined) {
+  if (body.avatar !== undefined && !isAvatarPreset(body.avatar)) {
+    return c.json({ error: "Unknown photo." }, 400);
+  }
+  if (body.anonymize === undefined && body.handle === undefined && body.avatar === undefined) {
     return c.json({ error: "Say what to change." }, 400);
   }
 
@@ -262,9 +267,71 @@ app.patch("/api/me", async (c) => {
         handle = ${handle}
     WHERE user_id = ${user.user_id}
   `;
+  if (body.avatar !== undefined) {
+    await setAvatar(user, AVATAR_PRESETS[body.avatar as AvatarPreset], null);
+  }
   const next = await loadUser(user.user_id);
   return c.json({ user: next });
 });
+
+/** Point the account at a new photo and drop the upload it replaces. */
+async function setAvatar(user: AuthedUser, avatarUrl: string, avatarKey: string | null): Promise<void> {
+  await getSql()`
+    UPDATE users SET avatar_url = ${avatarUrl}, avatar_key = ${avatarKey} WHERE user_id = ${user.user_id}
+  `;
+  if (user.avatar_key && user.avatar_key !== avatarKey) {
+    await deleteDocumentObject(user.avatar_key).catch(() => undefined);
+  }
+}
+
+app.post("/api/me/avatar", async (c) => {
+  const user = requireUser(c);
+  const form = await c.req.parseBody();
+  const file = form.file;
+  if (!(file instanceof File)) return c.json({ error: "Choose a photo." }, 400);
+  if (file.size === 0) return c.json({ error: "That photo was empty. Try choosing it again." }, 400);
+  if (file.size > 20 * 1024 * 1024) return c.json({ error: "Photos must be 20 MB or smaller." }, 400);
+  if (!file.type.startsWith("image/")) return c.json({ error: "Profile photos must be images." }, 400);
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  // Same encoder as property photos, but never the in-isolate WASM path while
+  // the response is pending: a profile picture is not worth an OOM.
+  const stored = await optimizePhoto(bytes, file.type, file.name || "avatar", { wasm: !deferTask() });
+  const key = avatarKey(user.user_id, stored.filename);
+  await putDocument(key, stored.bytes);
+  await setAvatar(user, `/api/users/${user.user_id}/avatar?v=${Date.now().toString(36)}`, key);
+  const next = await loadUser(user.user_id);
+  return c.json({ user: next }, 201);
+});
+
+/** The uploaded profile photo. Public: it sits on the property page byline. */
+app.get("/api/users/:id/avatar", async (c) => {
+  const rows = await getSql()<{ avatar_key: string | null }[]>`
+    SELECT avatar_key FROM users WHERE user_id = ${c.req.param("id")}
+  `;
+  const key = rows[0]?.avatar_key;
+  if (!key) return c.json({ error: "Not found" }, 404);
+  const bytes = await getDocument(key);
+  const body = bytes instanceof Uint8Array ? Uint8Array.from(bytes) : new Uint8Array(bytes);
+  return new Response(body as BodyInit, {
+    headers: {
+      "content-type": mimeFromKey(key),
+      "content-length": String(body.byteLength),
+      "cache-control": "public, max-age=31536000, immutable",
+    },
+  });
+});
+
+function mimeFromKey(key: string): string {
+  const ext = key.split(".").pop()?.toLowerCase();
+  if (ext === "webp") return "image/webp";
+  if (ext === "png") return "image/png";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "heic") return "image/heic";
+  if (ext === "avif") return "image/avif";
+  if (ext === "gif") return "image/gif";
+  return "application/octet-stream";
+}
 
 app.post("/api/auth/sign-out", async (c) => {
   clearSessionCookie(c);

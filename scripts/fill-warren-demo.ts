@@ -7,7 +7,7 @@
  */
 import { closeSql, getSql } from "../server/src/db.ts";
 import { insertAssertion } from "../server/src/services/assertions.ts";
-import { DEFAULT_ANONYMOUS_AVATAR_URL, DEFAULT_AVATAR_URL } from "../shared/profile.ts";
+import { DEFAULT_AVATAR_URL } from "../shared/profile.ts";
 import { normalizeRoomDetails } from "../shared/rooms.ts";
 
 const PROPERTY_ID = "prop_76045741fc817ccf3afcfc4c40";
@@ -74,11 +74,10 @@ async function main() {
   await sql`
     UPDATE users
     SET handle = COALESCE(handle, 'samellison'),
-        avatar_url = COALESCE(avatar_url, ${DEFAULT_AVATAR_URL}),
-        anonymous_avatar_url = COALESCE(anonymous_avatar_url, ${DEFAULT_ANONYMOUS_AVATAR_URL})
+        avatar_url = COALESCE(avatar_url, ${DEFAULT_AVATAR_URL})
     WHERE user_id = ${owner.user_id}
   `;
-  console.log("owner profile  handle + avatars");
+  console.log("owner profile  handle + avatar");
 
   const existing = await sql<{ field_key: string }[]>`
     SELECT field_key FROM assertions

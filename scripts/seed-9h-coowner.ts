@@ -1,6 +1,6 @@
 /**
  * Demo data for 51 State Route 9H: Michael's @mtmkns handle, plus Kelsey
- * Tomkins as a co-owner with her own avatar and anonymize setting.
+ * Tomkins as a co-owner with her own photo and anonymize setting.
  *
  *   DATABASE_URL=… npx tsx scripts/seed-9h-coowner.ts
  */
@@ -8,7 +8,7 @@ import { closeSql, getSql } from "../server/src/db.ts";
 import { id } from "../server/src/ids.ts";
 import { addCoMaintainer } from "../server/src/services/ownership.ts";
 import { upsertUser } from "../server/src/auth.ts";
-import { DEFAULT_ANONYMOUS_AVATAR_URL, DEFAULT_AVATAR_URL } from "../shared/profile.ts";
+import { DEFAULT_AVATAR_URL } from "../shared/profile.ts";
 
 const PROPERTY_ID = "prop_2512f62f10a418baa7bba3148b";
 const MICHAEL_EMAIL = "michaeltomkins@gmail.com";
@@ -34,8 +34,7 @@ async function main() {
         first_name = COALESCE(first_name, 'Michael'),
         last_name = COALESCE(last_name, 'Tomkins'),
         display_name = COALESCE(display_name, 'Michael Tomkins'),
-        avatar_url = COALESCE(avatar_url, ${DEFAULT_AVATAR_URL}),
-        anonymous_avatar_url = COALESCE(anonymous_avatar_url, ${DEFAULT_ANONYMOUS_AVATAR_URL})
+        avatar_url = COALESCE(avatar_url, ${DEFAULT_AVATAR_URL})
     WHERE user_id = ${michael.user_id}
   `;
   console.log("michael  @mtmkns");
@@ -48,7 +47,6 @@ async function main() {
   await sql`
     UPDATE users
     SET avatar_url = ${KELSEY_AVATAR_URL},
-        anonymous_avatar_url = COALESCE(anonymous_avatar_url, ${DEFAULT_ANONYMOUS_AVATAR_URL}),
         anonymize = COALESCE(anonymize, false)
     WHERE user_id = ${kelsey.user_id}
   `;

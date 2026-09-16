@@ -53,8 +53,15 @@ export const api = {
   verify: (email: string, code: string, names?: { firstName?: string; lastName?: string; handle?: string }) =>
     request<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ email, code, ...names }) }),
   signOut: () => request<{ ok: boolean }>("/api/auth/sign-out", { method: "POST" }),
-  updateMe: (body: { anonymize?: boolean; handle?: string }) =>
+  updateMe: (body: { anonymize?: boolean; handle?: string; avatar?: "abstract" | "default" }) =>
     request<{ user: User }>("/api/me", { method: "PATCH", body: JSON.stringify(body) }),
+  uploadAvatar: async (file: File) => {
+    const { optimizePhotoFile } = await import("./optimize-photo");
+    const photo = await optimizePhotoFile(file);
+    const form = new FormData();
+    form.append("file", photo);
+    return request<{ user: User }>("/api/me/avatar", { method: "POST", body: form });
+  },
   search: (q: string) => request<{ results: SearchHit[] }>(`/api/search?q=${encodeURIComponent(q)}`),
   parcels: (bbox: string) => request<ParcelCollection>(`/api/parcels?bbox=${bbox}`),
   property: (id: string) => request<{ property: PropertyPage; viewer: Viewer }>(`/api/properties/${id}`),
@@ -188,7 +195,7 @@ export interface User {
   handle: string | null;
   anonymize: boolean;
   avatar_url: string | null;
-  anonymous_avatar_url: string | null;
+  avatar_key: string | null;
   is_admin: boolean;
 }
 
@@ -206,7 +213,6 @@ export interface Maintainer {
   last_name?: string | null;
   primary_email?: string;
   avatar_url?: string | null;
-  anonymous_avatar_url?: string | null;
 }
 
 export interface SearchHit {

@@ -1,10 +1,21 @@
-/** Default face for an owner who has not set a photo. Joseph Gonzalez / Unsplash. */
+/** Default face for an account that has not set a photo. Joseph Gonzalez / Unsplash. */
 export const DEFAULT_AVATAR_URL =
   "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=128&h=128&q=80";
 
-/** Faceless mark used when the owner anonymizes. Paint pour / Unsplash. */
-export const DEFAULT_ANONYMOUS_AVATAR_URL =
+/** Faceless preset offered under Change photo. Paint pour / Unsplash. */
+export const ABSTRACT_AVATAR_URL =
   "https://images.unsplash.com/photo-1541701494587-cb58502866ab?auto=format&fit=crop&w=128&h=128&q=80";
+
+export const AVATAR_PRESETS = {
+  default: DEFAULT_AVATAR_URL,
+  abstract: ABSTRACT_AVATAR_URL,
+} as const;
+
+export type AvatarPreset = keyof typeof AVATAR_PRESETS;
+
+export function isAvatarPreset(value: unknown): value is AvatarPreset {
+  return typeof value === "string" && value in AVATAR_PRESETS;
+}
 
 export const HANDLE_MIN = 2;
 export const HANDLE_MAX = 24;
@@ -42,11 +53,7 @@ export function ownerLabel(input: {
   return "Owner";
 }
 
-export function ownerPhoto(input: {
-  anonymize: boolean;
-  avatar_url: string | null;
-  anonymous_avatar_url: string | null;
-}): string {
-  if (input.anonymize) return input.anonymous_avatar_url || DEFAULT_ANONYMOUS_AVATAR_URL;
+/** The one photo on the account. Anonymize does not change it. */
+export function ownerPhoto(input: { avatar_url: string | null }): string {
   return input.avatar_url || DEFAULT_AVATAR_URL;
 }

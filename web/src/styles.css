@@ -1149,11 +1149,62 @@ tr:last-child td { border-bottom: 0; }
   flex: 0 0 16px;
   background: var(--surface-2);
 }
-.owner-byline-preview {
-  margin: 8px 0 0;
-  box-shadow: none;
-  background: var(--surface-2);
+/* ---- Account: profile card ------------------------------------------- */
+.profile-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding-top: 8px;
 }
+.profile-card-avatar {
+  position: relative;
+  width: 96px;
+  height: 96px;
+}
+.profile-card-avatar img {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-2);
+  box-shadow: var(--shadow);
+  display: block;
+}
+.profile-card-avatar-busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+.profile-card-avatar-busy .spinner { width: 22px; height: 22px; color: var(--ink); }
+.profile-card-name {
+  margin: 14px 0 0;
+  overflow-wrap: anywhere;
+}
+.profile-card-sub { margin: 4px 0 0; }
+.profile-card-photo-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 14px;
+}
+.profile-card-photo-actions .text-btn { min-height: 32px; }
+.profile-card-photo-actions .file-btn input[type="file"] { pointer-events: auto; }
+.profile-card-dot { color: var(--muted); }
+.profile-card-settings {
+  width: 100%;
+  max-width: 520px;
+  margin-top: 18px;
+  text-align: left;
+}
+.profile-card-note { margin: 10px 0 0; min-height: 1.4em; }
+.profile-card-note.is-error { color: var(--danger, #b3261e); }
 .switch {
   appearance: none;
   -webkit-appearance: none;
