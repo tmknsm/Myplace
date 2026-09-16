@@ -331,10 +331,10 @@ export function HomePage() {
           <img className="home-hero-photo" src="/home-hero.webp" alt="White mansion on a hill, seen through autumn trees and tall grass" width={2400} height={1600} decoding="async" />
         </figure>
         <div className="home-hero-copy">
-          <div className="kicker">Columbia &amp; Greene counties, New York</div>
-          <h1 id="home-title">Every house here already has a page.</h1>
+          <div className="kicker">Hudson Valley, New York</div>
+          <h1 id="home-title">Claim your house and tell us about it.</h1>
           <p className="home-lede">
-            Claim yours, add what the county doesn't know, and it stays with the house after you sell.
+            Every parcel already has a page. Add the details only you know—then hand that story off when the house moves on to its next chapter.
           </p>
           <div className="home-search-anchor" ref={searchAnchor}>
             <div className="home-search">
