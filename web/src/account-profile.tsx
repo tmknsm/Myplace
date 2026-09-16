@@ -174,7 +174,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
               <div className="profile-handle-accept-slot">
                 <button
                   type="submit"
-                  className="btn small profile-handle-accept-btn"
+                  className="btn profile-handle-accept-btn"
                   disabled={!canSaveHandle || busy !== null}
                   tabIndex={canSaveHandle ? 0 : -1}
                   data-testid="profile-handle-accept"

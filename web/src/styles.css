@@ -1240,6 +1240,7 @@ tr:last-child td { border-bottom: 0; }
 }
 .profile-handle-accept-btn {
   width: 100%;
+  min-height: var(--tap);
   opacity: 0;
   transform: scale(0.5);
   visibility: hidden;
