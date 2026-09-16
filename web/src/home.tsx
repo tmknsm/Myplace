@@ -349,8 +349,8 @@ export function HomePage() {
 
       <section className="home-featured" aria-labelledby="home-featured-title">
         <header className="home-section-head">
-          <div className="kicker">Recently claimed</div>
-          <h2 id="home-featured-title">Pages the owners filled in.</h2>
+          <div className="kicker">Featured homes</div>
+          <h2 id="home-featured-title">Recently claimed by their owners.</h2>
         </header>
         <ul className="home-featured-track">
           {FEATURED.map((home) => (
