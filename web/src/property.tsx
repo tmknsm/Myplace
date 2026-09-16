@@ -426,7 +426,7 @@ export function PropertyPageView() {
   }, [canQuickAdd]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!data || !id) return <PageSpinner label="Loading record" />;
+  if (!data || !id || !ready) return <PageSpinner label="Loading record" />;
 
   const { property, viewer } = data;
   const owner = Boolean(viewer.maintainer && !viewer.openClaim);
