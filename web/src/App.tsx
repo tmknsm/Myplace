@@ -467,9 +467,7 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
                     value={handle}
                     onChange={(e) => setHandle(e.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
                     placeholder="@yourname"
-                    data-testid="signup-handle"
                   />
-                  <span className="meta-line">Shown instead of name in anonymous mode</span>
                 </label>
               )}
               <label className="stack">
