@@ -796,6 +796,7 @@ test("each maintainer anonymizes independently", async () => {
   const coCookie = await signIn("kelsey@example.com");
   await sql`UPDATE users SET handle = 'ktmkns', first_name = 'Kelsey', last_name = 'Tomkins', display_name = 'Kelsey Tomkins' WHERE primary_email = 'kelsey@example.com'`;
   const [co] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'kelsey@example.com'`;
+  if (!co) throw new Error("expected kelsey@example.com");
   await sql`
     INSERT INTO property_maintainers (maintainer_id, property_id, user_id, role)
     VALUES ('mnt_co', 'prop_test', ${co.user_id}, 'co_owner')
