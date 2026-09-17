@@ -116,7 +116,7 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
     <div className="header-neighbor">
       <button
         type="button"
-        className={`share-btn neighbor-btn${status === "pending" ? " is-pending" : ""}`}
+        className={`share-btn neighbor-btn${status === "pending" ? " is-pending" : ""}${status === "accepted" ? " is-accepted" : ""}`}
         aria-label={label}
         title={label}
         disabled={busy}
@@ -149,6 +149,9 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
         }}
       >
         <PeopleIcon />
+        <svg className="share-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M5 12.5l4.5 4.5L19 7.5" />
+        </svg>
       </button>
       {toast && <div className="page-toast" role="status">{toast}</div>}
     </div>
