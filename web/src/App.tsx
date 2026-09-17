@@ -575,26 +575,27 @@ function AccountPage() {
     api.myClaims().then((d) => setClaims(d.claims));
   }, [user]);
   if (!user) return <Navigate to="/signin" replace />;
+  const ownedIds = new Set(properties.map((property) => property.property_id));
+  const openClaims = claims.filter((claim) => !ownedIds.has(claim.property_id));
   return (
     <div className="page account-page">
       <ProfileCard user={user} onUser={refresh} />
       <section className="section">
         <h2>Properties</h2>
         <div className="group">
-          {properties.length === 0 && <div className="row"><span className="meta-line">None yet</span></div>}
-          {properties.map((p) => (
-            <Link className="row" key={p.property_id} to={`/property/${p.property_id}/manage`} data-testid="owned-property">{p.formatted}</Link>
+          {properties.length === 0 && openClaims.length === 0 && (
+            <div className="row"><span className="meta-line">None yet</span></div>
+          )}
+          {properties.map((property) => (
+            <Link className="row" key={property.property_id} to={`/property/${property.property_id}`} data-testid="owned-property">
+              {property.formatted}
+            </Link>
           ))}
-        </div>
-      </section>
-      <section className="section">
-        <h2>Claims</h2>
-        <div className="group">
-          {claims.map((claim) => (
-            <a className="row" key={claim.claim_id} href={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
+          {openClaims.map((claim) => (
+            <Link className="row" key={claim.claim_id} to={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
               <span>{claim.formatted}</span>
               <span className={`badge ${claim.status}`}>{claim.status}</span>
-            </a>
+            </Link>
           ))}
         </div>
       </section>
