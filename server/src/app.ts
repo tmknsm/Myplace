@@ -58,6 +58,7 @@ import {
   TRANSFERABLE_TYPES,
 } from "./services/owner.ts";
 import { loadMyNeighbors, loadPropertyNeighbors, neighborState, requestNeighborsOnProperty, reviewNeighbor } from "./services/neighbors.ts";
+import { addComment, canSeeDocument, loadComments, loadEngagement, recordShare, removeComment, toggleLike } from "./services/engagement.ts";
 import { addCoMaintainer, grantOwnership, revokeOwnership } from "./services/ownership.ts";
 import {
   loadMyProperties,
@@ -841,6 +842,59 @@ app.delete("/api/documents/:id", async (c) => {
     payload: { document_id: doc.document_id, document_type: doc.document_type },
   });
   return c.json({ ok: true });
+});
+
+// ---- Photo engagement: likes, comments, shares -----------------------------
+// Anyone who can see the photo can read its tallies and comments. Liking and
+// commenting need a session; sharing is a plain tally so a visitor's share
+// counts too.
+async function visibleDocument(c: Parameters<typeof requireUser>[0], documentId: string) {
+  const user = c.get("user");
+  const doc = await canSeeDocument(documentId, user ? { user_id: user.user_id, is_admin: user.is_admin } : null);
+  if (!doc) throw Object.assign(new Error("Not found"), { status: 404 });
+  return { user, doc };
+}
+
+app.get("/api/documents/:id/engagement", async (c) => {
+  const documentId = c.req.param("id");
+  const { user } = await visibleDocument(c, documentId);
+  return c.json({ engagement: await loadEngagement(documentId, user?.user_id ?? null) });
+});
+
+app.post("/api/documents/:id/like", async (c) => {
+  const documentId = c.req.param("id");
+  const user = requireUser(c);
+  await visibleDocument(c, documentId);
+  return c.json(await toggleLike(documentId, user.user_id));
+});
+
+app.post("/api/documents/:id/share", async (c) => {
+  const documentId = c.req.param("id");
+  await visibleDocument(c, documentId);
+  return c.json(await recordShare(documentId));
+});
+
+app.get("/api/documents/:id/comments", async (c) => {
+  const documentId = c.req.param("id");
+  const { user } = await visibleDocument(c, documentId);
+  return c.json({ comments: await loadComments(documentId, user?.user_id ?? null) });
+});
+
+app.post("/api/documents/:id/comments", async (c) => {
+  const documentId = c.req.param("id");
+  const user = requireUser(c);
+  await visibleDocument(c, documentId);
+  const body = await c.req.json<{ body?: string }>().catch(() => ({} as { body?: string }));
+  const result = await addComment(documentId, user.user_id, typeof body.body === "string" ? body.body : "");
+  if ("error" in result) return c.json({ error: result.error }, 400);
+  return c.json(result, 201);
+});
+
+app.delete("/api/comments/:id", async (c) => {
+  const user = requireUser(c);
+  const result = await removeComment(c.req.param("id"), user);
+  if ("error" in result) return c.json({ error: result.error }, result.status);
+  return c.json(result);
 });
 
 app.post("/api/documents/:id/file", async (c) => {

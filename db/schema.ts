@@ -9,6 +9,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const ALL_TABLES = [
   "schema_migrations",
   "document_blobs", // dropped by 005; kept here so --reset still wipes leftover DBs
+  "document_likes",
+  "document_comments",
   "neighbor_requests",
   "notification_preferences",
   "property_improvements",

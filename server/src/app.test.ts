@@ -449,6 +449,85 @@ test("cover photo is served publicly while private photos stay behind sign-in", 
   expect(covers.map((d: { document_id: string }) => d.document_id)).toEqual([privateId]);
 });
 
+test("photo likes, comments and shares tally per photo and respect visibility", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const visitorCookie = await signIn("visitor@example.com");
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const uploadPhoto = async (name: string, visibility: string) => {
+    const form = new FormData();
+    form.append("file", new File([png], name, { type: "image/png" }));
+    form.append("documentType", "photo");
+    form.append("visibility", visibility);
+    const res = await app.request("http://localhost/api/properties/prop_test/documents", {
+      method: "POST",
+      headers: { cookie: ownerCookie },
+      body: form,
+    });
+    expect(res.status).toBe(201);
+    return (await res.json()).documentId as string;
+  };
+  const publicId = await uploadPhoto("front.png", "public");
+  const privateId = await uploadPhoto("boiler.png", "private");
+  const json = { "content-type": "application/json" };
+
+  // Everyone can read a public photo's tallies; they start empty.
+  const fresh = await (await app.request(`http://localhost/api/documents/${publicId}/engagement`)).json();
+  expect(fresh.engagement).toEqual({ likes: 0, comments: 0, shares: 0, liked: false });
+
+  // A private photo stays private, even to a signed-in stranger.
+  expect((await app.request(`http://localhost/api/documents/${privateId}/engagement`)).status).toBe(404);
+  expect((await app.request(`http://localhost/api/documents/${privateId}/engagement`, { headers: { cookie: visitorCookie } })).status).toBe(404);
+  expect((await app.request(`http://localhost/api/documents/${privateId}/engagement`, { headers: { cookie: ownerCookie } })).status).toBe(200);
+
+  // Liking needs a session and toggles.
+  expect((await app.request(`http://localhost/api/documents/${publicId}/like`, { method: "POST" })).status).toBe(401);
+  const liked = await (await app.request(`http://localhost/api/documents/${publicId}/like`, { method: "POST", headers: { cookie: visitorCookie } })).json();
+  expect(liked).toEqual({ liked: true, likes: 1 });
+  await app.request(`http://localhost/api/documents/${publicId}/like`, { method: "POST", headers: { cookie: ownerCookie } });
+  const visitorView = await (await app.request(`http://localhost/api/documents/${publicId}/engagement`, { headers: { cookie: visitorCookie } })).json();
+  expect(visitorView.engagement.likes).toBe(2);
+  expect(visitorView.engagement.liked).toBe(true);
+  const unliked = await (await app.request(`http://localhost/api/documents/${publicId}/like`, { method: "POST", headers: { cookie: visitorCookie } })).json();
+  expect(unliked).toEqual({ liked: false, likes: 1 });
+
+  // Shares are a plain tally anyone can bump.
+  expect((await (await app.request(`http://localhost/api/documents/${publicId}/share`, { method: "POST" })).json()).shares).toBe(1);
+  expect((await (await app.request(`http://localhost/api/documents/${publicId}/share`, { method: "POST" })).json()).shares).toBe(2);
+
+  // Comments: sign in to post, empty bodies bounce, the author's name comes along.
+  expect((await app.request(`http://localhost/api/documents/${publicId}/comments`, { method: "POST", headers: json, body: JSON.stringify({ body: "hi" }) })).status).toBe(401);
+  const blank = await app.request(`http://localhost/api/documents/${publicId}/comments`, {
+    method: "POST",
+    headers: { ...json, cookie: visitorCookie },
+    body: JSON.stringify({ body: "   " }),
+  });
+  expect(blank.status).toBe(400);
+  const posted = await app.request(`http://localhost/api/documents/${publicId}/comments`, {
+    method: "POST",
+    headers: { ...json, cookie: visitorCookie },
+    body: JSON.stringify({ body: "  Love the  porch. " }),
+  });
+  expect(posted.status).toBe(201);
+  const { comment } = await posted.json();
+  expect(comment.body).toBe("Love the porch.");
+  expect(comment.mine).toBe(true);
+  expect(typeof comment.author.label).toBe("string");
+
+  const listed = await (await app.request(`http://localhost/api/documents/${publicId}/comments`)).json();
+  expect(listed.comments.map((c: { comment_id: string }) => c.comment_id)).toEqual([comment.comment_id]);
+  expect(listed.comments[0].mine).toBe(false);
+  const tallied = await (await app.request(`http://localhost/api/documents/${publicId}/engagement`)).json();
+  expect(tallied.engagement).toEqual({ likes: 1, comments: 1, shares: 2, liked: false });
+
+  // Only the author or a maintainer can take a comment down.
+  const stranger = await signIn("stranger@example.com");
+  expect((await app.request(`http://localhost/api/comments/${comment.comment_id}`, { method: "DELETE", headers: { cookie: stranger } })).status).toBe(403);
+  expect((await app.request(`http://localhost/api/comments/${comment.comment_id}`, { method: "DELETE", headers: { cookie: ownerCookie } })).status).toBe(200);
+  const afterRemove = await (await app.request(`http://localhost/api/documents/${publicId}/engagement`)).json();
+  expect(afterRemove.engagement.comments).toBe(0);
+});
+
 test("former owner loses maintainer access after a handoff claim is verified", async () => {
   await seedProperty();
   const firstCookie = await signIn("seller@example.com");

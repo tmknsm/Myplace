@@ -107,6 +107,13 @@ export const api = {
     return request<{ ok: boolean }>(`/api/documents/${id}/file`, { method: "POST", body: form });
   },
   deleteDocument: (id: string) => request<{ ok: boolean }>(`/api/documents/${id}`, { method: "DELETE" }),
+  engagement: (id: string) => request<{ engagement: Engagement }>(`/api/documents/${id}/engagement`),
+  likeDocument: (id: string) => request<{ liked: boolean; likes: number }>(`/api/documents/${id}/like`, { method: "POST" }),
+  shareDocument: (id: string) => request<{ shares: number }>(`/api/documents/${id}/share`, { method: "POST" }),
+  comments: (id: string) => request<{ comments: PhotoComment[] }>(`/api/documents/${id}/comments`),
+  addComment: (id: string, body: string) =>
+    request<{ comment: PhotoComment }>(`/api/documents/${id}/comments`, { method: "POST", body: JSON.stringify({ body }) }),
+  deleteComment: (id: string) => request<{ ok: boolean }>(`/api/comments/${id}`, { method: "DELETE" }),
   saveOwnerFields: (id: string, fields: Record<string, unknown>, visibility?: FieldVisibility) =>
     request<{ contributionId: string | null; updated: number; removed: number }>(`/api/properties/${id}/owner-fields`, {
       method: "POST",
@@ -480,6 +487,21 @@ export interface Doc {
   has_file?: boolean;
   byte_size: number;
   created_at: string;
+}
+
+export interface Engagement {
+  likes: number;
+  comments: number;
+  shares: number;
+  liked: boolean;
+}
+
+export interface PhotoComment {
+  comment_id: string;
+  body: string;
+  created_at: string;
+  mine: boolean;
+  author: { user_id: string; label: string; photo_url: string };
 }
 
 export type PageRefresh = (patch?: (property: PropertyPage) => PropertyPage) => Promise<void> | void;
