@@ -2408,10 +2408,7 @@ function TopicForm({
           </label>
         )}
       </div>
-      <div className="stack inline-choice vis-field">
-        <span>Visibility</span>
-        <VisibilityToggle value={visibility} onChange={setVisibility} />
-      </div>
+      <VisibilityChoice value={visibility} onChange={setVisibility} />
       {error && <p className="error">{error}</p>}
       <div className="action-row compact sheet-actions">
         <button type="submit" className="btn" disabled={busy} data-testid="topic-save">{busy ? "Saving…" : submitLabel}</button>
