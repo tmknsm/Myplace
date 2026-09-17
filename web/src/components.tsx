@@ -146,10 +146,9 @@ export function SettingsButton({ propertyId }: { propertyId: string }) {
   );
 }
 
-/** Neighbor the people on this claimed page. Hidden on your own houses. */
+/** Neighbor the people on this claimed page. Hidden on your own houses, and when signed out. */
 export function NeighborButton({ propertyId }: { propertyId: string }) {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [status, setStatus] = useState<NeighborStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [homes, setHomes] = useState<MaintainedProperty[] | null>(null);
@@ -162,6 +161,7 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
     let cancelled = false;
     setStatus(null);
     setHomes(null);
+    if (!user) return;
     api.neighborStatus(propertyId).then((data) => {
       if (!cancelled) setStatus(data.neighbor.status);
     }).catch(() => {
@@ -184,7 +184,7 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
     }
   };
 
-  if (!status || status === "hidden") return null;
+  if (!user || !status || status === "hidden") return null;
 
   const label = status === "accepted"
     ? "Neighbors"
@@ -204,10 +204,6 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
         disabled={busy}
         data-testid="neighbor-button"
         onClick={() => {
-          if (!user) {
-            navigate(`/signin?next=/property/${propertyId}`);
-            return;
-          }
           if (status === "pending") {
             showToast("Waiting for them to approve.");
             return;

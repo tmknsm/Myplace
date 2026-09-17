@@ -1404,6 +1404,8 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   const ownerPage = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
   expect(ownerPage.viewer.neighbor.status).toBe("hidden");
   expect((await (await app.request("http://localhost/api/properties/prop_test/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("hidden");
+  expect((await (await app.request("http://localhost/api/properties/prop_test")).json()).viewer.neighbor.status).toBe("hidden");
+  expect((await (await app.request("http://localhost/api/properties/prop_test/neighbor")).json()).neighbor.status).toBe("hidden");
 
   const before = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();
   expect(before.viewer.neighbor.status).toBe("none");

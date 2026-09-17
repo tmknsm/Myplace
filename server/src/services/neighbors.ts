@@ -86,8 +86,7 @@ export async function neighborState(
   maintainerIds: string[],
   viewerIsMaintainer: boolean,
 ): Promise<{ status: NeighborStatus }> {
-  if (viewerIsMaintainer || maintainerIds.length === 0) return { status: "hidden" };
-  if (!userId) return { status: "none" };
+  if (viewerIsMaintainer || maintainerIds.length === 0 || !userId) return { status: "hidden" };
 
   const sql = getSql();
   const outbound = await sql<{ status: "pending" | "accepted" }[]>`
