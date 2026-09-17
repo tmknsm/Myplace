@@ -3,6 +3,7 @@ import { formatHandle, ownerLabel, ownerPhoto } from "../../../shared/profile.ts
 import { getSql } from "../db.ts";
 import { id } from "../ids.ts";
 import { isMaintainer } from "../auth.ts";
+import { neighborHouseForPeople } from "./neighbors.ts";
 
 export const COMMENT_MAX = 600;
 
@@ -18,6 +19,8 @@ export interface PhotoPerson {
   label: string;
   handle: string | null;
   photo_url: string;
+  /** The house they are neighbors with this photo's property through. */
+  property_id: string | null;
 }
 
 export interface PhotoComment {
@@ -66,7 +69,22 @@ function presentPerson(row: PersonRow): PhotoPerson {
     // When the label already is the handle there is nothing to add under it.
     handle: handle && handle !== label ? handle : null,
     photo_url: ownerPhoto(row),
+    property_id: null,
   };
+}
+
+async function withNeighborHouses(documentId: string, comments: PhotoComment[]): Promise<PhotoComment[]> {
+  const sql = getSql();
+  const [doc] = await sql<{ property_id: string }[]>`
+    SELECT property_id FROM documents WHERE document_id = ${documentId} AND removed_at IS NULL
+  `;
+  if (!doc) return comments;
+  const houses = await neighborHouseForPeople(doc.property_id, comments.map((comment) => comment.author.user_id));
+  if (houses.size === 0) return comments;
+  return comments.map((comment) => {
+    const propertyId = houses.get(comment.author.user_id);
+    return propertyId ? { ...comment, author: { ...comment.author, property_id: propertyId } } : comment;
+  });
 }
 
 /**
@@ -162,7 +180,7 @@ function commentRows(where: postgres.Fragment, viewerId: string | null) {
 export async function loadComments(documentId: string, viewerId: string | null): Promise<PhotoComment[]> {
   const sql = getSql();
   const rows = await commentRows(sql`c.document_id = ${documentId}`, viewerId);
-  return rows.map((row) => presentComment(row, viewerId));
+  return withNeighborHouses(documentId, rows.map((row) => presentComment(row, viewerId)));
 }
 
 /**
@@ -237,7 +255,8 @@ export async function addComment(
   const rows = await commentRows(sql`c.comment_id = ${commentId}`, userId);
   const row = rows[0];
   if (!row) return { error: "Couldn't save that comment." };
-  return { comment: presentComment(row, userId) };
+  const [comment] = await withNeighborHouses(documentId, [presentComment(row, userId)]);
+  return { comment: comment ?? presentComment(row, userId) };
 }
 
 /** The author or a maintainer of the property can take a comment down. */

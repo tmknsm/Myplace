@@ -518,6 +518,7 @@ test("photo likes, comments and shares tally per photo and respect visibility", 
   expect(listed.comments.map((c: { comment_id: string }) => c.comment_id)).toEqual([comment.comment_id]);
   expect(listed.comments[0].mine).toBe(false);
   expect(listed.comments[0].likes).toBe(0);
+  expect(listed.comments[0].author.property_id).toBeNull();
   // The post header: the uploader is the author, with the caption and date.
   expect(listed.post.document_id).toBe(publicId);
   expect(listed.post.author.label).toBe("owner");
@@ -542,6 +543,45 @@ test("photo likes, comments and shares tally per photo and respect visibility", 
   expect((await app.request(`http://localhost/api/comments/${comment.comment_id}`, { method: "DELETE", headers: { cookie: ownerCookie } })).status).toBe(200);
   const afterRemove = await (await app.request(`http://localhost/api/documents/${publicId}/engagement`)).json();
   expect(afterRemove.engagement.comments).toBe(0);
+});
+
+test("a commenter's name opens the house they neighbored with, not their other one", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("bob@example.com");
+  const aliceCookie = await signIn("alice@example.com");
+  const [bob] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'bob@example.com'`;
+  const [alice] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'alice@example.com'`;
+  if (!bob || !alice) throw new Error("expected Bob and Alice");
+  await giveHome(alice.user_id, "prop_alice_a", "10 First Street, Hudson, NY 12534");
+  await giveHome(alice.user_id, "prop_alice_b", "20 Second Street, Hudson, NY 12534");
+  await sql`
+    INSERT INTO neighbor_requests (request_id, from_user_id, to_user_id, property_id, from_property_id, status, decided_at)
+    VALUES ('nbr_alice_a', ${alice.user_id}, ${bob.user_id}, 'prop_test', 'prop_alice_a', 'accepted', now())
+  `;
+
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const form = new FormData();
+  form.append("file", new File([png], "front.png", { type: "image/png" }));
+  form.append("documentType", "photo");
+  form.append("visibility", "public");
+  const uploaded = await app.request("http://localhost/api/properties/prop_test/documents", {
+    method: "POST",
+    headers: { cookie: ownerCookie },
+    body: form,
+  });
+  expect(uploaded.status).toBe(201);
+  const { documentId } = await uploaded.json();
+
+  const posted = await app.request(`http://localhost/api/documents/${documentId}/comments`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: aliceCookie },
+    body: JSON.stringify({ body: "Nice stoop." }),
+  });
+  expect(posted.status).toBe(201);
+  expect((await posted.json()).comment.author.property_id).toBe("prop_alice_a");
+
+  const listed = await (await app.request(`http://localhost/api/documents/${documentId}/comments`)).json();
+  expect(listed.comments[0].author.property_id).toBe("prop_alice_a");
 });
 
 test("former owner loses maintainer access after a handoff claim is verified", async () => {

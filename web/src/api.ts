@@ -502,6 +502,7 @@ export interface PhotoPerson {
   label: string;
   handle: string | null;
   photo_url: string;
+  property_id: string | null;
 }
 
 export interface PhotoComment {

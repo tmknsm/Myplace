@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, type DebugClaimResult, type Doc, type Engagement, type Fact, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PhotoComment, type PhotoPost, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
+import { ApiError, api, type DebugClaimResult, type Doc, type Engagement, type Fact, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PhotoComment, type PhotoPerson, type PhotoPost, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, NeighborHouseIcon, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
@@ -3657,6 +3657,35 @@ function usePhotoEngagement(documentId: string | null) {
 }
 
 /**
+ * Name and avatar of someone else who commented. Goes to the house they
+ * paired with this photo's property — not whichever address they own first.
+ * Your own comment, and anyone who isn't a neighbor here, stay unlinked.
+ */
+function CommentHouseLink({
+  person,
+  mine,
+  className,
+  children,
+}: {
+  person: PhotoPerson;
+  mine: boolean;
+  className: string;
+  children: ReactNode;
+}) {
+  if (mine || !person.property_id) return <span className={className}>{children}</span>;
+  return (
+    <Link
+      className={className}
+      to={`/property/${person.property_id}`}
+      aria-label={`${person.label}'s house`}
+      data-testid="comment-house"
+    >
+      {children}
+    </Link>
+  );
+}
+
+/**
  * The photo as a post, in a sheet over the lightbox: who put it up, the
  * caption, when, the three tallies, then the comments and a reply field.
  */
@@ -3779,11 +3808,15 @@ function PhotoComments({
           ) : (
             comments.map((comment) => (
               <div key={comment.comment_id} className="comment-row" data-testid="photo-comment">
-                <span className="neighbor-avatar"><img src={comment.author.photo_url} alt="" /></span>
+                <CommentHouseLink person={comment.author} mine={comment.mine} className="neighbor-avatar">
+                  <img src={comment.author.photo_url} alt="" />
+                </CommentHouseLink>
                 <div className="comment-copy">
                   <div className="comment-meta">
-                    <strong>{comment.author.label}</strong>
-                    {comment.author.handle && <span className="comment-handle">{comment.author.handle}</span>}
+                    <CommentHouseLink person={comment.author} mine={comment.mine} className="comment-name">
+                      <strong>{comment.author.label}</strong>
+                      {comment.author.handle && <span className="comment-handle">{comment.author.handle}</span>}
+                    </CommentHouseLink>
                     <span>· {dateLabel(comment.created_at, { month: "short", day: "numeric" })}</span>
                     {comment.mine && (
                       <button type="button" className="text-link danger" onClick={() => void remove(comment.comment_id)}>Remove</button>

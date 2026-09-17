@@ -286,6 +286,45 @@ export async function loadMyNeighbors(userId: string, propertyId?: string): Prom
   return { incoming, outgoing, neighbors };
 }
 
+/**
+ * The house each person is neighbors with `propertyId` through. If they own
+ * two addresses and only paired one, that is the one that comes back — not
+ * "any house they maintain." People who maintain `propertyId` itself are
+ * left out; they are already home.
+ */
+export async function neighborHouseForPeople(propertyId: string, userIds: string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const map = new Map<string, string>();
+  if (ids.length === 0) return map;
+  const sql = getSql();
+  const rows = await sql<{ user_id: string; their_property_id: string }[]>`
+    SELECT DISTINCT ON (m.user_id)
+      m.user_id,
+      CASE
+        WHEN r.property_id = ${propertyId} THEN r.from_property_id
+        ELSE r.property_id
+      END AS their_property_id
+    FROM neighbor_requests r
+    JOIN property_maintainers m
+      ON m.revoked_at IS NULL
+      AND m.user_id IN ${sql(ids)}
+      AND m.property_id = CASE
+        WHEN r.property_id = ${propertyId} THEN r.from_property_id
+        ELSE r.property_id
+      END
+    WHERE r.status = 'accepted'
+      AND r.from_property_id IS NOT NULL
+      AND (r.property_id = ${propertyId} OR r.from_property_id = ${propertyId})
+    ORDER BY m.user_id, r.decided_at DESC NULLS LAST, r.created_at DESC
+  `;
+  for (const row of rows) {
+    if (row.their_property_id && row.their_property_id !== propertyId) {
+      map.set(row.user_id, row.their_property_id);
+    }
+  }
+  return map;
+}
+
 /** Confirmed house-to-house neighbors of one address. Public on the property page. */
 export async function loadPropertyNeighbors(propertyId: string): Promise<PropertyNeighbor[]> {
   const sql = getSql();

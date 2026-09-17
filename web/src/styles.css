@@ -2813,6 +2813,15 @@ a.text-btn { text-decoration: none; }
 .comment-copy { min-width: 0; flex: 1 1 auto; }
 .comment-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; color: var(--muted); }
 .comment-meta strong { color: var(--ink); font-weight: 600; }
+.comment-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+a.comment-name:hover strong { text-decoration: underline; }
+a.neighbor-avatar { text-decoration: none; }
 .comment-meta .text-link { margin-left: auto; font-size: 12px; }
 .comment-copy p { margin: 2px 0 0; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; white-space: pre-line; }
 .comment-like {
