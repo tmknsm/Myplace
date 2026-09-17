@@ -3,7 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, use
 import { ProfileCard } from "./account-profile";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty } from "./api";
 import { useAuth } from "./auth";
-import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
+import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, SettingsButton, ShareButton } from "./components";
 import { DebugSheet } from "./debug";
 import { HomePage } from "./home";
 import { useMeta } from "./meta";
@@ -23,16 +23,18 @@ function Layout({ children }: { children: React.ReactNode }) {
   const searchOnArrival = useRef(false);
   if (!onAuth) searchOnArrival.current = searchOnThisPage;
   const headerSearch = onAuth ? searchOnArrival.current : searchOnThisPage;
-  // Share and neighbor ride beside the search on the property page itself, in
-  // every state. Keyed on the id so both slots re-open on page load, not after
-  // the record arrives. The empty slot after them is where the property page
-  // mounts its quick-add button once the owner's add buttons scroll away.
+  // Share, then settings (your houses) or neighbor (everyone else's), ride
+  // beside the search on the property page itself. Keyed on the id so the
+  // slots re-open on page load, not after the record arrives. The empty slot
+  // after them is where the property page mounts its quick-add button once
+  // the owner's add buttons scroll away.
   const propertyId = location.pathname.match(/^\/property\/([^/]+)\/?$/)?.[1] ?? null;
   const share = propertyId ? (
     <>
       <div className="header-share" key={`share-${propertyId}`}>
         <ShareButton propertyId={propertyId} />
       </div>
+      <SettingsButton key={`settings-${propertyId}`} propertyId={propertyId} />
       <NeighborButton key={`neighbor-${propertyId}`} propertyId={propertyId} />
       <div className="header-add-slot" />
     </>

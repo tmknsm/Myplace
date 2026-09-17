@@ -8,10 +8,10 @@ import { DocumentsSection, HandoffSection, MaintainersSection, NotificationsSect
 import { DOCUMENT_TYPE_LABEL, dateLabel, useToast, type Toast } from "./property-shared";
 
 /**
- * Owner tools live on their own pages, reached from the account screen's
- * property list: the vault, maintainers, email preferences, and handoff at
- * /property/:id/manage. The bell opens the inbox of requests and notices
- * for that property.
+ * Owner tools live on their own pages, reached from the settings button
+ * beside Share on a house you maintain: the vault, maintainers, email
+ * preferences, and handoff at /property/:id/manage. The bell opens the
+ * inbox of requests and notices for that property.
  */
 
 type PageData = { property: PropertyPage; viewer: Viewer };

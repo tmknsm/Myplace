@@ -222,6 +222,7 @@ img, svg { max-width: 100%; }
   border-radius: 50%;
   background: var(--surface-2);
   color: var(--ink);
+  text-decoration: none;
   -webkit-tap-highlight-color: transparent;
   transform-origin: 50% 50%;
   transition: background 160ms ease, box-shadow 160ms ease, transform 160ms var(--share-ease, ease);
@@ -250,11 +251,14 @@ img, svg { max-width: 100%; }
 }
 
 /*
- * Neighbor, immediately after share. Same slot-and-pop, a beat later so
- * the two buttons land as a pair instead of at the same instant. Both
- * mount with the route so they fire on page load, not after the record.
+ * Settings (your houses) and Neighbor (everyone else's) share the slot
+ * immediately after Share. Same slot-and-pop, a beat later so the pair
+ * lands as two beats instead of at the same instant. They never show
+ * together, so they can share the delay. The plus slot after them still
+ * has 8px when it opens.
  */
-.header-neighbor {
+.header-neighbor,
+.header-settings {
   position: relative;
   flex: 0 0 auto;
   width: var(--share-slot);
@@ -317,7 +321,8 @@ img, svg { max-width: 100%; }
   from { width: 0; margin-left: 0; }
   to { width: var(--share-slot); margin-left: 8px; }
 }
-.header-neighbor .share-btn {
+.header-neighbor .share-btn,
+.header-settings .share-btn {
   animation-delay: 170ms;
 }
 .neighbor-btn.is-pending { color: var(--muted); }
@@ -325,9 +330,10 @@ img, svg { max-width: 100%; }
 .neighbor-btn.is-accepted .share-check { opacity: 1; transform: none; }
 
 /*
- * Quick add, to the right of share. Same choreography as the share slot, but
- * reversible: the slot widens and the field contracts as the owner's add
- * buttons pass behind the header, and it all folds back when they return.
+ * Quick add, last in the cluster after Share and settings/neighbor. Same
+ * choreography as the share slot, but reversible: the slot widens and the
+ * field contracts as the owner's add buttons pass behind the header, and
+ * it all folds back when they return.
  */
 .header-add-slot {
   flex: 0 0 auto;
@@ -4179,7 +4185,7 @@ html.home-search-docked .topbar .home-handoff {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .header-share, .header-neighbor, .share-btn { animation: none; }
+  .header-share, .header-neighbor, .header-settings, .share-btn { animation: none; }
   .header-add, .header-add-btn { transition: none; }
   .home-hero-copy > * { animation: none; }
   .home-chapter,
