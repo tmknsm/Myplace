@@ -1485,30 +1485,34 @@ function neighborTileLabel(neighbor: PropertyNeighbor): string {
   return street || neighbor.formatted || "Neighbor";
 }
 
+function NeighborHouseIcon() {
+  return (
+    <svg className="neighbor-tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 11.2 12 4l8 7.2" />
+      <path d="M6.5 10.2V20h11V10.2" />
+      <path d="M10 20v-6h4v6" />
+    </svg>
+  );
+}
+
 function NeighborsGrid({ neighbors }: { neighbors: PropertyNeighbor[] }) {
   return (
     <div className="neighbor-grid" data-testid="neighbor-grid">
-      {neighbors.map((neighbor) => {
-        const label = neighborTileLabel(neighbor);
-        return (
-          <Link
-            key={neighbor.property_id}
-            className="neighbor-card"
-            to={`/property/${neighbor.property_id}`}
-            data-testid="neighbor-tile"
-            aria-label={neighbor.formatted || label}
-          >
-            <span className="neighbor-tile">
-              {neighbor.photo_url ? (
-                <img src={neighbor.photo_url} alt="" />
-              ) : (
-                <span className="neighbor-tile-fallback">{neighbor.street_number || label}</span>
-              )}
-            </span>
-            <span className="neighbor-card-label">{label}</span>
-          </Link>
-        );
-      })}
+      {neighbors.map((neighbor) => (
+        <Link
+          key={neighbor.property_id}
+          className="neighbor-tile"
+          to={`/property/${neighbor.property_id}`}
+          data-testid="neighbor-tile"
+          aria-label={neighbor.formatted || neighborTileLabel(neighbor)}
+        >
+          {neighbor.photo_url ? (
+            <img src={neighbor.photo_url} alt="" />
+          ) : (
+            <NeighborHouseIcon />
+          )}
+        </Link>
+      ))}
     </div>
   );
 }
