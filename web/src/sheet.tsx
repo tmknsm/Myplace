@@ -10,7 +10,8 @@ type Phase = "closed" | "open" | "closing";
 /**
  * Every owner edit on the property page lives in one of these. On phones it
  * rises from the bottom like a native iOS sheet over a black scrim; on wide
- * screens it is a centered card over the same scrim. Dismiss by the
+ * screens it is a centered card over the same scrim. `half` is the medium
+ * detent: same chrome and motion, about half the viewport. Dismiss by the
  * close button, Escape, tapping the backdrop, or dragging the header down.
  *
  * Callers own the `open` flag and keep children mounted; the sheet stays in
@@ -24,6 +25,7 @@ export function Sheet({
   children,
   testId,
   wide = false,
+  half = false,
 }: {
   open: boolean;
   title: string;
@@ -32,6 +34,7 @@ export function Sheet({
   children: ReactNode;
   testId?: string;
   wide?: boolean;
+  half?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>(open ? "open" : "closed");
   const phaseRef = useRef<Phase>(phase);
@@ -122,7 +125,7 @@ export function Sheet({
     >
       <div
         ref={panelRef}
-        className={`sheet-panel${wide ? " is-wide" : ""}${phase === "closing" ? " is-closing" : ""}`}
+        className={`sheet-panel${wide ? " is-wide" : ""}${half ? " is-half" : ""}${phase === "closing" ? " is-closing" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="sheet-title"

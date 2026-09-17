@@ -264,37 +264,27 @@ img, svg { max-width: 100%; }
   justify-content: center;
   animation: neighbor-slot-open 320ms var(--share-ease) 70ms both;
 }
-.neighbor-home-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 20;
-  min-width: 240px;
-  padding: 10px 0 8px;
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  text-align: left;
-}
-.neighbor-home-menu .meta-line {
-  margin: 0 0 4px;
-  padding: 2px 12px 4px;
-  text-align: left;
+.neighbor-home-list {
+  padding: 4px var(--sheet-inline) calc(16px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px));
 }
 .neighbor-home-option {
   display: block;
-  width: 100%;
-  padding: 10px 12px;
+  width: calc(100% + 2 * var(--sheet-inline));
+  margin: 0 calc(-1 * var(--sheet-inline));
+  padding: 14px var(--sheet-inline);
   border: 0;
+  border-bottom: 1px solid var(--hairline);
   border-radius: 0;
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 520;
   text-align: left;
 }
+.neighbor-home-option:last-child { border-bottom: 0; }
 .neighbor-home-option:hover { background: var(--surface-2); }
+.neighbor-home-option:active { background: var(--surface-2); }
 @keyframes neighbor-slot-open {
   from { width: 0; margin-left: 0; }
   to { width: var(--share-slot); margin-left: 8px; }
@@ -2888,6 +2878,7 @@ html.peek-gated body {
   touch-action: pan-y;
 }
 .sheet-panel.is-wide { width: min(100%, 720px); }
+.sheet-panel.is-half { max-height: min(50dvh, 480px); }
 .sheet-panel.is-closing { animation: pop-out var(--sheet-out) ease-in forwards; }
 @keyframes pop-out { to { opacity: 0; transform: translateY(8px) scale(0.98); } }
 .sheet-panel-head {
@@ -3443,6 +3434,11 @@ html.peek-gated body {
     border-radius: 24px 24px 0 0;
     box-shadow: 0 -12px 48px rgba(20, 18, 14, 0.3);
     animation: sheet-rise var(--sheet-in) var(--sheet-rise);
+  }
+  .sheet-panel.is-half,
+  .sheet-panel.is-wide.is-half {
+    height: calc(50dvh + var(--sheet-bleed));
+    max-height: none;
   }
   .sheet-panel.is-closing { animation: sheet-sink var(--sheet-out) var(--sheet-settle) forwards; }
   @keyframes sheet-rise { from { transform: translate3d(0, 100%, 0); } to { transform: none; } }

@@ -6,6 +6,7 @@ import { api, type Fact, type MaintainedProperty, type NeighborStatus, type Sear
 import { useAuth } from "./auth";
 import { useMeta } from "./meta";
 import { useToast } from "./property-shared";
+import { Sheet } from "./sheet";
 
 /** The same ring used in busy buttons, photo tiles, and full-page waits. */
 export function Spinner() {
@@ -90,7 +91,10 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
   const [status, setStatus] = useState<NeighborStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [homes, setHomes] = useState<MaintainedProperty[] | null>(null);
+  const lastHomes = useRef<MaintainedProperty[]>([]);
+  if (homes && homes.length > 1) lastHomes.current = homes;
   const [toast, showToast] = useToast();
+  const picking = Boolean(homes && homes.length > 1);
 
   useEffect(() => {
     let cancelled = false;
@@ -181,10 +185,15 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
           <path d="M5 12.5l4.5 4.5L19 7.5" />
         </svg>
       </button>
-      {homes && homes.length > 1 && (
-        <div className="neighbor-home-menu" data-testid="neighbor-home-menu">
-          <div className="meta-line">Add neighbor to</div>
-          {homes.map((home) => (
+      <Sheet
+        open={picking}
+        half
+        title="Add neighbor to"
+        onClose={() => setHomes(null)}
+        testId="neighbor-home-sheet"
+      >
+        <div className="neighbor-home-list">
+          {(homes ?? lastHomes.current).map((home) => (
             <button
               key={home.property_id}
               type="button"
@@ -196,7 +205,7 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
             </button>
           ))}
         </div>
-      )}
+      </Sheet>
       {toast && <div className="page-toast" role="status">{toast}</div>}
     </div>
   );
