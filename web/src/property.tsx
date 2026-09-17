@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, type DebugClaimResult, type Doc, type Engagement, type Fact, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PhotoComment, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
+import { ApiError, api, type DebugClaimResult, type Doc, type Engagement, type Fact, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PhotoComment, type PhotoPost, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, NeighborHouseIcon, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
@@ -3374,7 +3374,6 @@ function PhotoLightbox({
   const [commentsOpen, setCommentsOpen] = useState(false);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const thumbRef = useRef<HTMLSpanElement | null>(null);
-  const stageRef = useRef<HTMLDivElement | null>(null);
 
   // Swiping to another photo drops any pending delete confirmation.
   const settle = useCallback((next: number) => {
@@ -3385,32 +3384,6 @@ function PhotoLightbox({
   const goTo = useSnapTrack({ trackRef, thumbRef, count, current, onIndex: settle });
   const photoId = photo?.document_id ?? null;
   const engagement = usePhotoEngagement(photoId);
-
-  // The dots sit just inside the bottom edge of the photo, like the hero.
-  // Photos are letterboxed within the stage, so measure where the current
-  // one actually ends and lift the dots to meet it.
-  useEffect(() => {
-    const stage = stageRef.current;
-    const track = trackRef.current;
-    if (!stage || !track) return;
-    const slide = track.children[current] as HTMLElement | undefined;
-    const img = slide?.querySelector("img");
-    const place = () => {
-      const stageRect = stage.getBoundingClientRect();
-      const rect = img?.getBoundingClientRect();
-      const lift = rect && rect.height > 0 ? Math.max(0, Math.round(stageRect.bottom - rect.bottom)) : 0;
-      stage.style.setProperty("--photo-lift", `${lift}px`);
-    };
-    place();
-    img?.addEventListener("load", place);
-    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(place) : null;
-    observer?.observe(stage);
-    if (img) observer?.observe(img);
-    return () => {
-      img?.removeEventListener("load", place);
-      observer?.disconnect();
-    };
-  }, [current, count]);
 
   useLockPageScroll(true);
   useEffect(() => {
@@ -3539,7 +3512,7 @@ function PhotoLightbox({
           </div>
         )}
       </header>
-      <div ref={stageRef} className="lightbox-stage">
+      <div className="lightbox-stage">
         <div ref={trackRef} className="lightbox-track" data-testid="lightbox-track">
           {photos.map((doc, i) => (
             <div
@@ -3561,6 +3534,8 @@ function PhotoLightbox({
             </div>
           ))}
         </div>
+      </div>
+      <div className="lightbox-bar">
         {count > 1 && (
           <div className="hero-dots lightbox-dots" role="tablist" aria-label="Photos">
             <div className="hero-dots-inner">
@@ -3579,9 +3554,6 @@ function PhotoLightbox({
             </div>
           </div>
         )}
-      </div>
-      <div className="lightbox-bar">
-        {photo.caption?.trim() && <p className="lightbox-caption">{photo.caption}</p>}
         <div className="lightbox-actions" data-testid="lightbox-actions">
           <button type="button" className="lightbox-pill" data-testid="photo-comments" onClick={() => setCommentsOpen(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -3616,6 +3588,7 @@ function PhotoLightbox({
       </div>
       <PhotoComments
         photo={photo}
+        tallies={counts}
         open={commentsOpen}
         onClose={() => setCommentsOpen(false)}
         onCount={engagement.setComments}
@@ -3683,9 +3656,13 @@ function usePhotoEngagement(documentId: string | null) {
   return { state, like, share, setComments };
 }
 
-/** Comments under a photo, in a half sheet over the lightbox. */
+/**
+ * The photo as a post, in a sheet over the lightbox: who put it up, the
+ * caption, when, the three tallies, then the comments and a reply field.
+ */
 function PhotoComments({
   photo,
+  tallies,
   open,
   onClose,
   onCount,
@@ -3693,6 +3670,7 @@ function PhotoComments({
   toast,
 }: {
   photo: Doc;
+  tallies: Engagement;
   open: boolean;
   onClose: () => void;
   onCount: (count: number) => void;
@@ -3700,6 +3678,7 @@ function PhotoComments({
   toast: (message: string) => void;
 }) {
   const { user } = useAuth();
+  const [post, setPost] = useState<PhotoPost | null>(null);
   const [comments, setComments] = useState<PhotoComment[] | null>(null);
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
@@ -3710,19 +3689,38 @@ function PhotoComments({
     let cancelled = false;
     setComments(null);
     api.comments(photo.document_id).then((data) => {
-      if (!cancelled) setComments(data.comments);
+      if (cancelled) return;
+      setPost(data.post);
+      setComments(data.comments);
     }).catch(() => {
       if (!cancelled) setComments([]);
     });
     return () => { cancelled = true; };
   }, [open, photo.document_id]);
 
+  const likeComment = async (comment: PhotoComment) => {
+    if (!user) return onSignIn();
+    const flip = (item: PhotoComment) => ({
+      ...item,
+      liked: !item.liked,
+      likes: Math.max(0, item.likes + (item.liked ? -1 : 1)),
+    });
+    setComments((prev) => (prev ?? []).map((item) => (item.comment_id === comment.comment_id ? flip(item) : item)));
+    try {
+      const result = await api.likeComment(comment.comment_id);
+      setComments((prev) => (prev ?? []).map((item) => (item.comment_id === comment.comment_id ? { ...item, ...result } : item)));
+    } catch (error) {
+      setComments((prev) => (prev ?? []).map((item) => (item.comment_id === comment.comment_id ? flip(item) : item)));
+      toast(error instanceof Error ? error.message : "Couldn't save that.");
+    }
+  };
+
   // The lightbox tally follows whatever the sheet has loaded, posted or removed.
   useEffect(() => {
     if (comments) onCount(comments.length);
   }, [comments, onCount]);
 
-  const post = async () => {
+  const submit = async () => {
     const body = draft.trim();
     if (!body || posting) return;
     setPosting(true);
@@ -3747,15 +3745,37 @@ function PhotoComments({
     }
   };
 
-  const count = comments?.length ?? 0;
+  const count = comments?.length ?? tallies.comments;
+  const caption = (post?.caption ?? photo.caption)?.trim();
+  const posted = post?.created_at ?? photo.created_at;
   return (
-    <Sheet open={open} title="Comments" lede={comments ? `${count} ${count === 1 ? "comment" : "comments"}` : undefined} onClose={onClose} half testId="photo-comments-sheet">
+    <Sheet open={open} title="Comments" onClose={onClose} testId="photo-comments-sheet">
       <div className="comment-sheet">
         <div ref={listRef} className="comment-list">
+          <article className="comment-post" data-testid="photo-post">
+            {post?.author && (
+              <div className="comment-post-byline">
+                <span className="neighbor-avatar comment-post-avatar"><img src={post.author.photo_url} alt="" /></span>
+                <div className="comment-post-who">
+                  <strong>{post.author.label}</strong>
+                  {post.author.handle && <span>{post.author.handle}</span>}
+                </div>
+              </div>
+            )}
+            {caption && <p className="comment-post-caption">{caption}</p>}
+            <p className="comment-post-when">
+              {new Date(posted).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} · {dateLabel(posted, { month: "numeric", day: "numeric", year: "2-digit" })}
+            </p>
+            <div className="comment-post-tallies" aria-label="Activity">
+              <span><strong>{compactCount(count)}</strong> {count === 1 ? "comment" : "comments"}</span>
+              <span><strong>{compactCount(tallies.likes)}</strong> {tallies.likes === 1 ? "like" : "likes"}</span>
+              <span><strong>{compactCount(tallies.shares)}</strong> {tallies.shares === 1 ? "share" : "shares"}</span>
+            </div>
+          </article>
           {comments === null ? (
             <p className="meta-line">Loading…</p>
           ) : comments.length === 0 ? (
-            <p className="meta-line">No comments yet.</p>
+            <p className="meta-line comment-empty">No comments yet. Be the first.</p>
           ) : (
             comments.map((comment) => (
               <div key={comment.comment_id} className="comment-row" data-testid="photo-comment">
@@ -3763,20 +3783,34 @@ function PhotoComments({
                 <div className="comment-copy">
                   <div className="comment-meta">
                     <strong>{comment.author.label}</strong>
-                    <span>{dateLabel(comment.created_at, { month: "short", day: "numeric" })}</span>
+                    {comment.author.handle && <span className="comment-handle">{comment.author.handle}</span>}
+                    <span>· {dateLabel(comment.created_at, { month: "short", day: "numeric" })}</span>
                     {comment.mine && (
                       <button type="button" className="text-link danger" onClick={() => void remove(comment.comment_id)}>Remove</button>
                     )}
                   </div>
                   <p>{comment.body}</p>
                 </div>
+                <button
+                  type="button"
+                  className={`comment-like${comment.liked ? " is-on" : ""}`}
+                  aria-pressed={comment.liked}
+                  aria-label={`${comment.liked ? "Unlike" : "Like"} comment by ${comment.author.label}`}
+                  data-testid="comment-like"
+                  onClick={() => void likeComment(comment)}
+                >
+                  <svg viewBox="0 0 24 24" fill={comment.liked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 20.5s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 8a4.3 4.3 0 0 1 7.5 2.5c0 5.4-7.5 10-7.5 10z" />
+                  </svg>
+                  <span>{comment.likes > 0 ? compactCount(comment.likes) : ""}</span>
+                </button>
               </div>
             ))
           )}
         </div>
         <form
           className="comment-compose"
-          onSubmit={(event) => { event.preventDefault(); void post(); }}
+          onSubmit={(event) => { event.preventDefault(); void submit(); }}
         >
           {user ? (
             <>

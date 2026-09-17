@@ -2688,10 +2688,8 @@ a.text-btn { text-decoration: none; }
   white-space: nowrap;
   margin-right: 4px;
 }
-/* Stage: fills whatever the bars leave; the dots are pinned to its bottom and
-   lifted by --photo-lift (measured in JS) so they sit just inside the photo. */
+/* Stage: fills whatever the bars leave. */
 .lightbox-stage {
-  --photo-lift: 0px;
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
@@ -2732,30 +2730,24 @@ a.text-btn { text-decoration: none; }
   -webkit-user-drag: none;
   user-select: none;
 }
-.lightbox-dots {
-  left: 0;
-  right: 0;
-  bottom: calc(var(--photo-lift) + var(--hero-pad-bottom, 24px));
-  justify-content: center;
-  transition: bottom 120ms ease;
-}
-/* Bottom: caption (when there is one) over the three tallies. */
+/* Bottom: the dots, then the three tallies, sitting as low as the safe area
+   allows. The hero dots flow here rather than pinning to a corner. */
 .lightbox-bar {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 18px 16px max(20px, env(safe-area-inset-bottom));
-  text-align: center;
+  gap: 16px;
+  padding: 14px 16px max(10px, env(safe-area-inset-bottom));
 }
-.lightbox-caption {
-  margin: 0;
-  max-width: min(100%, 560px);
-  font-size: 14px;
-  line-height: 1.4;
-  color: var(--lb-ink-soft);
-  text-wrap: balance;
+.lightbox-dots {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  justify-content: center;
+  width: max-content;
+  max-width: 100%;
 }
 .lightbox-actions {
   display: flex;
@@ -2788,14 +2780,64 @@ a.text-btn { text-decoration: none; }
   min-height: 100%;
   padding: 0 var(--sheet-inline);
 }
-.comment-list { display: flex; flex-direction: column; gap: 14px; flex: 1 1 auto; padding-bottom: 16px; }
+.comment-list { display: flex; flex-direction: column; gap: 16px; flex: 1 1 auto; padding-bottom: 16px; }
 .comment-list .meta-line { margin: 4px 0; }
+.comment-empty { padding: 8px 0 16px; text-align: center; }
+/* The post itself: byline, caption, time, and the three tallies. */
+.comment-post {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+.comment-post-byline { display: flex; align-items: center; gap: 10px; }
+.comment-post-avatar { width: 40px; height: 40px; flex-basis: 40px; }
+.comment-post-who { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.comment-post-who strong { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+.comment-post-who span { font-size: 13px; color: var(--muted); }
+.comment-post-caption { margin: 0; font-size: 17px; line-height: 1.4; letter-spacing: -0.01em; overflow-wrap: anywhere; white-space: pre-line; }
+.comment-post-when { margin: 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.comment-post-tallies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.comment-post-tallies strong { color: var(--ink); font-weight: 650; }
 .comment-row { display: flex; gap: 10px; align-items: flex-start; }
 .comment-copy { min-width: 0; flex: 1 1 auto; }
-.comment-meta { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--muted); }
+.comment-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; color: var(--muted); }
 .comment-meta strong { color: var(--ink); font-weight: 600; }
 .comment-meta .text-link { margin-left: auto; font-size: 12px; }
 .comment-copy p { margin: 2px 0 0; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; white-space: pre-line; }
+.comment-like {
+  flex: 0 0 auto;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 32px;
+  margin: -2px -6px 0 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.comment-like svg { width: 18px; height: 18px; display: block; }
+.comment-like:hover { background: var(--surface-2); }
+.comment-like.is-on { color: var(--accent); }
+.comment-like.is-on svg { animation: share-pop 260ms var(--share-pop, ease) both; }
 .comment-compose {
   position: sticky;
   bottom: 0;
