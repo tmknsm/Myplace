@@ -662,7 +662,8 @@ img, svg { max-width: 100%; }
   gap: 1px;
 }
 .neighbor-copy .row-label { white-space: normal; }
-.neighbor-row .inbox-actions { margin-left: auto; }
+.neighbor-row .inbox-actions,
+.neighbor-row .badge { margin-left: auto; flex-shrink: 0; }
 
 .timeline { list-style: none; padding: 4px 8px 8px 20px; margin: 0; }
 .timeline li {
