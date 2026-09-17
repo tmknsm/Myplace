@@ -479,7 +479,7 @@ export function PropertyPageView() {
       setPinOpen(true);
       return;
     }
-    navigate(user ? `/property/${id}/claim` : `/signin?next=/property/${id}/claim`);
+    navigate(user ? `/property/${id}/claim` : `/signup?next=/property/${id}/claim`);
   };
   /** Where the preview's doors lead: into the claim flow, or to the claim already under review. */
   const goClaim = () => {

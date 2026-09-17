@@ -163,7 +163,7 @@ function ClaimPage() {
     });
   }, [id]);
 
-  if (!user) return <Navigate to={`/signin?next=/property/${id}/claim`} replace />;
+  if (!user) return <Navigate to={`/signup?next=/property/${id}/claim`} replace />;
 
   const submit = async () => {
     if (!id) return;
