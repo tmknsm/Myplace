@@ -33,9 +33,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       <div className="header-share" key={`share-${propertyId}`}>
         <ShareButton propertyId={propertyId} />
       </div>
-      <div className="header-neighbor" key={`neighbor-${propertyId}`}>
-        <NeighborButton propertyId={propertyId} />
-      </div>
+      <NeighborButton key={`neighbor-${propertyId}`} propertyId={propertyId} />
       <div className="header-add-slot" />
     </>
   ) : null;

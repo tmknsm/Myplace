@@ -497,6 +497,22 @@ app.get("/api/me/neighbors", async (c) => {
   return c.json(await loadMyNeighbors(user.user_id));
 });
 
+app.get("/api/properties/:id/neighbor", async (c) => {
+  const user = c.get("user");
+  const propertyId = c.req.param("id");
+  const core = await loadPropertyCore(propertyId);
+  if (!core) return c.json({ error: "Property not found" }, 404);
+  const sql = getSql();
+  const maintainers = await sql<{ user_id: string }[]>`
+    SELECT user_id FROM property_maintainers
+    WHERE property_id = ${propertyId} AND revoked_at IS NULL
+  `;
+  const mine = Boolean(user && maintainers.some((row) => row.user_id === user.user_id));
+  return c.json({
+    neighbor: await neighborState(user?.user_id ?? null, maintainers.map((row) => row.user_id), mine),
+  });
+});
+
 app.post("/api/properties/:id/neighbor", async (c) => {
   const user = requireUser(c);
   const propertyId = c.req.param("id");

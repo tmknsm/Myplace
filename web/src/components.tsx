@@ -83,21 +83,26 @@ function PeopleIcon() {
   );
 }
 
-/** Neighbor the people on this claimed page. Mounts with Share so both pop on load. */
+/** Neighbor the people on this claimed page. Hidden on your own houses. */
 export function NeighborButton({ propertyId }: { propertyId: string }) {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [status, setStatus] = useState<NeighborStatus>("none");
+  const [status, setStatus] = useState<NeighborStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, showToast] = useToast();
 
   useEffect(() => {
     let cancelled = false;
-    api.property(propertyId).then((data) => {
-      if (!cancelled) setStatus(data.viewer.neighbor?.status ?? "none");
-    }).catch(() => undefined);
+    setStatus(null);
+    api.neighborStatus(propertyId).then((data) => {
+      if (!cancelled) setStatus(data.neighbor.status);
+    }).catch(() => {
+      if (!cancelled) setStatus("hidden");
+    });
     return () => { cancelled = true; };
-  }, [propertyId]);
+  }, [propertyId, user?.user_id]);
+
+  if (!status || status === "hidden") return null;
 
   const label = status === "accepted"
     ? "Neighbors"
@@ -108,7 +113,7 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
         : "Add as neighbor";
 
   return (
-    <>
+    <div className="header-neighbor">
       <button
         type="button"
         className={`share-btn neighbor-btn${status === "pending" ? " is-pending" : ""}`}
@@ -129,10 +134,6 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
             showToast("You're already neighbors.");
             return;
           }
-          if (status === "hidden") {
-            showToast("This is already your page.");
-            return;
-          }
           setBusy(true);
           void (async () => {
             try {
@@ -150,7 +151,7 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
         <PeopleIcon />
       </button>
       {toast && <div className="page-toast" role="status">{toast}</div>}
-    </>
+    </div>
   );
 }
 

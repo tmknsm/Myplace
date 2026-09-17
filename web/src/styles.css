@@ -283,7 +283,7 @@ img, svg { max-width: 100%; }
   align-items: center;
 }
 .header-add {
-  --add-gap: 10px;
+  --add-gap: 8px;
   position: relative;
   flex: 0 0 auto;
   width: 0;
