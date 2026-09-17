@@ -7,8 +7,8 @@ import { useToast } from "./property-shared";
 
 /**
  * The top of the account page: one photo (tap the camera to change it), the
- * name property pages show, then handle + anonymize. Anonymize only swaps the
- * name for the handle; the photo is whatever they last chose.
+ * name property pages show, then handle + private. Private only swaps the
+ * real name for the handle; the photo is whatever they last chose.
  */
 export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promise<void> }) {
   const [busy, setBusy] = useState<"anonymize" | "handle" | "photo" | null>(null);
@@ -83,13 +83,13 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
     ? "Available"
     : availability === "unavailable"
       ? "Unavailable"
-      : handleHint ?? (user.handle ? "Shown on property pages when Anonymous is on." : "Add a handle to go anonymous.");
+      : handleHint ?? (user.handle ? "Shown on property pages when Private is on." : "Add a handle to go private.");
 
   const flip = () =>
     run("anonymize", async () => {
       const saved = await api.updateMe({ anonymize: !user.anonymize });
       await onUser();
-      return saved.user.anonymize ? "Property pages now show your handle." : "Property pages now show your name.";
+      return saved.user.anonymize ? "Property pages now show your handle." : "Property pages now show your real name.";
     }, "Could not update that.");
 
   const saveHandle = () => {
@@ -186,13 +186,13 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
           </form>
           <div className="row">
             <div>
-              <strong>Anonymous</strong>
+              <strong>Private</strong>
               <div className="meta-line">
                 {user.anonymize
-                  ? `Property pages show ${handle ?? "your handle"} instead of your name.`
+                  ? `Property pages show ${handle ?? "your handle"} instead of your real name.`
                   : user.handle
-                    ? `Show ${handle} instead of your name on property pages.`
-                    : "Add a handle to show it instead of your name on property pages."}
+                    ? `Show ${handle} instead of your real name on property pages.`
+                    : "Add a handle to show it instead of your real name on property pages."}
               </div>
             </div>
             <button
@@ -200,7 +200,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
               className={`switch${user.anonymize ? " on" : ""}`}
               role="switch"
               aria-checked={user.anonymize}
-              aria-label="Anonymous"
+              aria-label="Private"
               disabled={busy !== null || !user.handle}
               data-testid="anonymize-toggle"
               onClick={() => void flip()}
