@@ -322,7 +322,17 @@ export function PropertyPageView() {
     await load();
   }, [load]);
 
-  useEffect(() => { setData(null); }, [id]);
+  useEffect(() => {
+    setData(null);
+    setLightbox(null);
+    setHeroIndex(0);
+    setSheet(null);
+    setImprovementFormOpen(false);
+    setRoomFormOpen(false);
+    setPinOpen(false);
+    setPhotoError(null);
+    window.scrollTo(0, 0);
+  }, [id]);
   useEffect(() => { void load({ allowDowngrade: !user }); }, [load, user?.user_id]);
   useOwnershipChanges(id, () => { void load({ allowDowngrade: true }); });
 
