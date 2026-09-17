@@ -1,4 +1,5 @@
-import { ownerLabel, ownerPhoto } from "../../../shared/profile.ts";
+import type postgres from "postgres";
+import { formatHandle, ownerLabel, ownerPhoto } from "../../../shared/profile.ts";
 import { getSql } from "../db.ts";
 import { id } from "../ids.ts";
 import { isMaintainer } from "../auth.ts";
@@ -12,18 +13,32 @@ export interface Engagement {
   liked: boolean;
 }
 
+export interface PhotoPerson {
+  user_id: string;
+  label: string;
+  handle: string | null;
+  photo_url: string;
+}
+
 export interface PhotoComment {
   comment_id: string;
   body: string;
   created_at: string;
   mine: boolean;
-  author: { user_id: string; label: string; photo_url: string };
+  likes: number;
+  liked: boolean;
+  author: PhotoPerson;
 }
 
-interface CommentRow {
-  comment_id: string;
-  body: string;
+/** The post behind the comments: who put the photo up, what they said, when. */
+export interface PhotoPost {
+  document_id: string;
+  caption: string | null;
   created_at: string;
+  author: PhotoPerson | null;
+}
+
+interface PersonRow {
   user_id: string;
   display_name: string | null;
   first_name: string | null;
@@ -31,6 +46,27 @@ interface CommentRow {
   handle: string | null;
   anonymize: boolean;
   avatar_url: string | null;
+}
+
+interface CommentRow extends PersonRow {
+  comment_id: string;
+  body: string;
+  created_at: string;
+  likes: string | number;
+  liked: boolean;
+}
+
+function presentPerson(row: PersonRow): PhotoPerson {
+  const anonymize = Boolean(row.anonymize);
+  const label = ownerLabel({ ...row, anonymize });
+  const handle = formatHandle(row.handle);
+  return {
+    user_id: row.user_id,
+    label,
+    // When the label already is the handle there is nothing to add under it.
+    handle: handle && handle !== label ? handle : null,
+    photo_url: ownerPhoto(row),
+  };
 }
 
 /**
@@ -96,31 +132,92 @@ export async function recordShare(documentId: string): Promise<{ shares: number 
 }
 
 function presentComment(row: CommentRow, viewerId: string | null): PhotoComment {
-  const anonymize = Boolean(row.anonymize);
   return {
     comment_id: row.comment_id,
     body: row.body,
     created_at: row.created_at,
     mine: row.user_id === viewerId,
-    author: {
-      user_id: row.user_id,
-      label: ownerLabel({ ...row, anonymize }),
-      photo_url: ownerPhoto(row),
-    },
+    likes: Number(row.likes ?? 0),
+    liked: Boolean(row.liked),
+    author: presentPerson(row),
   };
+}
+
+function commentRows(where: postgres.Fragment, viewerId: string | null) {
+  const sql = getSql();
+  return sql<CommentRow[]>`
+    SELECT c.comment_id, c.body, c.created_at, u.user_id,
+           u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url,
+           (SELECT count(*) FROM document_comment_likes l WHERE l.comment_id = c.comment_id) AS likes,
+           ${viewerId
+             ? sql`EXISTS (SELECT 1 FROM document_comment_likes l WHERE l.comment_id = c.comment_id AND l.user_id = ${viewerId})`
+             : sql`FALSE`} AS liked
+    FROM document_comments c
+    JOIN users u ON u.user_id = c.user_id
+    WHERE ${where} AND c.removed_at IS NULL
+    ORDER BY c.created_at ASC
+  `;
 }
 
 export async function loadComments(documentId: string, viewerId: string | null): Promise<PhotoComment[]> {
   const sql = getSql();
-  const rows = await sql<CommentRow[]>`
-    SELECT c.comment_id, c.body, c.created_at, u.user_id,
-           u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url
-    FROM document_comments c
-    JOIN users u ON u.user_id = c.user_id
-    WHERE c.document_id = ${documentId} AND c.removed_at IS NULL
-    ORDER BY c.created_at ASC
-  `;
+  const rows = await commentRows(sql`c.document_id = ${documentId}`, viewerId);
   return rows.map((row) => presentComment(row, viewerId));
+}
+
+/**
+ * The photo as a post. The uploader is the author; older photos without one
+ * fall back to whoever has maintained the house longest.
+ */
+export async function loadPhotoPost(documentId: string): Promise<PhotoPost | null> {
+  const sql = getSql();
+  const rows = await sql<(Partial<PersonRow> & { document_id: string; caption: string | null; created_at: string })[]>`
+    SELECT d.document_id, d.caption, d.created_at,
+           u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url
+    FROM documents d
+    LEFT JOIN users u ON u.user_id = COALESCE(
+      d.uploaded_by,
+      (SELECT m.user_id FROM property_maintainers m
+       WHERE m.property_id = d.property_id AND m.revoked_at IS NULL
+       ORDER BY m.verified_at ASC LIMIT 1)
+    )
+    WHERE d.document_id = ${documentId} AND d.removed_at IS NULL
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    document_id: row.document_id,
+    caption: row.caption,
+    created_at: row.created_at,
+    author: row.user_id
+      ? presentPerson({
+        user_id: row.user_id,
+        display_name: row.display_name ?? null,
+        first_name: row.first_name ?? null,
+        last_name: row.last_name ?? null,
+        handle: row.handle ?? null,
+        anonymize: Boolean(row.anonymize),
+        avatar_url: row.avatar_url ?? null,
+      })
+      : null,
+  };
+}
+
+/** Flip the viewer's like on a comment. 404 when the comment is gone. */
+export async function toggleCommentLike(
+  commentId: string,
+  userId: string,
+): Promise<{ liked: boolean; likes: number } | { error: string; status: 404 }> {
+  const sql = getSql();
+  const exists = await sql`SELECT 1 FROM document_comments WHERE comment_id = ${commentId} AND removed_at IS NULL`;
+  if (exists.length === 0) return { error: "Not found", status: 404 };
+  const removed = await sql`DELETE FROM document_comment_likes WHERE comment_id = ${commentId} AND user_id = ${userId}`;
+  const liked = removed.count === 0;
+  if (liked) {
+    await sql`INSERT INTO document_comment_likes (comment_id, user_id) VALUES (${commentId}, ${userId}) ON CONFLICT DO NOTHING`;
+  }
+  const [row] = await sql<{ likes: string }[]>`SELECT count(*) AS likes FROM document_comment_likes WHERE comment_id = ${commentId}`;
+  return { liked, likes: Number(row?.likes ?? 0) };
 }
 
 export async function addComment(
@@ -137,12 +234,7 @@ export async function addComment(
     INSERT INTO document_comments (comment_id, document_id, user_id, body)
     VALUES (${commentId}, ${documentId}, ${userId}, ${body})
   `;
-  const rows = await sql<CommentRow[]>`
-    SELECT c.comment_id, c.body, c.created_at, u.user_id,
-           u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url
-    FROM document_comments c JOIN users u ON u.user_id = c.user_id
-    WHERE c.comment_id = ${commentId}
-  `;
+  const rows = await commentRows(sql`c.comment_id = ${commentId}`, userId);
   const row = rows[0];
   if (!row) return { error: "Couldn't save that comment." };
   return { comment: presentComment(row, userId) };

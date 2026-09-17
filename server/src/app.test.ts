@@ -517,6 +517,22 @@ test("photo likes, comments and shares tally per photo and respect visibility", 
   const listed = await (await app.request(`http://localhost/api/documents/${publicId}/comments`)).json();
   expect(listed.comments.map((c: { comment_id: string }) => c.comment_id)).toEqual([comment.comment_id]);
   expect(listed.comments[0].mine).toBe(false);
+  expect(listed.comments[0].likes).toBe(0);
+  // The post header: the uploader is the author, with the caption and date.
+  expect(listed.post.document_id).toBe(publicId);
+  expect(listed.post.author.label).toBe("owner");
+  expect(listed.post.caption).toBeNull();
+  expect(typeof listed.post.created_at).toBe("string");
+
+  // Comment likes toggle too, and need a session.
+  expect((await app.request(`http://localhost/api/comments/${comment.comment_id}/like`, { method: "POST" })).status).toBe(401);
+  const commentLiked = await (await app.request(`http://localhost/api/comments/${comment.comment_id}/like`, { method: "POST", headers: { cookie: ownerCookie } })).json();
+  expect(commentLiked).toEqual({ liked: true, likes: 1 });
+  const ownerList = await (await app.request(`http://localhost/api/documents/${publicId}/comments`, { headers: { cookie: ownerCookie } })).json();
+  expect(ownerList.comments[0]).toMatchObject({ likes: 1, liked: true, mine: false });
+  const commentUnliked = await (await app.request(`http://localhost/api/comments/${comment.comment_id}/like`, { method: "POST", headers: { cookie: ownerCookie } })).json();
+  expect(commentUnliked).toEqual({ liked: false, likes: 0 });
+  expect((await app.request(`http://localhost/api/comments/cmt_missing/like`, { method: "POST", headers: { cookie: ownerCookie } })).status).toBe(404);
   const tallied = await (await app.request(`http://localhost/api/documents/${publicId}/engagement`)).json();
   expect(tallied.engagement).toEqual({ likes: 1, comments: 1, shares: 2, liked: false });
 

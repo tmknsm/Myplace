@@ -110,7 +110,8 @@ export const api = {
   engagement: (id: string) => request<{ engagement: Engagement }>(`/api/documents/${id}/engagement`),
   likeDocument: (id: string) => request<{ liked: boolean; likes: number }>(`/api/documents/${id}/like`, { method: "POST" }),
   shareDocument: (id: string) => request<{ shares: number }>(`/api/documents/${id}/share`, { method: "POST" }),
-  comments: (id: string) => request<{ comments: PhotoComment[] }>(`/api/documents/${id}/comments`),
+  comments: (id: string) => request<{ post: PhotoPost | null; comments: PhotoComment[] }>(`/api/documents/${id}/comments`),
+  likeComment: (id: string) => request<{ liked: boolean; likes: number }>(`/api/comments/${id}/like`, { method: "POST" }),
   addComment: (id: string, body: string) =>
     request<{ comment: PhotoComment }>(`/api/documents/${id}/comments`, { method: "POST", body: JSON.stringify({ body }) }),
   deleteComment: (id: string) => request<{ ok: boolean }>(`/api/comments/${id}`, { method: "DELETE" }),
@@ -496,12 +497,28 @@ export interface Engagement {
   liked: boolean;
 }
 
+export interface PhotoPerson {
+  user_id: string;
+  label: string;
+  handle: string | null;
+  photo_url: string;
+}
+
 export interface PhotoComment {
   comment_id: string;
   body: string;
   created_at: string;
   mine: boolean;
-  author: { user_id: string; label: string; photo_url: string };
+  likes: number;
+  liked: boolean;
+  author: PhotoPerson;
+}
+
+export interface PhotoPost {
+  document_id: string;
+  caption: string | null;
+  created_at: string;
+  author: PhotoPerson | null;
 }
 
 export type PageRefresh = (patch?: (property: PropertyPage) => PropertyPage) => Promise<void> | void;

@@ -58,7 +58,17 @@ import {
   TRANSFERABLE_TYPES,
 } from "./services/owner.ts";
 import { loadMyNeighbors, loadPropertyNeighbors, neighborState, requestNeighborsOnProperty, reviewNeighbor } from "./services/neighbors.ts";
-import { addComment, canSeeDocument, loadComments, loadEngagement, recordShare, removeComment, toggleLike } from "./services/engagement.ts";
+import {
+  addComment,
+  canSeeDocument,
+  loadComments,
+  loadEngagement,
+  loadPhotoPost,
+  recordShare,
+  removeComment,
+  toggleCommentLike,
+  toggleLike,
+} from "./services/engagement.ts";
 import { addCoMaintainer, grantOwnership, revokeOwnership } from "./services/ownership.ts";
 import {
   loadMyProperties,
@@ -877,7 +887,15 @@ app.post("/api/documents/:id/share", async (c) => {
 app.get("/api/documents/:id/comments", async (c) => {
   const documentId = c.req.param("id");
   const { user } = await visibleDocument(c, documentId);
-  return c.json({ comments: await loadComments(documentId, user?.user_id ?? null) });
+  const [post, comments] = await Promise.all([loadPhotoPost(documentId), loadComments(documentId, user?.user_id ?? null)]);
+  return c.json({ post, comments });
+});
+
+app.post("/api/comments/:id/like", async (c) => {
+  const user = requireUser(c);
+  const result = await toggleCommentLike(c.req.param("id"), user.user_id);
+  if ("error" in result) return c.json({ error: result.error }, result.status);
+  return c.json(result);
 });
 
 app.post("/api/documents/:id/comments", async (c) => {
