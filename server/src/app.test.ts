@@ -9,7 +9,6 @@ import { app } from "./app.ts";
 import { closeSql, setSql } from "./db.ts";
 import { runWithRuntime } from "./runtime.ts";
 import { assembleFacts, type AssertionRow } from "./services/assertions.ts";
-import { requestNeighbor } from "./services/neighbors.ts";
 import { memoryStore, type DocumentStore } from "./services/storage.ts";
 import { DEBUG_CLAIM_PIN, TEST_PROD_CODE, TEST_PROD_EMAIL } from "./debug.ts";
 import { ABSTRACT_AVATAR_URL, DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
@@ -1381,7 +1380,7 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
 
   const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
   expect(inbox.incoming).toHaveLength(1);
-  expect(inbox.incoming[0].label).toBe("Ada Visitor");
+  expect(inbox.incoming[0].label).toBe("441 Warren Street, Hudson, NY 12534");
   expect(inbox.neighbors).toHaveLength(0);
 
   const review = await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
@@ -1393,7 +1392,7 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
 
   const ownerList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
   expect(ownerList.incoming).toHaveLength(0);
-  expect(ownerList.neighbors[0].label).toBe("Ada Visitor");
+  expect(ownerList.neighbors[0].label).toBe("441 Warren Street, Hudson, NY 12534");
   expect(ownerList.neighbors[0].photo_url).toBeTruthy();
 
   const visitorList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
@@ -1428,19 +1427,35 @@ test("neighbors: decline clears the request so they can ask again", async () => 
   expect((await again.json()).neighbor.status).toBe("pending");
 });
 
-test("neighbors: asking back accepts the pending request", async () => {
+test("neighbors: a connection is only for that address, not every house they own", async () => {
   await seedProperty();
-  await verifiedOwner("owner@example.com");
+  const ownerCookie = await verifiedOwner("owner@example.com");
   const visitorCookie = await signIn("visitor@example.com");
+  const [owner] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'owner@example.com'`;
+  if (!owner) throw new Error("expected owner");
+
+  await sql`INSERT INTO properties (property_id, state, county, municipality) VALUES ('prop_other', 'FL', 'Miami-Dade', 'Miami')`;
+  await sql`
+    INSERT INTO property_addresses (address_id, property_id, formatted, street_number, street_name, city)
+    VALUES ('adr_other', 'prop_other', '200 Ocean Drive, Miami, FL 33139', '200', 'Ocean Drive', 'Miami')
+  `;
+  await sql`
+    INSERT INTO property_maintainers (maintainer_id, property_id, user_id, role)
+    VALUES ('mnt_other', 'prop_other', ${owner.user_id}, 'owner')
+  `;
+
   expect((await app.request("http://localhost/api/properties/prop_test/neighbor", {
     method: "POST",
     headers: { cookie: visitorCookie },
   })).status).toBe(200);
-  const [owner] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'owner@example.com'`;
-  const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
-  if (!owner || !visitor) throw new Error("expected both users");
-  const result = await requestNeighbor(owner.user_id, visitor.user_id, "prop_test");
-  if (!("request" in result) || !result.request) throw new Error("error" in result ? result.error : "missing request");
-  expect(result.request.status).toBe("accepted");
+  const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect((await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ decision: "accepted" }),
+  })).status).toBe(200);
+
+  expect((await (await app.request("http://localhost/api/properties/prop_test/neighbor", { headers: { cookie: visitorCookie } })).json()).neighbor.status).toBe("accepted");
+  expect((await (await app.request("http://localhost/api/properties/prop_other/neighbor", { headers: { cookie: visitorCookie } })).json()).neighbor.status).toBe("none");
 });
 

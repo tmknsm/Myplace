@@ -487,7 +487,7 @@ app.get("/api/properties/:id", async (c) => {
       preferences,
       openClaim,
       inboxCount: inbox.length,
-      neighbor: await neighborState(user?.user_id ?? null, page.maintainers.map((row) => row.user_id), maintainer),
+      neighbor: await neighborState(user?.user_id ?? null, page.property_id, page.maintainers.map((row) => row.user_id), maintainer),
     },
   });
 });
@@ -509,7 +509,7 @@ app.get("/api/properties/:id/neighbor", async (c) => {
   `;
   const mine = Boolean(user && maintainers.some((row) => row.user_id === user.user_id));
   return c.json({
-    neighbor: await neighborState(user?.user_id ?? null, maintainers.map((row) => row.user_id), mine),
+    neighbor: await neighborState(user?.user_id ?? null, propertyId, maintainers.map((row) => row.user_id), mine),
   });
 });
 

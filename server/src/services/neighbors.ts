@@ -14,13 +14,6 @@ interface NeighborUserRow {
   avatar_url: string | null;
 }
 
-interface OpenPair {
-  request_id: string;
-  from_user_id: string;
-  to_user_id: string;
-  status: "pending" | "accepted";
-}
-
 export interface NeighborPerson {
   request_id: string;
   user_id: string;
@@ -40,123 +33,87 @@ function presentPerson(row: NeighborUserRow) {
   };
 }
 
-async function loadUser(userId: string): Promise<NeighborUserRow | null> {
-  const sql = getSql();
-  const rows = await sql<NeighborUserRow[]>`
-    SELECT user_id, display_name, first_name, last_name, handle, anonymize, avatar_url
-    FROM users
-    WHERE user_id = ${userId}
-  `;
-  return rows[0] ?? null;
-}
-
-async function loadOpenBetween(userId: string, otherIds: string[]): Promise<OpenPair[]> {
-  if (otherIds.length === 0) return [];
-  const sql = getSql();
-  return sql<OpenPair[]>`
-    SELECT request_id, from_user_id, to_user_id, status
-    FROM neighbor_requests
-    WHERE status IN ('pending', 'accepted')
-      AND (
-        (from_user_id = ${userId} AND to_user_id IN ${sql(otherIds)})
-        OR (to_user_id = ${userId} AND from_user_id IN ${sql(otherIds)})
-      )
-  `;
-}
-
 export async function neighborState(
   userId: string | null,
+  propertyId: string,
   maintainerIds: string[],
   viewerIsMaintainer: boolean,
 ): Promise<{ status: NeighborStatus }> {
-  const others = maintainerIds.filter((id) => id !== userId);
-  if (viewerIsMaintainer || others.length === 0) return { status: "hidden" };
+  if (viewerIsMaintainer || maintainerIds.length === 0) return { status: "hidden" };
   if (!userId) return { status: "none" };
 
-  const rows = await loadOpenBetween(userId, others);
-  const incoming = rows.filter((row) => row.status === "pending" && row.to_user_id === userId);
-  const outgoing = rows.filter((row) => row.status === "pending" && row.from_user_id === userId);
-  const accepted = rows.filter((row) => row.status === "accepted");
-  const covered = new Set(
-    rows.map((row) => (row.from_user_id === userId ? row.to_user_id : row.from_user_id)),
-  );
-  const missing = others.filter((id) => !covered.has(id));
-
-  if (accepted.length === others.length) return { status: "accepted" };
-  if (incoming.length > 0) return { status: "incoming" };
-  if (missing.length > 0) return { status: "none" };
-  if (outgoing.length > 0) return { status: "pending" };
+  const sql = getSql();
+  const rows = await sql<{ status: "pending" | "accepted" }[]>`
+    SELECT status
+    FROM neighbor_requests
+    WHERE from_user_id = ${userId}
+      AND property_id = ${propertyId}
+      AND status IN ('pending', 'accepted')
+    LIMIT 1
+  `;
+  const row = rows[0];
+  if (row?.status === "accepted") return { status: "accepted" };
+  if (row?.status === "pending") return { status: "pending" };
   return { status: "none" };
 }
 
-export async function requestNeighbor(fromUserId: string, toUserId: string, propertyId: string | null) {
-  if (fromUserId === toUserId) return { error: "You can't neighbor yourself.", status: 400 as const };
-  const other = await loadUser(toUserId);
-  if (!other) return { error: "That person isn't on Myplace.", status: 404 as const };
-
-  const sql = getSql();
-  const existing = await sql<OpenPair[]>`
-    SELECT request_id, from_user_id, to_user_id, status
-    FROM neighbor_requests
-    WHERE status IN ('pending', 'accepted')
-      AND LEAST(from_user_id, to_user_id) = LEAST(${fromUserId}::text, ${toUserId}::text)
-      AND GREATEST(from_user_id, to_user_id) = GREATEST(${fromUserId}::text, ${toUserId}::text)
-    LIMIT 1
-  `;
-  const open = existing[0];
-  if (open && open.status === "accepted") return { request: open };
-  if (open && open.status === "pending" && open.from_user_id === fromUserId) return { request: open };
-  if (open && open.status === "pending" && open.to_user_id === fromUserId) {
-    await sql`
-      UPDATE neighbor_requests
-      SET status = 'accepted', decided_at = now()
-      WHERE request_id = ${open.request_id}
-    `;
-    return { request: { ...open, status: "accepted" as const } };
-  }
-
-  const requestId = id("nbr");
-  try {
-    await sql`
-      INSERT INTO neighbor_requests (request_id, from_user_id, to_user_id, property_id, status)
-      VALUES (${requestId}, ${fromUserId}, ${toUserId}, ${propertyId}, 'pending')
-    `;
-  } catch (error) {
-    const again = await sql<OpenPair[]>`
-      SELECT request_id, from_user_id, to_user_id, status
-      FROM neighbor_requests
-      WHERE status IN ('pending', 'accepted')
-        AND LEAST(from_user_id, to_user_id) = LEAST(${fromUserId}::text, ${toUserId}::text)
-        AND GREATEST(from_user_id, to_user_id) = GREATEST(${fromUserId}::text, ${toUserId}::text)
-      LIMIT 1
-    `;
-    if (again[0]) return { request: again[0] };
-    throw error;
-  }
-  return { request: { request_id: requestId, from_user_id: fromUserId, to_user_id: toUserId, status: "pending" as const } };
-}
-
+/** One open request per (person, property). Owners of that property approve it. */
 export async function requestNeighborsOnProperty(userId: string, propertyId: string, maintainerIds: string[]) {
   const others = maintainerIds.filter((id) => id !== userId);
   if (others.length === 0) return { error: "There's no one here to neighbor.", status: 400 as const };
-  for (const toUserId of others) {
-    const result = await requestNeighbor(userId, toUserId, propertyId);
-    if ("error" in result) return result;
+
+  const sql = getSql();
+  const existing = await sql<{ request_id: string; from_user_id: string; to_user_id: string; status: "pending" | "accepted" }[]>`
+    SELECT request_id, from_user_id, to_user_id, status
+    FROM neighbor_requests
+    WHERE from_user_id = ${userId}
+      AND property_id = ${propertyId}
+      AND status IN ('pending', 'accepted')
+    LIMIT 1
+  `;
+  if (existing[0]) {
+    return { neighbor: await neighborState(userId, propertyId, maintainerIds, false) };
   }
-  return { neighbor: await neighborState(userId, maintainerIds, false) };
+
+  const requestId = id("nbr");
+  const toUserId = others[0]!;
+  try {
+    await sql`
+      INSERT INTO neighbor_requests (request_id, from_user_id, to_user_id, property_id, status)
+      VALUES (${requestId}, ${userId}, ${toUserId}, ${propertyId}, 'pending')
+    `;
+  } catch {
+    const again = await sql<{ request_id: string }[]>`
+      SELECT request_id
+      FROM neighbor_requests
+      WHERE from_user_id = ${userId}
+        AND property_id = ${propertyId}
+        AND status IN ('pending', 'accepted')
+      LIMIT 1
+    `;
+    if (!again[0]) throw new Error("Could not send that request.");
+  }
+  return { neighbor: await neighborState(userId, propertyId, maintainerIds, false) };
 }
 
 export async function reviewNeighbor(userId: string, requestId: string, decision: "accepted" | "declined") {
   const sql = getSql();
-  const rows = await sql<{ request_id: string; to_user_id: string; status: string }[]>`
-    SELECT request_id, to_user_id, status
+  const rows = await sql<{ request_id: string; property_id: string; status: string }[]>`
+    SELECT request_id, property_id, status
     FROM neighbor_requests
     WHERE request_id = ${requestId}
   `;
   const row = rows[0];
   if (!row) return { error: "Request not found.", status: 404 as const };
-  if (row.to_user_id !== userId) return { error: "Only they can approve that.", status: 403 as const };
   if (row.status !== "pending") return { error: "That request is already decided.", status: 409 as const };
+
+  const allowed = await sql<{ user_id: string }[]>`
+    SELECT user_id FROM property_maintainers
+    WHERE property_id = ${row.property_id} AND user_id = ${userId} AND revoked_at IS NULL
+    LIMIT 1
+  `;
+  if (!allowed[0]) return { error: "Only they can approve that.", status: 403 as const };
+
   await sql`
     UPDATE neighbor_requests
     SET status = ${decision}, decided_at = now()
@@ -172,26 +129,24 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
     status: string;
     created_at: string;
     from_user_id: string;
-    home_property_id: string | null;
-    home_formatted: string | null;
+    property_id: string | null;
+    formatted: string | null;
   })[]>`
     SELECT
-      r.request_id, r.status, r.created_at, r.from_user_id,
+      r.request_id, r.status, r.created_at, r.from_user_id, r.property_id,
       u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url,
-      home.property_id AS home_property_id,
-      home.formatted AS home_formatted
+      a.formatted
     FROM neighbor_requests r
     JOIN users u ON u.user_id = CASE WHEN r.from_user_id = ${userId} THEN r.to_user_id ELSE r.from_user_id END
-    LEFT JOIN LATERAL (
-      SELECT m.property_id, a.formatted
-      FROM property_maintainers m
-      LEFT JOIN property_addresses a ON a.property_id = m.property_id AND a.is_current
-      WHERE m.user_id = u.user_id AND m.revoked_at IS NULL
-      ORDER BY CASE WHEN m.property_id = r.property_id THEN 0 ELSE 1 END, a.formatted
-      LIMIT 1
-    ) home ON true
+    LEFT JOIN property_addresses a ON a.property_id = r.property_id AND a.is_current
     WHERE r.status IN ('pending', 'accepted')
-      AND (r.from_user_id = ${userId} OR r.to_user_id = ${userId})
+      AND (
+        r.from_user_id = ${userId}
+        OR EXISTS (
+          SELECT 1 FROM property_maintainers m
+          WHERE m.property_id = r.property_id AND m.user_id = ${userId} AND m.revoked_at IS NULL
+        )
+      )
     ORDER BY r.created_at DESC
   `;
 
@@ -203,8 +158,8 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
     const person = {
       request_id: row.request_id,
       ...shown,
-      label: row.home_formatted || shown.label,
-      property_id: row.home_property_id,
+      label: row.formatted || shown.label,
+      property_id: row.property_id,
       status: row.status,
       created_at: row.created_at,
     };
