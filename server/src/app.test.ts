@@ -11,7 +11,7 @@ import { runWithRuntime } from "./runtime.ts";
 import { assembleFacts, type AssertionRow } from "./services/assertions.ts";
 import { memoryStore, type DocumentStore } from "./services/storage.ts";
 import { DEBUG_CLAIM_PIN, TEST_PROD_CODE, TEST_PROD_EMAIL } from "./debug.ts";
-import { ABSTRACT_AVATAR_URL, DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
+import { ABSTRACT_AVATAR_URL } from "../../shared/profile.ts";
 
 const url = process.env.DATABASE_URL ?? "postgres://ubuntu:myplace@localhost:5432/myplace_test";
 if (isHostedDatabase(url) && !process.env.ALLOW_HOSTED_DB_TESTS) {
@@ -806,6 +806,19 @@ test("anonymize shows the handle on the public property page", async () => {
   expect(hidden.property.maintainers[0].display_name).toBeUndefined();
 });
 
+test("owner badge never shows a street address", async () => {
+  await seedProperty();
+  await verifiedOwner("owner@example.com");
+  await sql`
+    UPDATE users
+    SET first_name = NULL, last_name = NULL, handle = 'priyashah',
+        display_name = '134 Warren Street, Hudson, NY'
+    WHERE primary_email = 'owner@example.com'
+  `;
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(page.property.maintainers[0].label).toBe("@priyashah");
+});
+
 test("anonymize swaps the name, never the photo; the photo is its own change", async () => {
   const cloud = memoryStore();
   await seedProperty();
@@ -814,7 +827,7 @@ test("anonymize swaps the name, never the photo; the photo is its own change", a
 
   const before = await (await app.request("http://localhost/api/properties/prop_test")).json();
   const facePhoto = before.property.maintainers[0].photo_url as string;
-  expect(facePhoto).toBe(DEFAULT_AVATAR_URL);
+  expect(facePhoto).toMatch(/^https:\/\/images\.unsplash\.com\//);
 
   const hide = await app.request("http://localhost/api/me", {
     method: "PATCH",

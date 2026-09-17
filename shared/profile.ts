@@ -1,6 +1,17 @@
+/** Stock faces for accounts that have not set a photo. First is the original default. */
+export const DEFAULT_AVATAR_URLS = [
+  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=128&h=128&q=80",
+  "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=128&h=128&q=80",
+  "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=128&h=128&q=80",
+  "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=128&h=128&q=80",
+  "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=128&h=128&q=80",
+  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=128&h=128&q=80",
+  "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=128&h=128&q=80",
+  "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=128&h=128&q=80",
+] as const;
+
 /** Default face for an account that has not set a photo. Joseph Gonzalez / Unsplash. */
-export const DEFAULT_AVATAR_URL =
-  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=128&h=128&q=80";
+export const DEFAULT_AVATAR_URL = DEFAULT_AVATAR_URLS[0];
 
 /** Faceless preset offered under Change photo. Paint pour / Unsplash. */
 export const ABSTRACT_AVATAR_URL =
@@ -10,6 +21,23 @@ export const AVATAR_PRESETS = {
   default: DEFAULT_AVATAR_URL,
   abstract: ABSTRACT_AVATAR_URL,
 } as const;
+
+const STOCK_AVATARS = new Set<string>(DEFAULT_AVATAR_URLS);
+
+function hashUserId(userId: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < userId.length; i += 1) {
+    hash ^= userId.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+/** Stable stock face for an account. Different people land on different photos. */
+export function defaultAvatarFor(userId?: string | null): string {
+  if (!userId) return DEFAULT_AVATAR_URL;
+  return DEFAULT_AVATAR_URLS[hashUserId(userId) % DEFAULT_AVATAR_URLS.length]!;
+}
 
 export type AvatarPreset = keyof typeof AVATAR_PRESETS;
 
@@ -39,6 +67,27 @@ export function formatHandle(handle: string | null | undefined): string | null {
   return handle ? `@${handle}` : null;
 }
 
+const STREET_WORD = /\b(street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|place|pl|way|route|hwy|highway|court|ct)\b/i;
+
+function looksLikeAddress(value: string): boolean {
+  const text = value.trim();
+  if (!text) return false;
+  if (/^\d/.test(text)) return true;
+  if (/,/.test(text) && STREET_WORD.test(text)) return true;
+  return STREET_WORD.test(text) && /\d/.test(text);
+}
+
+function personName(input: {
+  first_name: string | null;
+  last_name: string | null;
+  display_name: string | null;
+}): string | null {
+  const fromParts = [input.first_name, input.last_name].filter(Boolean).join(" ").trim();
+  const candidate = fromParts || (input.display_name ?? "").trim();
+  if (!candidate || looksLikeAddress(candidate)) return null;
+  return candidate;
+}
+
 export function ownerLabel(input: {
   anonymize: boolean;
   handle: string | null;
@@ -47,13 +96,14 @@ export function ownerLabel(input: {
   display_name: string | null;
 }): string {
   if (input.anonymize && input.handle) return `@${input.handle}`;
-  const name = [input.first_name, input.last_name].filter(Boolean).join(" ") || input.display_name;
+  const name = personName(input);
   if (name) return name;
   if (input.handle) return `@${input.handle}`;
   return "Owner";
 }
 
 /** The one photo on the account. Anonymize does not change it. */
-export function ownerPhoto(input: { avatar_url: string | null }): string {
-  return input.avatar_url || DEFAULT_AVATAR_URL;
+export function ownerPhoto(input: { avatar_url: string | null; user_id?: string | null }): string {
+  if (input.avatar_url && !STOCK_AVATARS.has(input.avatar_url)) return input.avatar_url;
+  return defaultAvatarFor(input.user_id);
 }
