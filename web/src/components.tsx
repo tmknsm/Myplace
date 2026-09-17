@@ -183,7 +183,7 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
       </button>
       {homes && homes.length > 1 && (
         <div className="neighbor-home-menu" data-testid="neighbor-home-menu">
-          <div className="meta-line">Which of your houses?</div>
+          <div className="meta-line">Add neighbor to</div>
           {homes.map((home) => (
             <button
               key={home.property_id}

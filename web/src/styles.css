@@ -270,18 +270,23 @@ img, svg { max-width: 100%; }
   right: 0;
   z-index: 20;
   min-width: 240px;
-  padding: 10px;
+  padding: 10px 0 8px;
   border-radius: var(--radius-sm);
   background: var(--surface);
   box-shadow: var(--shadow);
+  text-align: left;
 }
-.neighbor-home-menu .meta-line { margin: 0 6px 6px; }
+.neighbor-home-menu .meta-line {
+  margin: 0 0 4px;
+  padding: 2px 12px 4px;
+  text-align: left;
+}
 .neighbor-home-option {
   display: block;
   width: 100%;
   padding: 10px 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
   color: var(--ink);
   font: inherit;
