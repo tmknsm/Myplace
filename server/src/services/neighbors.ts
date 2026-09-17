@@ -43,7 +43,7 @@ export async function neighborState(
   if (!userId) return { status: "none" };
 
   const sql = getSql();
-  const rows = await sql<{ status: "pending" | "accepted" }[]>`
+  const outbound = await sql<{ status: "pending" | "accepted" }[]>`
     SELECT status
     FROM neighbor_requests
     WHERE from_user_id = ${userId}
@@ -51,20 +51,68 @@ export async function neighborState(
       AND status IN ('pending', 'accepted')
     LIMIT 1
   `;
-  const row = rows[0];
-  if (row?.status === "accepted") return { status: "accepted" };
-  if (row?.status === "pending") return { status: "pending" };
+  if (outbound[0]?.status === "accepted") return { status: "accepted" };
+  if (outbound[0]?.status === "pending") return { status: "pending" };
+
+  const inbound = await sql<{ status: "pending" | "accepted" }[]>`
+    SELECT r.status
+    FROM neighbor_requests r
+    WHERE r.from_property_id = ${propertyId}
+      AND r.status IN ('pending', 'accepted')
+      AND EXISTS (
+        SELECT 1 FROM property_maintainers m
+        WHERE m.property_id = r.property_id AND m.user_id = ${userId} AND m.revoked_at IS NULL
+      )
+    LIMIT 1
+  `;
+  if (inbound[0]?.status === "accepted") return { status: "accepted" };
+  if (inbound[0]?.status === "pending") return { status: "pending" };
   return { status: "none" };
 }
 
-/** One open request per (person, property). Owners of that property approve it. */
-export async function requestNeighborsOnProperty(userId: string, propertyId: string, maintainerIds: string[]) {
+async function homesOf(userId: string) {
+  const sql = getSql();
+  return sql<{ property_id: string; formatted: string | null }[]>`
+    SELECT p.property_id, a.formatted
+    FROM property_maintainers m
+    JOIN properties p ON p.property_id = m.property_id
+    LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
+    WHERE m.user_id = ${userId} AND m.revoked_at IS NULL
+    ORDER BY a.formatted
+  `;
+}
+
+/** One open request per (person, their house → that house). */
+export async function requestNeighborsOnProperty(
+  userId: string,
+  propertyId: string,
+  maintainerIds: string[],
+  fromPropertyId?: string | null,
+) {
   const others = maintainerIds.filter((id) => id !== userId);
   if (others.length === 0) return { error: "There's no one here to neighbor.", status: 400 as const };
 
+  const homes = await homesOf(userId);
+  if (homes.length === 0) {
+    return { error: "Claim a house first so they know which address this is from.", status: 400 as const };
+  }
+  const chosen = fromPropertyId
+    ? homes.find((home) => home.property_id === fromPropertyId)
+    : homes.length === 1 ? homes[0] : undefined;
+  if (!chosen) {
+    return {
+      error: "Choose which of your houses this is from.",
+      status: 409 as const,
+      properties: homes,
+    };
+  }
+  if (chosen.property_id === propertyId) {
+    return { error: "This is already your page.", status: 400 as const };
+  }
+
   const sql = getSql();
-  const existing = await sql<{ request_id: string; from_user_id: string; to_user_id: string; status: "pending" | "accepted" }[]>`
-    SELECT request_id, from_user_id, to_user_id, status
+  const existing = await sql<{ request_id: string }[]>`
+    SELECT request_id
     FROM neighbor_requests
     WHERE from_user_id = ${userId}
       AND property_id = ${propertyId}
@@ -79,8 +127,8 @@ export async function requestNeighborsOnProperty(userId: string, propertyId: str
   const toUserId = others[0]!;
   try {
     await sql`
-      INSERT INTO neighbor_requests (request_id, from_user_id, to_user_id, property_id, status)
-      VALUES (${requestId}, ${userId}, ${toUserId}, ${propertyId}, 'pending')
+      INSERT INTO neighbor_requests (request_id, from_user_id, to_user_id, property_id, from_property_id, status)
+      VALUES (${requestId}, ${userId}, ${toUserId}, ${propertyId}, ${chosen.property_id}, 'pending')
     `;
   } catch {
     const again = await sql<{ request_id: string }[]>`
@@ -133,12 +181,13 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
     formatted: string | null;
   })[]>`
     SELECT
-      r.request_id, r.status, r.created_at, r.from_user_id, r.property_id,
+      r.request_id, r.status, r.created_at, r.from_user_id,
+      CASE WHEN r.from_user_id = ${userId} THEN r.property_id ELSE r.from_property_id END AS property_id,
       u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url,
       a.formatted
     FROM neighbor_requests r
     JOIN users u ON u.user_id = CASE WHEN r.from_user_id = ${userId} THEN r.to_user_id ELSE r.from_user_id END
-    LEFT JOIN property_addresses a ON a.property_id = r.property_id AND a.is_current
+    LEFT JOIN property_addresses a ON a.property_id = CASE WHEN r.from_user_id = ${userId} THEN r.property_id ELSE r.from_property_id END AND a.is_current
     WHERE r.status IN ('pending', 'accepted')
       AND (
         r.from_user_id = ${userId}

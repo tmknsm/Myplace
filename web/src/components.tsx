@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { api, type Fact, type NeighborStatus, type SearchHit } from "./api";
+import { api, type Fact, type MaintainedProperty, type NeighborStatus, type SearchHit } from "./api";
 import { useAuth } from "./auth";
 import { useMeta } from "./meta";
 import { useToast } from "./property-shared";
@@ -89,11 +89,13 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
   const navigate = useNavigate();
   const [status, setStatus] = useState<NeighborStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [homes, setHomes] = useState<MaintainedProperty[] | null>(null);
   const [toast, showToast] = useToast();
 
   useEffect(() => {
     let cancelled = false;
     setStatus(null);
+    setHomes(null);
     api.neighborStatus(propertyId).then((data) => {
       if (!cancelled) setStatus(data.neighbor.status);
     }).catch(() => {
@@ -101,6 +103,20 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
     });
     return () => { cancelled = true; };
   }, [propertyId, user?.user_id]);
+
+  const send = async (fromPropertyId?: string) => {
+    setBusy(true);
+    setHomes(null);
+    try {
+      const result = await api.neighborProperty(propertyId, fromPropertyId);
+      setStatus(result.neighbor.status);
+      showToast(status === "incoming" ? "You're neighbors." : "Neighbor request sent.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not send that request.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (!status || status === "hidden") return null;
 
@@ -134,12 +150,24 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
             showToast("You're already neighbors.");
             return;
           }
-          setBusy(true);
+          if (homes) {
+            setHomes(null);
+            return;
+          }
           void (async () => {
+            setBusy(true);
             try {
-              const result = await api.neighborProperty(propertyId);
-              setStatus(result.neighbor.status);
-              showToast(status === "incoming" ? "You're neighbors." : "Neighbor request sent.");
+              const mine = await api.myProperties();
+              const choices = mine.properties.filter((property) => property.property_id !== propertyId);
+              if (choices.length === 0) {
+                showToast("Claim a house first so they know which address this is from.");
+                return;
+              }
+              if (choices.length === 1) {
+                await send(choices[0]!.property_id);
+                return;
+              }
+              setHomes(choices);
             } catch (err) {
               showToast(err instanceof Error ? err.message : "Could not send that request.");
             } finally {
@@ -153,6 +181,22 @@ export function NeighborButton({ propertyId }: { propertyId: string }) {
           <path d="M5 12.5l4.5 4.5L19 7.5" />
         </svg>
       </button>
+      {homes && homes.length > 1 && (
+        <div className="neighbor-home-menu" data-testid="neighbor-home-menu">
+          <div className="meta-line">Which of your houses?</div>
+          {homes.map((home) => (
+            <button
+              key={home.property_id}
+              type="button"
+              className="neighbor-home-option"
+              disabled={busy}
+              onClick={() => void send(home.property_id)}
+            >
+              {home.formatted ?? "Untitled parcel"}
+            </button>
+          ))}
+        </div>
+      )}
       {toast && <div className="page-toast" role="status">{toast}</div>}
     </div>
   );

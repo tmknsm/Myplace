@@ -255,6 +255,7 @@ img, svg { max-width: 100%; }
  * mount with the route so they fire on page load, not after the record.
  */
 .header-neighbor {
+  position: relative;
   flex: 0 0 auto;
   width: var(--share-slot);
   margin-left: 8px;
@@ -263,6 +264,32 @@ img, svg { max-width: 100%; }
   justify-content: center;
   animation: neighbor-slot-open 320ms var(--share-ease) 70ms both;
 }
+.neighbor-home-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 240px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.neighbor-home-menu .meta-line { margin: 0 6px 6px; }
+.neighbor-home-option {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 520;
+  text-align: left;
+}
+.neighbor-home-option:hover { background: var(--surface-2); }
 @keyframes neighbor-slot-open {
   from { width: 0; margin-left: 0; }
   to { width: var(--share-slot); margin-left: 8px; }

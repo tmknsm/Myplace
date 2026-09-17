@@ -77,8 +77,11 @@ export const api = {
   myProperties: () => request<{ properties: MaintainedProperty[] }>("/api/me/properties"),
   myNeighbors: () => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>("/api/me/neighbors"),
   neighborStatus: (id: string) => request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`),
-  neighborProperty: (id: string) =>
-    request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`, { method: "POST" }),
+  neighborProperty: (id: string, fromPropertyId?: string) =>
+    request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`, {
+      method: "POST",
+      body: JSON.stringify(fromPropertyId ? { fromPropertyId } : {}),
+    }),
   reviewNeighbor: (id: string, decision: "accepted" | "declined") =>
     request<{ ok: boolean; decision: string }>(`/api/neighbors/${id}/review`, {
       method: "POST",

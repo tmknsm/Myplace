@@ -522,12 +522,19 @@ app.post("/api/properties/:id/neighbor", async (c) => {
   if (page.maintainers.some((row) => row.user_id === user.user_id)) {
     return c.json({ error: "This is already your page." }, 400);
   }
+  const body = await c.req.json<{ fromPropertyId?: string }>().catch(() => ({} as { fromPropertyId?: string }));
   const result = await requestNeighborsOnProperty(
     user.user_id,
     propertyId,
     page.maintainers.map((row) => row.user_id),
+    body.fromPropertyId,
   );
-  if ("error" in result) return c.json({ error: result.error }, result.status);
+  if ("error" in result) {
+    return c.json(
+      { error: result.error, ...("properties" in result ? { properties: result.properties } : {}) },
+      result.status,
+    );
+  }
   return c.json(result);
 });
 

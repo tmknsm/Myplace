@@ -94,6 +94,19 @@ async function seedProperty() {
   `;
 }
 
+async function giveHome(userId: string, propertyId: string, formatted: string) {
+  const n = propertyId.replace(/\W/g, "").slice(-8);
+  await sql`INSERT INTO properties (property_id, state, county, municipality) VALUES (${propertyId}, 'NY', 'Columbia', 'Hudson')`;
+  await sql`
+    INSERT INTO property_addresses (address_id, property_id, formatted, street_number, street_name, city)
+    VALUES (${`adr_${n}`}, ${propertyId}, ${formatted}, '12', 'State Street', 'Hudson')
+  `;
+  await sql`
+    INSERT INTO property_maintainers (maintainer_id, property_id, user_id, role)
+    VALUES (${`mnt_${n}`}, ${propertyId}, ${userId}, 'owner')
+  `;
+}
+
 async function signIn(email: string, admin = false) {
   if (admin) {
     await sql`
@@ -1357,6 +1370,9 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   const visitorCookie = await signIn("visitor@example.com");
   await sql`UPDATE users SET first_name = 'Sam', last_name = 'Ellison', handle = 'hudsonowner' WHERE primary_email = 'owner@example.com'`;
   await sql`UPDATE users SET first_name = 'Ada', last_name = 'Visitor', handle = 'ada' WHERE primary_email = 'visitor@example.com'`;
+  const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
+  if (!visitor) throw new Error("expected visitor");
+  await giveHome(visitor.user_id, "prop_home", "12 State Street, Hudson, NY 12534");
 
   const ownerPage = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
   expect(ownerPage.viewer.neighbor.status).toBe("hidden");
@@ -1380,7 +1396,7 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
 
   const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
   expect(inbox.incoming).toHaveLength(1);
-  expect(inbox.incoming[0].label).toBe("441 Warren Street, Hudson, NY 12534");
+  expect(inbox.incoming[0].label).toBe("12 State Street, Hudson, NY 12534");
   expect(inbox.neighbors).toHaveLength(0);
 
   const review = await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
@@ -1392,7 +1408,7 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
 
   const ownerList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
   expect(ownerList.incoming).toHaveLength(0);
-  expect(ownerList.neighbors[0].label).toBe("441 Warren Street, Hudson, NY 12534");
+  expect(ownerList.neighbors[0].label).toBe("12 State Street, Hudson, NY 12534");
   expect(ownerList.neighbors[0].photo_url).toBeTruthy();
 
   const visitorList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
@@ -1400,12 +1416,16 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
 
   const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();
   expect(after.viewer.neighbor.status).toBe("accepted");
+  expect((await (await app.request("http://localhost/api/properties/prop_home/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("accepted");
 });
 
 test("neighbors: decline clears the request so they can ask again", async () => {
   await seedProperty();
   const ownerCookie = await verifiedOwner("owner@example.com");
   const visitorCookie = await signIn("visitor@example.com");
+  const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
+  if (!visitor) throw new Error("expected visitor");
+  await giveHome(visitor.user_id, "prop_home", "12 State Street, Hudson, NY 12534");
 
   expect((await app.request("http://localhost/api/properties/prop_test/neighbor", {
     method: "POST",
@@ -1432,7 +1452,9 @@ test("neighbors: a connection is only for that address, not every house they own
   const ownerCookie = await verifiedOwner("owner@example.com");
   const visitorCookie = await signIn("visitor@example.com");
   const [owner] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'owner@example.com'`;
-  if (!owner) throw new Error("expected owner");
+  const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
+  if (!owner || !visitor) throw new Error("expected both users");
+  await giveHome(visitor.user_id, "prop_home", "12 State Street, Hudson, NY 12534");
 
   await sql`INSERT INTO properties (property_id, state, county, municipality) VALUES ('prop_other', 'FL', 'Miami-Dade', 'Miami')`;
   await sql`
@@ -1457,5 +1479,40 @@ test("neighbors: a connection is only for that address, not every house they own
 
   expect((await (await app.request("http://localhost/api/properties/prop_test/neighbor", { headers: { cookie: visitorCookie } })).json()).neighbor.status).toBe("accepted");
   expect((await (await app.request("http://localhost/api/properties/prop_other/neighbor", { headers: { cookie: visitorCookie } })).json()).neighbor.status).toBe("none");
+  expect((await (await app.request("http://localhost/api/properties/prop_home/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("accepted");
+});
+
+test("neighbors: requester with two houses must say which one the pair is from", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const visitorCookie = await signIn("visitor@example.com");
+  const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
+  if (!visitor) throw new Error("expected visitor");
+  await giveHome(visitor.user_id, "prop_home_a", "10 First Street, Hudson, NY 12534");
+  await giveHome(visitor.user_id, "prop_home_b", "20 Second Street, Hudson, NY 12534");
+
+  const missing = await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: visitorCookie },
+    body: JSON.stringify({}),
+  });
+  expect(missing.status).toBe(409);
+  expect((await missing.json()).properties).toHaveLength(2);
+
+  expect((await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: visitorCookie },
+    body: JSON.stringify({ fromPropertyId: "prop_home_a" }),
+  })).status).toBe(200);
+  const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect(inbox.incoming[0].label).toBe("10 First Street, Hudson, NY 12534");
+  expect((await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ decision: "accepted" }),
+  })).status).toBe(200);
+
+  expect((await (await app.request("http://localhost/api/properties/prop_home_a/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("accepted");
+  expect((await (await app.request("http://localhost/api/properties/prop_home_b/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("none");
 });
 
