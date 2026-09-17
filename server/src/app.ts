@@ -57,6 +57,7 @@ import {
   setCoverPhoto,
   TRANSFERABLE_TYPES,
 } from "./services/owner.ts";
+import { loadMyNeighbors, neighborState, requestNeighborsOnProperty, reviewNeighbor } from "./services/neighbors.ts";
 import { addCoMaintainer, grantOwnership, revokeOwnership } from "./services/ownership.ts";
 import {
   loadMyProperties,
@@ -486,8 +487,43 @@ app.get("/api/properties/:id", async (c) => {
       preferences,
       openClaim,
       inboxCount: inbox.length,
+      neighbor: await neighborState(user?.user_id ?? null, page.maintainers.map((row) => row.user_id), maintainer),
     },
   });
+});
+
+app.get("/api/me/neighbors", async (c) => {
+  const user = requireUser(c);
+  return c.json(await loadMyNeighbors(user.user_id));
+});
+
+app.post("/api/properties/:id/neighbor", async (c) => {
+  const user = requireUser(c);
+  const propertyId = c.req.param("id");
+  const page = await loadPropertyPage(propertyId);
+  if (!page) return c.json({ error: "Property not found" }, 404);
+  if (page.maintainers.length === 0) return c.json({ error: "This address hasn't been claimed yet." }, 400);
+  if (page.maintainers.some((row) => row.user_id === user.user_id)) {
+    return c.json({ error: "This is already your page." }, 400);
+  }
+  const result = await requestNeighborsOnProperty(
+    user.user_id,
+    propertyId,
+    page.maintainers.map((row) => row.user_id),
+  );
+  if ("error" in result) return c.json({ error: result.error }, result.status);
+  return c.json(result);
+});
+
+app.post("/api/neighbors/:id/review", async (c) => {
+  const user = requireUser(c);
+  const body = await c.req.json<{ decision?: string }>().catch(() => ({} as { decision?: string }));
+  if (body.decision !== "accepted" && body.decision !== "declined") {
+    return c.json({ error: "Say whether to accept or decline." }, 400);
+  }
+  const result = await reviewNeighbor(user.user_id, c.req.param("id"), body.decision);
+  if ("error" in result) return c.json({ error: result.error }, result.status);
+  return c.json(result);
 });
 
 async function addressOf(propertyId: string): Promise<string> {

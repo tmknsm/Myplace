@@ -229,8 +229,82 @@ function applyClaimedOwner(data: PageData, result: DebugClaimResult): PageData {
       role: data.viewer.role ?? "owner",
       verifiedAt: data.viewer.verifiedAt ?? now,
       openClaim: null,
+      neighbor: { status: "hidden" },
     },
   };
+}
+
+function PeopleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15.5 19v-1.1A3.4 3.4 0 0 0 12.1 14.5H7.9A3.4 3.4 0 0 0 4.5 17.9V19" />
+      <circle cx="10" cy="8.2" r="2.7" />
+      <path d="M19.5 19v-1.1a3.4 3.4 0 0 0-2.6-3.3" />
+      <path d="M16.2 5.6a2.7 2.7 0 0 1 0 5.2" />
+    </svg>
+  );
+}
+
+function NeighborButton({
+  propertyId,
+  state,
+  onChanged,
+  toast,
+}: {
+  propertyId: string;
+  state: { status: string };
+  onChanged: () => Promise<void> | void;
+  toast: Toast;
+}) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  if (state.status === "hidden") return null;
+  const label = state.status === "accepted"
+    ? "Neighbors"
+    : state.status === "pending"
+      ? "Request sent"
+      : state.status === "incoming"
+        ? "Approve neighbor"
+        : "Add as neighbor";
+  return (
+    <button
+      type="button"
+      className={`icon-btn neighbor-btn${state.status === "accepted" ? " is-on" : ""}${state.status === "pending" ? " is-pending" : ""}`}
+      aria-label={label}
+      title={label}
+      disabled={busy}
+      data-testid="neighbor-button"
+      onClick={() => {
+        if (!user) {
+          navigate(`/signin?next=/property/${propertyId}`);
+          return;
+        }
+        if (state.status === "pending") {
+          toast("Waiting for them to approve.");
+          return;
+        }
+        if (state.status === "accepted") {
+          toast("You're already neighbors.");
+          return;
+        }
+        setBusy(true);
+        void (async () => {
+          try {
+            await api.neighborProperty(propertyId);
+            await onChanged();
+            toast(state.status === "incoming" ? "You're neighbors." : "Neighbor request sent.");
+          } catch (err) {
+            toast(err instanceof Error ? err.message : "Could not send that request.");
+          } finally {
+            setBusy(false);
+          }
+        })();
+      }}
+    >
+      <PeopleIcon />
+    </button>
+  );
 }
 
 function isGalleryPhoto(doc: Doc): boolean {
@@ -612,6 +686,12 @@ export function PropertyPageView() {
 
       <header className="profile-head group">
         <div className="profile-title">
+          <NeighborButton
+            propertyId={id}
+            state={viewer.neighbor ?? { status: "hidden" }}
+            onChanged={refresh}
+            toast={showToast}
+          />
           {user && pagePeople.length > 0 && (
             <div className="owner-bylines">
               {pagePeople.map((person) => (

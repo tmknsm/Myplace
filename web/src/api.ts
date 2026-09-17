@@ -75,6 +75,14 @@ export const api = {
   claim: (id: string) => request<{ claim: Claim; documents: Doc[] }>(`/api/claims/${id}`),
   myClaims: () => request<{ claims: Claim[] }>("/api/me/claims"),
   myProperties: () => request<{ properties: MaintainedProperty[] }>("/api/me/properties"),
+  myNeighbors: () => request<{ incoming: NeighborPerson[]; neighbors: NeighborPerson[] }>("/api/me/neighbors"),
+  neighborProperty: (id: string) =>
+    request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`, { method: "POST" }),
+  reviewNeighbor: (id: string, decision: "accepted" | "declined") =>
+    request<{ ok: boolean; status: string }>(`/api/neighbors/${id}/review`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    }),
   upload: async (propertyId: string, file: File, fields: Record<string, string>) => {
     const { optimizePhotoFile } = await import("./optimize-photo");
     const photo = await optimizePhotoFile(file);
@@ -235,6 +243,22 @@ export interface Viewer {
   preferences: Record<string, string> | null;
   openClaim: { claim_id: string; status: string } | null;
   inboxCount?: number;
+  neighbor?: NeighborState;
+}
+
+export type NeighborStatus = "hidden" | "none" | "pending" | "incoming" | "accepted";
+
+export interface NeighborState {
+  status: NeighborStatus;
+}
+
+export interface NeighborPerson {
+  request_id: string;
+  user_id: string;
+  label: string;
+  photo_url: string;
+  status: string;
+  created_at: string;
 }
 
 export type InboxAction = "accept" | "decline" | "withdraw" | "view";

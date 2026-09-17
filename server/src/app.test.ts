@@ -9,6 +9,7 @@ import { app } from "./app.ts";
 import { closeSql, setSql } from "./db.ts";
 import { runWithRuntime } from "./runtime.ts";
 import { assembleFacts, type AssertionRow } from "./services/assertions.ts";
+import { requestNeighbor } from "./services/neighbors.ts";
 import { memoryStore, type DocumentStore } from "./services/storage.ts";
 import { DEBUG_CLAIM_PIN, TEST_PROD_CODE, TEST_PROD_EMAIL } from "./debug.ts";
 import { ABSTRACT_AVATAR_URL, DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
@@ -40,6 +41,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await sql`DELETE FROM emails`;
+  await sql`DELETE FROM neighbor_requests`;
   await sql`DELETE FROM notification_preferences`;
   await sql`DELETE FROM handoff_invitations`;
   await sql`DELETE FROM contribution_assertions`;
@@ -1349,3 +1351,88 @@ test("improvement amount paid stays private unless the owner toggles it public",
   expect(publicShown.property.improvements[0]?.cost_cents).toBe(1_800_000);
   expect(publicShown.property.improvements[0]?.cost_visibility).toBe("public");
 });
+
+test("neighbors: request from a claimed page, then approve on the profile", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const visitorCookie = await signIn("visitor@example.com");
+  await sql`UPDATE users SET first_name = 'Sam', last_name = 'Ellison', handle = 'hudsonowner' WHERE primary_email = 'owner@example.com'`;
+  await sql`UPDATE users SET first_name = 'Ada', last_name = 'Visitor', handle = 'ada' WHERE primary_email = 'visitor@example.com'`;
+
+  const ownerPage = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
+  expect(ownerPage.viewer.neighbor.status).toBe("hidden");
+
+  const before = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();
+  expect(before.viewer.neighbor.status).toBe("none");
+
+  const sent = await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { cookie: visitorCookie },
+  });
+  expect(sent.status).toBe(200);
+  expect((await sent.json()).neighbor.status).toBe("pending");
+
+  const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect(inbox.incoming).toHaveLength(1);
+  expect(inbox.incoming[0].label).toBe("Ada Visitor");
+  expect(inbox.neighbors).toHaveLength(0);
+
+  const review = await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ decision: "accepted" }),
+  });
+  expect(review.status).toBe(200);
+
+  const ownerList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect(ownerList.incoming).toHaveLength(0);
+  expect(ownerList.neighbors[0].label).toBe("Ada Visitor");
+  expect(ownerList.neighbors[0].photo_url).toBeTruthy();
+
+  const visitorList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
+  expect(visitorList.neighbors[0].label).toBe("Sam Ellison");
+
+  const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();
+  expect(after.viewer.neighbor.status).toBe("accepted");
+});
+
+test("neighbors: decline clears the request so they can ask again", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const visitorCookie = await signIn("visitor@example.com");
+
+  expect((await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { cookie: visitorCookie },
+  })).status).toBe(200);
+  const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect((await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ decision: "declined" }),
+  })).status).toBe(200);
+  expect((await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json()).incoming).toHaveLength(0);
+
+  const again = await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { cookie: visitorCookie },
+  });
+  expect(again.status).toBe(200);
+  expect((await again.json()).neighbor.status).toBe("pending");
+});
+
+test("neighbors: asking back accepts the pending request", async () => {
+  await seedProperty();
+  await verifiedOwner("owner@example.com");
+  const visitorCookie = await signIn("visitor@example.com");
+  expect((await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { cookie: visitorCookie },
+  })).status).toBe(200);
+  const [owner] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'owner@example.com'`;
+  const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
+  if (!owner || !visitor) throw new Error("expected both users");
+  const result = await requestNeighbor(owner.user_id, visitor.user_id, "prop_test");
+  expect("request" in result && result.request.status).toBe("accepted");
+});
+

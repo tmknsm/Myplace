@@ -622,6 +622,24 @@ img, svg { max-width: 100%; }
 .row-avatars img:nth-child(2) { z-index: 2; }
 .row-avatars img:nth-child(3) { z-index: 1; }
 .row:hover .row-avatars img { border-color: var(--surface-2); }
+.neighbor-row { justify-content: flex-start; }
+.neighbor-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-2);
+  flex: 0 0 32px;
+}
+.neighbor-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.neighbor-copy .row-label { white-space: normal; }
+.neighbor-row .inbox-actions { margin-left: auto; }
 
 .timeline { list-style: none; padding: 4px 8px 8px 20px; margin: 0; }
 .timeline li {
@@ -1144,7 +1162,16 @@ tr:last-child td { border-bottom: 0; }
   flex-wrap: wrap;
   margin-bottom: 18px;
 }
-.profile-title { min-width: 0; flex: 1 1 420px; }
+.profile-title { position: relative; min-width: 0; flex: 1 1 420px; }
+.neighbor-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  margin-top: 0;
+}
+.neighbor-btn.is-pending { color: var(--muted); }
+.profile-title:has(.neighbor-btn) { padding-right: calc(var(--tap) + 8px); }
 .owner-bylines {
   display: flex;
   flex-wrap: wrap;
