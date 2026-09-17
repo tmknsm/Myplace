@@ -576,7 +576,9 @@ function AccountPage() {
   }, [user]);
   if (!user) return <Navigate to="/signin" replace />;
   const ownedIds = new Set(properties.map((property) => property.property_id));
-  const openClaims = claims.filter((claim) => !ownedIds.has(claim.property_id));
+  const openClaims = claims.filter((claim) => (
+    !ownedIds.has(claim.property_id) && claim.status !== "superseded" && claim.status !== "revoked"
+  ));
   return (
     <div className="page account-page">
       <ProfileCard user={user} onUser={refresh} />
