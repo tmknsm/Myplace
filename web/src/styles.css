@@ -257,11 +257,15 @@ img, svg { max-width: 100%; }
 .header-neighbor {
   flex: 0 0 auto;
   width: var(--share-slot);
-  margin-left: var(--share-gap);
+  margin-left: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: share-slot-open 320ms var(--share-ease) 70ms both;
+  animation: neighbor-slot-open 320ms var(--share-ease) 70ms both;
+}
+@keyframes neighbor-slot-open {
+  from { width: 0; margin-left: 0; }
+  to { width: var(--share-slot); margin-left: 8px; }
 }
 .header-neighbor .share-btn {
   animation-delay: 170ms;
