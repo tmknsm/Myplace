@@ -2599,80 +2599,103 @@ a.text-btn { text-decoration: none; }
 .photo-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
 
 /* ---- Lightbox ---------------------------------------------------------- */
-/* Full-bleed viewer. A scroll-snap track (same mechanics as the hero) holds
-   one viewport-wide slide per photo; the photo spans the full width and sits
-   centered, letterboxed top and bottom when its aspect ratio calls for it. */
+/* Full-bleed viewer laid out as a column: a bar of round controls up top, the
+   photo stage in the middle, and a row of tallies (comments, likes, shares)
+   at the bottom. A scroll-snap track (same mechanics as the hero) holds one
+   stage-wide slide per photo; the photo is letterboxed within the stage. */
 /* Must beat `.modal-backdrop` (same file, later): that rule is a dim + blur
    scrim over the page. The lightbox is an opaque black stage instead. */
 .modal-backdrop.lightbox {
-  display: block;
+  --lb-chrome: rgba(255, 255, 255, 0.14);
+  --lb-chrome-hover: rgba(255, 255, 255, 0.22);
+  --lb-ink: #fff;
+  --lb-ink-soft: rgba(255, 255, 255, 0.72);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   padding: 0;
   background: #000;
+  color: var(--lb-ink);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-/* Top bar: owner tools as quiet text links on the left, close on the right.
-   Sits over the stage; the gradient keeps it legible on a bright photo. */
+/* Top bar: close on the left, owner tools (change / delete) on the right as
+   chips in the same translucent finish as the tallies below. */
 .lightbox-head {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  min-height: 56px;
-  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
-  color: #fff;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0));
-  pointer-events: none;
+  gap: 12px;
+  min-height: 64px;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
 }
-.lightbox-head > * { pointer-events: auto; }
-.lightbox-tools {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  min-width: 0;
-  font-size: 15px;
-}
-.lightbox-tools .text-link {
-  margin: 0;
-  min-height: 36px;
-  display: inline-flex;
-  align-items: center;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.lightbox-tools .text-link.danger { color: #ff7b72; }
-.lightbox-tools .text-link:disabled { opacity: 0.5; }
-.lightbox-confirm {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 15px;
-  white-space: nowrap;
-}
-.lightbox-close {
-  flex: 0 0 auto;
+.lightbox-round,
+.lightbox-chip,
+.lightbox-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
   border: 0;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
+  border-radius: 999px;
+  background: var(--lb-chrome);
+  color: var(--lb-ink);
+  font: inherit;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 160ms ease, transform 160ms ease, opacity 160ms ease;
 }
-.lightbox-close svg { width: 18px; height: 18px; display: block; }
-.lightbox-close:hover { background: rgba(255, 255, 255, 0.26); }
+.lightbox-round:hover, .lightbox-chip:hover, .lightbox-pill:hover { background: var(--lb-chrome-hover); }
+.lightbox-round:active, .lightbox-chip:active, .lightbox-pill:active { transform: scale(0.96); transition-duration: 80ms; }
+.lightbox-round:focus-visible, .lightbox-chip:focus-visible, .lightbox-pill:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.6);
+}
+.lightbox-round:disabled, .lightbox-chip:disabled, .lightbox-pill:disabled { opacity: 0.5; cursor: default; transform: none; }
+.lightbox-round {
+  flex: 0 0 auto;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+}
+.lightbox-round svg { width: 20px; height: 20px; display: block; }
+.lightbox-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.lightbox-chip {
+  position: relative;
+  gap: 7px;
+  height: 40px;
+  padding: 0 14px 0 12px;
+  font-size: 14px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+.lightbox-chip svg { width: 17px; height: 17px; flex: 0 0 auto; }
+.lightbox-chip.danger { color: #ff8a80; }
+.lightbox-chip.file-btn { overflow: hidden; }
+.lightbox-chip.file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.lightbox-chip.is-busy { opacity: 0.6; }
+.lightbox-confirm {
+  color: var(--lb-ink-soft);
+  font-size: 14px;
+  white-space: nowrap;
+  margin-right: 4px;
+}
+/* Stage: fills whatever the bars leave; the dots are pinned to its bottom and
+   lifted by --photo-lift (measured in JS) so they sit just inside the photo. */
+.lightbox-stage {
+  --photo-lift: 0px;
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .lightbox-track {
   position: absolute;
   inset: 0;
@@ -2696,50 +2719,98 @@ a.text-btn { text-decoration: none; }
   align-items: center;
   justify-content: center;
 }
+/* Both max constraints with auto sizing shrink the box to the drawn photo,
+   so its rect is the photo's rect and the dots can be measured against it. */
 .lightbox-slide img {
   display: block;
-  width: 100%;
+  width: auto;
+  height: auto;
+  max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: 0;
   -webkit-user-drag: none;
   user-select: none;
 }
-.lightbox-bar {
-  position: absolute;
+.lightbox-dots {
   left: 0;
   right: 0;
-  bottom: 0;
-  z-index: 1;
+  bottom: calc(var(--photo-lift) + var(--hero-pad-bottom, 24px));
+  justify-content: center;
+  transition: bottom 120ms ease;
+}
+/* Bottom: caption (when there is one) over the three tallies. */
+.lightbox-bar {
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 56px 16px max(16px, env(safe-area-inset-bottom));
-  color: #fff;
+  gap: 14px;
+  padding: 18px 16px max(20px, env(safe-area-inset-bottom));
   text-align: center;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
-  pointer-events: none;
-}
-.lightbox-bar > * { pointer-events: auto; }
-/* Reuse the hero dots, but flow them in the bar rather than pinning to the hero. */
-.lightbox-dots {
-  position: relative;
-  left: auto;
-  right: auto;
-  bottom: auto;
-  width: max-content;
-  max-width: 100%;
 }
 .lightbox-caption {
   margin: 0;
   max-width: min(100%, 560px);
-  min-height: calc(14px * 1.4);
   font-size: 14px;
   line-height: 1.4;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--lb-ink-soft);
   text-wrap: balance;
 }
+.lightbox-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 480px;
+}
+.lightbox-pill {
+  flex: 1 1 0;
+  gap: 8px;
+  height: 46px;
+  padding: 0 18px;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.lightbox-pill svg { width: 22px; height: 22px; flex: 0 0 auto; transition: transform 200ms var(--share-pop, ease); }
+.lightbox-pill.is-on { color: #ff7b72; }
+.lightbox-pill.is-on svg { animation: share-pop 260ms var(--share-pop, ease) both; }
+.lightbox-count { min-width: 1ch; }
+
+/* Comments sheet over the lightbox. */
+.comment-sheet {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 0 var(--sheet-inline);
+}
+.comment-list { display: flex; flex-direction: column; gap: 14px; flex: 1 1 auto; padding-bottom: 16px; }
+.comment-list .meta-line { margin: 4px 0; }
+.comment-row { display: flex; gap: 10px; align-items: flex-start; }
+.comment-copy { min-width: 0; flex: 1 1 auto; }
+.comment-meta { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--muted); }
+.comment-meta strong { color: var(--ink); font-weight: 600; }
+.comment-meta .text-link { margin-left: auto; font-size: 12px; }
+.comment-copy p { margin: 2px 0 0; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; white-space: pre-line; }
+.comment-compose {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: auto calc(-1 * var(--sheet-inline)) 0;
+  padding: 10px var(--sheet-inline) calc(12px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px));
+  border-top: 1px solid var(--hairline);
+  background: var(--chrome-fill);
+  backdrop-filter: var(--chrome-blur);
+  -webkit-backdrop-filter: var(--chrome-blur);
+}
+.comment-compose .field { flex: 1 1 auto; min-width: 0; border-radius: 999px; }
+.comment-compose .btn { flex: 0 0 auto; border-radius: 999px; }
 
 table small { display: block; }
 

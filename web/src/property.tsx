@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
+import { ApiError, api, type DebugClaimResult, type Doc, type Engagement, type Fact, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PhotoComment, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, NeighborHouseIcon, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
@@ -3367,10 +3367,14 @@ function PhotoLightbox({
   const count = photos.length;
   const current = Math.max(0, Math.min(index, count - 1));
   const photo = photos[current];
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const thumbRef = useRef<HTMLSpanElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
 
   // Swiping to another photo drops any pending delete confirmation.
   const settle = useCallback((next: number) => {
@@ -3379,20 +3383,84 @@ function PhotoLightbox({
   }, [onIndex]);
 
   const goTo = useSnapTrack({ trackRef, thumbRef, count, current, onIndex: settle });
+  const photoId = photo?.document_id ?? null;
+  const engagement = usePhotoEngagement(photoId);
+
+  // The dots sit just inside the bottom edge of the photo, like the hero.
+  // Photos are letterboxed within the stage, so measure where the current
+  // one actually ends and lift the dots to meet it.
+  useEffect(() => {
+    const stage = stageRef.current;
+    const track = trackRef.current;
+    if (!stage || !track) return;
+    const slide = track.children[current] as HTMLElement | undefined;
+    const img = slide?.querySelector("img");
+    const place = () => {
+      const stageRect = stage.getBoundingClientRect();
+      const rect = img?.getBoundingClientRect();
+      const lift = rect && rect.height > 0 ? Math.max(0, Math.round(stageRect.bottom - rect.bottom)) : 0;
+      stage.style.setProperty("--photo-lift", `${lift}px`);
+    };
+    place();
+    img?.addEventListener("load", place);
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(place) : null;
+    observer?.observe(stage);
+    if (img) observer?.observe(img);
+    return () => {
+      img?.removeEventListener("load", place);
+      observer?.disconnect();
+    };
+  }, [current, count]);
 
   useLockPageScroll(true);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (commentsOpen) return;
       if (event.key === "Escape") onClose();
       if (event.key === "ArrowRight") goTo(current + 1);
       if (event.key === "ArrowLeft") goTo(current - 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [current, goTo, onClose]);
+  }, [commentsOpen, current, goTo, onClose]);
 
   if (!photo) return null;
   const missing = !hasFile(photo);
+
+  const signInFirst = () => {
+    const here = `${window.location.pathname}${window.location.search}`;
+    navigate(`/signin?next=${encodeURIComponent(here)}`);
+  };
+
+  const like = async () => {
+    if (!user) return signInFirst();
+    await engagement.like().catch((error) => {
+      toast(error instanceof Error ? error.message : "Couldn't save that.");
+    });
+  };
+
+  const share = async () => {
+    const url = window.location.href;
+    const title = photo.caption?.trim() || document.title;
+    let shared = false;
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title, url });
+        shared = true;
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+      }
+    }
+    if (!shared) {
+      try {
+        await navigator.clipboard.writeText(url);
+        toast("Link copied.");
+      } catch {
+        window.prompt("Copy this link", url);
+      }
+    }
+    void engagement.share().catch(() => {});
+  };
 
   const replace = async (file: File | undefined) => {
     if (!file) return;
@@ -3420,83 +3488,318 @@ function PhotoLightbox({
     }
   };
 
+  const counts = engagement.state;
+
   return (
     <div className="modal-backdrop lightbox" role="dialog" aria-modal="true" aria-label="Photo">
       <header className="lightbox-head">
-        <div className="lightbox-tools">
-          {owner && (confirm ? (
-            <span className="lightbox-confirm">
-              Delete this photo?
-              <button type="button" className="text-link danger" disabled={busy} onClick={() => void remove()}>{busy ? "Deleting…" : "Delete"}</button>
-              <button type="button" className="text-link" disabled={busy} onClick={() => setConfirm(false)}>Keep</button>
-            </span>
-          ) : (
-            <>
-              <label className={`text-link file-btn ${busy ? "is-busy" : ""}`}>
-                {busy ? "Saving…" : missing ? "Restore" : "Change"}
-                <input
-                  type="file"
-                  accept="image/*"
-                  disabled={busy}
-                  data-testid="photo-replace"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = "";
-                    void replace(file);
-                  }}
-                />
-              </label>
-              <button type="button" className="text-link danger" disabled={busy} data-testid="photo-delete" onClick={() => setConfirm(true)}>Delete</button>
-            </>
-          ))}
-        </div>
-        <button type="button" className="lightbox-close" aria-label="Close" onClick={onClose}>
+        <button type="button" className="lightbox-round" aria-label="Close" onClick={onClose}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
-      </header>
-      <div ref={trackRef} className="lightbox-track" data-testid="lightbox-track">
-        {photos.map((doc, i) => (
-          <div
-            key={doc.document_id}
-            className="lightbox-slide"
-            aria-hidden={i !== current}
-            onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
-          >
-            {hasFile(doc) ? (
-              <img
-                src={fileUrl(doc)}
-                alt={doc.caption ?? doc.original_filename}
-                loading={Math.abs(i - current) <= 1 ? "eager" : "lazy"}
-                draggable={false}
-              />
+        {owner && (
+          <div className="lightbox-tools">
+            {confirm ? (
+              <>
+                <span className="lightbox-confirm">Delete this photo?</span>
+                <button type="button" className="lightbox-chip danger" disabled={busy} onClick={() => void remove()}>
+                  {busy ? "Deleting…" : "Delete"}
+                </button>
+                <button type="button" className="lightbox-chip" disabled={busy} onClick={() => setConfirm(false)}>Keep</button>
+              </>
             ) : (
-              <RestorePhoto doc={doc} busy={busy && i === current} onPick={(file) => void replace(file)} />
+              <>
+                <label className={`lightbox-chip file-btn${busy ? " is-busy" : ""}`}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 7h3l2-2h6l2 2h3v12H4z" />
+                    <circle cx="12" cy="13" r="3.5" />
+                  </svg>
+                  {busy ? "Saving…" : missing ? "Restore" : "Change"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={busy}
+                    data-testid="photo-replace"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      void replace(file);
+                    }}
+                  />
+                </label>
+                <button type="button" className="lightbox-chip danger" disabled={busy} data-testid="photo-delete" onClick={() => setConfirm(true)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+                  </svg>
+                  Delete
+                </button>
+              </>
             )}
           </div>
-        ))}
-      </div>
-      <div className="lightbox-bar">
-        <p className="lightbox-caption">{photo.caption ?? ""}</p>
+        )}
+      </header>
+      <div ref={stageRef} className="lightbox-stage">
+        <div ref={trackRef} className="lightbox-track" data-testid="lightbox-track">
+          {photos.map((doc, i) => (
+            <div
+              key={doc.document_id}
+              className="lightbox-slide"
+              aria-hidden={i !== current}
+              onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+            >
+              {hasFile(doc) ? (
+                <img
+                  src={fileUrl(doc)}
+                  alt={doc.caption ?? doc.original_filename}
+                  loading={Math.abs(i - current) <= 1 ? "eager" : "lazy"}
+                  draggable={false}
+                />
+              ) : (
+                <RestorePhoto doc={doc} busy={busy && i === current} onPick={(file) => void replace(file)} />
+              )}
+            </div>
+          ))}
+        </div>
         {count > 1 && (
           <div className="hero-dots lightbox-dots" role="tablist" aria-label="Photos">
-            <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
-            {photos.map((doc, i) => (
-              <button
-                key={doc.document_id}
-                type="button"
-                role="tab"
-                aria-selected={i === current}
-                aria-label={`Photo ${i + 1}`}
-                className={i === current ? "on" : ""}
-                onClick={() => goTo(i)}
-              />
-            ))}
+            <div className="hero-dots-inner">
+              <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
+              {photos.map((doc, i) => (
+                <button
+                  key={doc.document_id}
+                  type="button"
+                  role="tab"
+                  aria-selected={i === current}
+                  aria-label={`Photo ${i + 1}`}
+                  className={i === current ? "on" : ""}
+                  onClick={() => goTo(i)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>
+      <div className="lightbox-bar">
+        {photo.caption?.trim() && <p className="lightbox-caption">{photo.caption}</p>}
+        <div className="lightbox-actions" data-testid="lightbox-actions">
+          <button type="button" className="lightbox-pill" data-testid="photo-comments" onClick={() => setCommentsOpen(true)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1.1-3.9A8 8 0 1 1 20 12z" />
+            </svg>
+            <span className="lightbox-count">{compactCount(counts.comments)}</span>
+            <span className="visually-hidden">{counts.comments === 1 ? " comment" : " comments"}</span>
+          </button>
+          <button
+            type="button"
+            className={`lightbox-pill${counts.liked ? " is-on" : ""}`}
+            aria-pressed={counts.liked}
+            data-testid="photo-like"
+            onClick={() => void like()}
+          >
+            <svg viewBox="0 0 24 24" fill={counts.liked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 20.5s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 8a4.3 4.3 0 0 1 7.5 2.5c0 5.4-7.5 10-7.5 10z" />
+            </svg>
+            <span className="lightbox-count">{compactCount(counts.likes)}</span>
+            <span className="visually-hidden">{counts.likes === 1 ? " like" : " likes"}</span>
+          </button>
+          <button type="button" className="lightbox-pill" data-testid="photo-share" onClick={() => void share()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="M8 7l4-4 4 4" />
+              <path d="M6 11H5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-1" />
+            </svg>
+            <span className="lightbox-count">{compactCount(counts.shares)}</span>
+            <span className="visually-hidden">{counts.shares === 1 ? " share" : " shares"}</span>
+          </button>
+        </div>
+      </div>
+      <PhotoComments
+        photo={photo}
+        open={commentsOpen}
+        onClose={() => setCommentsOpen(false)}
+        onCount={engagement.setComments}
+        onSignIn={signInFirst}
+        toast={toast}
+      />
     </div>
+  );
+}
+
+/** 1400 → "1.4K", 16000 → "16K", 1_200_000 → "1.2M". Under a thousand stays exact. */
+function compactCount(value: number): string {
+  if (value < 1000) return String(value);
+  const units: Array<[number, string]> = [[1_000_000_000, "B"], [1_000_000, "M"], [1000, "K"]];
+  for (const [size, suffix] of units) {
+    if (value >= size) {
+      const scaled = value / size;
+      const text = scaled >= 10 ? Math.round(scaled).toString() : scaled.toFixed(1).replace(/\.0$/, "");
+      return `${text}${suffix}`;
+    }
+  }
+  return String(value);
+}
+
+/**
+ * Likes, comments and shares for the photo in view. Fetched per photo; likes
+ * flip optimistically and settle on the server's tally.
+ */
+function usePhotoEngagement(documentId: string | null) {
+  const empty = useMemo(() => ({ likes: 0, comments: 0, shares: 0, liked: false }), []);
+  const [state, setState] = useState<Engagement>(empty);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState(empty);
+    if (!documentId) return;
+    api.engagement(documentId).then((data) => {
+      if (!cancelled) setState(data.engagement);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [documentId, empty]);
+
+  const like = useCallback(async () => {
+    if (!documentId) return;
+    setState((prev) => ({ ...prev, liked: !prev.liked, likes: Math.max(0, prev.likes + (prev.liked ? -1 : 1)) }));
+    try {
+      const result = await api.likeDocument(documentId);
+      setState((prev) => ({ ...prev, liked: result.liked, likes: result.likes }));
+    } catch (error) {
+      setState((prev) => ({ ...prev, liked: !prev.liked, likes: Math.max(0, prev.likes + (prev.liked ? -1 : 1)) }));
+      throw error;
+    }
+  }, [documentId]);
+
+  const share = useCallback(async () => {
+    if (!documentId) return;
+    const result = await api.shareDocument(documentId);
+    setState((prev) => ({ ...prev, shares: result.shares }));
+  }, [documentId]);
+
+  const setComments = useCallback((comments: number) => {
+    setState((prev) => ({ ...prev, comments }));
+  }, []);
+
+  return { state, like, share, setComments };
+}
+
+/** Comments under a photo, in a half sheet over the lightbox. */
+function PhotoComments({
+  photo,
+  open,
+  onClose,
+  onCount,
+  onSignIn,
+  toast,
+}: {
+  photo: Doc;
+  open: boolean;
+  onClose: () => void;
+  onCount: (count: number) => void;
+  onSignIn: () => void;
+  toast: (message: string) => void;
+}) {
+  const { user } = useAuth();
+  const [comments, setComments] = useState<PhotoComment[] | null>(null);
+  const [draft, setDraft] = useState("");
+  const [posting, setPosting] = useState(false);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setComments(null);
+    api.comments(photo.document_id).then((data) => {
+      if (!cancelled) setComments(data.comments);
+    }).catch(() => {
+      if (!cancelled) setComments([]);
+    });
+    return () => { cancelled = true; };
+  }, [open, photo.document_id]);
+
+  // The lightbox tally follows whatever the sheet has loaded, posted or removed.
+  useEffect(() => {
+    if (comments) onCount(comments.length);
+  }, [comments, onCount]);
+
+  const post = async () => {
+    const body = draft.trim();
+    if (!body || posting) return;
+    setPosting(true);
+    try {
+      const { comment } = await api.addComment(photo.document_id, body);
+      setDraft("");
+      setComments((prev) => [...(prev ?? []), comment]);
+      requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Couldn't post that.");
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const remove = async (commentId: string) => {
+    try {
+      await api.deleteComment(commentId);
+      setComments((prev) => (prev ?? []).filter((comment) => comment.comment_id !== commentId));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Couldn't remove that.");
+    }
+  };
+
+  const count = comments?.length ?? 0;
+  return (
+    <Sheet open={open} title="Comments" lede={comments ? `${count} ${count === 1 ? "comment" : "comments"}` : undefined} onClose={onClose} half testId="photo-comments-sheet">
+      <div className="comment-sheet">
+        <div ref={listRef} className="comment-list">
+          {comments === null ? (
+            <p className="meta-line">Loading…</p>
+          ) : comments.length === 0 ? (
+            <p className="meta-line">No comments yet.</p>
+          ) : (
+            comments.map((comment) => (
+              <div key={comment.comment_id} className="comment-row" data-testid="photo-comment">
+                <span className="neighbor-avatar"><img src={comment.author.photo_url} alt="" /></span>
+                <div className="comment-copy">
+                  <div className="comment-meta">
+                    <strong>{comment.author.label}</strong>
+                    <span>{dateLabel(comment.created_at, { month: "short", day: "numeric" })}</span>
+                    {comment.mine && (
+                      <button type="button" className="text-link danger" onClick={() => void remove(comment.comment_id)}>Remove</button>
+                    )}
+                  </div>
+                  <p>{comment.body}</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <form
+          className="comment-compose"
+          onSubmit={(event) => { event.preventDefault(); void post(); }}
+        >
+          {user ? (
+            <>
+              <input
+                className="field"
+                type="text"
+                value={draft}
+                placeholder="Post your reply"
+                maxLength={600}
+                aria-label="Your comment"
+                data-testid="comment-input"
+                onChange={(event) => setDraft(event.target.value)}
+              />
+              <button type="submit" className="btn small" disabled={!draft.trim() || posting} data-testid="comment-post">
+                {posting ? "Posting…" : "Post"}
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn secondary small" onClick={onSignIn}>Sign in to comment</button>
+          )}
+        </form>
+      </div>
+    </Sheet>
   );
 }
 
