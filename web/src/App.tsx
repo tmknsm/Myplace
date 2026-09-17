@@ -3,7 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, use
 import { ProfileCard } from "./account-profile";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty, type NeighborPerson } from "./api";
 import { useAuth } from "./auth";
-import { eventLabel, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
+import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
 import { DebugSheet } from "./debug";
 import { HomePage } from "./home";
 import { useMeta } from "./meta";
@@ -23,17 +23,19 @@ function Layout({ children }: { children: React.ReactNode }) {
   const searchOnArrival = useRef(false);
   if (!onAuth) searchOnArrival.current = searchOnThisPage;
   const headerSearch = onAuth ? searchOnArrival.current : searchOnThisPage;
-  // The share button rides beside the search on the property page itself, in
-  // every state. Keyed on the id so the slot re-opens for each page load.
-  // The empty slot after it is where the property page mounts its quick-add
-  // button (a portal) once the owner's add buttons scroll behind the header.
+  // Share and neighbor ride beside the search on the property page itself, in
+  // every state. Keyed on the id so both slots re-open on page load, not after
+  // the record arrives. The empty slot after them is where the property page
+  // mounts its quick-add button once the owner's add buttons scroll away.
   const propertyId = location.pathname.match(/^\/property\/([^/]+)\/?$/)?.[1] ?? null;
   const share = propertyId ? (
     <>
-      <div className="header-share" key={propertyId}>
+      <div className="header-share" key={`share-${propertyId}`}>
         <ShareButton propertyId={propertyId} />
       </div>
-      <div className="header-neighbor-slot" />
+      <div className="header-neighbor" key={`neighbor-${propertyId}`}>
+        <NeighborButton propertyId={propertyId} />
+      </div>
       <div className="header-add-slot" />
     </>
   ) : null;

@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { api, type Fact, type SearchHit } from "./api";
+import { api, type Fact, type NeighborStatus, type SearchHit } from "./api";
+import { useAuth } from "./auth";
 import { useMeta } from "./meta";
+import { useToast } from "./property-shared";
 
 /** The same ring used in busy buttons, photo tiles, and full-page waits. */
 export function Spinner() {
@@ -67,6 +69,88 @@ export function ShareButton({ propertyId }: { propertyId: string }) {
       </svg>
       <span className="visually-hidden" role="status">{copied ? "Link copied" : ""}</span>
     </button>
+  );
+}
+
+function PeopleIcon() {
+  return (
+    <svg className="neighbor-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15.5 19v-1.1A3.4 3.4 0 0 0 12.1 14.5H7.9A3.4 3.4 0 0 0 4.5 17.9V19" />
+      <circle cx="10" cy="8.2" r="2.7" />
+      <path d="M19.5 19v-1.1a3.4 3.4 0 0 0-2.6-3.3" />
+      <path d="M16.2 5.6a2.7 2.7 0 0 1 0 5.2" />
+    </svg>
+  );
+}
+
+/** Neighbor the people on this claimed page. Mounts with Share so both pop on load. */
+export function NeighborButton({ propertyId }: { propertyId: string }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [status, setStatus] = useState<NeighborStatus>("none");
+  const [busy, setBusy] = useState(false);
+  const [toast, showToast] = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+    api.property(propertyId).then((data) => {
+      if (!cancelled) setStatus(data.viewer.neighbor?.status ?? "none");
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [propertyId]);
+
+  const label = status === "accepted"
+    ? "Neighbors"
+    : status === "pending"
+      ? "Request sent"
+      : status === "incoming"
+        ? "Approve neighbor"
+        : "Add as neighbor";
+
+  return (
+    <>
+      <button
+        type="button"
+        className={`share-btn neighbor-btn${status === "pending" ? " is-pending" : ""}`}
+        aria-label={label}
+        title={label}
+        disabled={busy}
+        data-testid="neighbor-button"
+        onClick={() => {
+          if (!user) {
+            navigate(`/signin?next=/property/${propertyId}`);
+            return;
+          }
+          if (status === "pending") {
+            showToast("Waiting for them to approve.");
+            return;
+          }
+          if (status === "accepted") {
+            showToast("You're already neighbors.");
+            return;
+          }
+          if (status === "hidden") {
+            showToast("This is already your page.");
+            return;
+          }
+          setBusy(true);
+          void (async () => {
+            try {
+              const result = await api.neighborProperty(propertyId);
+              setStatus(result.neighbor.status);
+              showToast(status === "incoming" ? "You're neighbors." : "Neighbor request sent.");
+            } catch (err) {
+              showToast(err instanceof Error ? err.message : "Could not send that request.");
+            } finally {
+              setBusy(false);
+            }
+          })();
+        }}
+      >
+        <PeopleIcon />
+      </button>
+      {toast && <div className="page-toast" role="status">{toast}</div>}
+    </>
   );
 }
 

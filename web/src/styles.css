@@ -251,13 +251,9 @@ img, svg { max-width: 100%; }
 
 /*
  * Neighbor, immediately after share. Same slot-and-pop, a beat later so
- * the two buttons land as a pair instead of at the same instant.
+ * the two buttons land as a pair instead of at the same instant. Both
+ * mount with the route so they fire on page load, not after the record.
  */
-.header-neighbor-slot {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-}
 .header-neighbor {
   flex: 0 0 auto;
   width: var(--share-slot);
