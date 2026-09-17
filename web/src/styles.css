@@ -250,6 +250,29 @@ img, svg { max-width: 100%; }
 }
 
 /*
+ * Neighbor, immediately after share. Same slot-and-pop, a beat later so
+ * the two buttons land as a pair instead of at the same instant.
+ */
+.header-neighbor-slot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+.header-neighbor {
+  flex: 0 0 auto;
+  width: var(--share-slot);
+  margin-left: var(--share-gap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: share-slot-open 320ms var(--share-ease) 70ms both;
+}
+.header-neighbor .share-btn {
+  animation-delay: 170ms;
+}
+.neighbor-btn.is-pending { color: var(--muted); }
+
+/*
  * Quick add, to the right of share. Same choreography as the share slot, but
  * reversible: the slot widens and the field contracts as the owner's add
  * buttons pass behind the header, and it all folds back when they return.
@@ -1162,16 +1185,7 @@ tr:last-child td { border-bottom: 0; }
   flex-wrap: wrap;
   margin-bottom: 18px;
 }
-.profile-title { position: relative; min-width: 0; flex: 1 1 420px; }
-.neighbor-btn {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 2;
-  margin-top: 0;
-}
-.neighbor-btn.is-pending { color: var(--muted); }
-.profile-title:has(.neighbor-btn) { padding-right: calc(var(--tap) + 8px); }
+.profile-title { min-width: 0; flex: 1 1 420px; }
 .owner-bylines {
   display: flex;
   flex-wrap: wrap;
@@ -4084,7 +4098,7 @@ html.home-search-docked .topbar .home-handoff {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .header-share, .share-btn { animation: none; }
+  .header-share, .header-neighbor, .share-btn { animation: none; }
   .header-add, .header-add-btn { transition: none; }
   .home-hero-copy > * { animation: none; }
   .home-chapter,

@@ -236,7 +236,7 @@ function applyClaimedOwner(data: PageData, result: DebugClaimResult): PageData {
 
 function PeopleIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg className="neighbor-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M15.5 19v-1.1A3.4 3.4 0 0 0 12.1 14.5H7.9A3.4 3.4 0 0 0 4.5 17.9V19" />
       <circle cx="10" cy="8.2" r="2.7" />
       <path d="M19.5 19v-1.1a3.4 3.4 0 0 0-2.6-3.3" />
@@ -270,7 +270,7 @@ function NeighborButton({
   return (
     <button
       type="button"
-      className={`icon-btn neighbor-btn${state.status === "accepted" ? " is-on" : ""}${state.status === "pending" ? " is-pending" : ""}`}
+      className={`share-btn neighbor-btn${state.status === "pending" ? " is-pending" : ""}`}
       aria-label={label}
       title={label}
       disabled={busy}
@@ -345,6 +345,7 @@ export function PropertyPageView() {
   const actionsRef = useRef<HTMLDivElement | null>(null);
   const [quickAddOn, setQuickAddOn] = useState(false);
   const [quickAddSlots, setQuickAddSlots] = useState<HTMLElement[]>([]);
+  const [neighborSlots, setNeighborSlots] = useState<HTMLElement[]>([]);
   const [sheet, setSheet] = useState<SheetState>(null);
   const [sheetSeq, setSheetSeq] = useState(0);
   // Keep the last sheet's content mounted while it animates out.
@@ -472,6 +473,10 @@ export function PropertyPageView() {
     setQuickAddSlots(Array.from(document.querySelectorAll<HTMLElement>(".header-add-slot")));
     return () => setQuickAddSlots([]);
   }, [canQuickAdd]);
+  useEffect(() => {
+    setNeighborSlots(Array.from(document.querySelectorAll<HTMLElement>(".header-neighbor-slot")));
+    return () => setNeighborSlots([]);
+  }, [id]);
   useEffect(() => {
     const node = actionsRef.current;
     if (!canQuickAdd || !node) return;
@@ -686,12 +691,6 @@ export function PropertyPageView() {
 
       <header className="profile-head group">
         <div className="profile-title">
-          <NeighborButton
-            propertyId={id}
-            state={viewer.neighbor ?? { status: "hidden" }}
-            onChanged={refresh}
-            toast={showToast}
-          />
           {user && pagePeople.length > 0 && (
             <div className="owner-bylines">
               {pagePeople.map((person) => (
@@ -768,6 +767,18 @@ export function PropertyPageView() {
         />,
         slot,
         `quick-add-${index}`,
+      ))}
+      {viewer.neighbor && viewer.neighbor.status !== "hidden" && neighborSlots.map((slot, index) => createPortal(
+        <div className="header-neighbor">
+          <NeighborButton
+            propertyId={id}
+            state={viewer.neighbor ?? { status: "none" }}
+            onChanged={refresh}
+            toast={showToast}
+          />
+        </div>,
+        slot,
+        `neighbor-${index}`,
       ))}
 
       <StatStrip facts={property.facts} onClaim={prospect ? goClaim : undefined} />

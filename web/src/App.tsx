@@ -33,6 +33,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       <div className="header-share" key={propertyId}>
         <ShareButton propertyId={propertyId} />
       </div>
+      <div className="header-neighbor-slot" />
       <div className="header-add-slot" />
     </>
   ) : null;
