@@ -76,6 +76,7 @@ export const api = {
   myClaims: () => request<{ claims: Claim[] }>("/api/me/claims"),
   myProperties: () => request<{ properties: MaintainedProperty[] }>("/api/me/properties"),
   myNeighbors: () => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>("/api/me/neighbors"),
+  propertyNeighbors: (id: string) => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>(`/api/properties/${id}/neighbors`),
   neighborStatus: (id: string) => request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`),
   neighborProperty: (id: string, fromPropertyId?: string) =>
     request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`, {
@@ -256,11 +257,18 @@ export interface NeighborState {
   status: NeighborStatus;
 }
 
+export interface NeighborOwner {
+  user_id: string;
+  label: string;
+  photo_url: string;
+}
+
 export interface NeighborPerson {
   request_id: string;
   user_id: string;
   label: string;
   photo_url: string | null;
+  owners: NeighborOwner[];
   status: string;
   created_at: string;
   property_id: string | null;

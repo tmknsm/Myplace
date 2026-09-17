@@ -1422,12 +1422,21 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   expect(sentList.outgoing[0].label).toBe("441 Warren Street, Hudson, NY 12534");
   expect(sentList.outgoing[0].status).toBe("pending");
   expect(sentList.outgoing[0].photo_url).toBe("/api/documents/doc_test_cover/file?v=12000");
+  expect(sentList.outgoing[0].owners).toEqual([expect.objectContaining({ label: "Sam Ellison" })]);
 
   const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
   expect(inbox.incoming).toHaveLength(1);
   expect(inbox.incoming[0].label).toBe("12 State Street, Hudson, NY 12534");
   expect(inbox.incoming[0].photo_url).toBe("/api/documents/doc_home_cover/file?v=12000");
+  expect(inbox.incoming[0].owners).toEqual([expect.objectContaining({ label: "Ada Visitor" })]);
   expect(inbox.neighbors).toHaveLength(0);
+
+  const fromHome = await (await app.request("http://localhost/api/properties/prop_home/neighbors", { headers: { cookie: visitorCookie } })).json();
+  expect(fromHome.outgoing).toHaveLength(1);
+  expect(fromHome.outgoing[0].label).toBe("441 Warren Street, Hudson, NY 12534");
+  const onTarget = await (await app.request("http://localhost/api/properties/prop_test/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect(onTarget.incoming).toHaveLength(1);
+  expect((await app.request("http://localhost/api/properties/prop_test/neighbors", { headers: { cookie: visitorCookie } })).status).toBe(403);
 
   const review = await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
     method: "POST",
@@ -1440,10 +1449,12 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   expect(ownerList.incoming).toHaveLength(0);
   expect(ownerList.neighbors[0].label).toBe("12 State Street, Hudson, NY 12534");
   expect(ownerList.neighbors[0].photo_url).toBe("/api/documents/doc_home_cover/file?v=12000");
+  expect(ownerList.neighbors[0].owners).toEqual([expect.objectContaining({ label: "Ada Visitor" })]);
 
   const visitorList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
   expect(visitorList.neighbors[0].label).toBe("441 Warren Street, Hudson, NY 12534");
   expect(visitorList.neighbors[0].photo_url).toBe("/api/documents/doc_test_cover/file?v=12000");
+  expect(visitorList.neighbors[0].owners).toEqual([expect.objectContaining({ label: "Sam Ellison" })]);
 
   const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();
   expect(after.viewer.neighbor.status).toBe("accepted");
@@ -1524,6 +1535,8 @@ test("neighbors: a connection is only for that address, not every house they own
   expect((await (await app.request("http://localhost/api/properties/prop_home/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("accepted");
   expect((await (await app.request("http://localhost/api/properties/prop_test")).json()).property.neighbors.map((row: { property_id: string }) => row.property_id)).toEqual(["prop_home"]);
   expect((await (await app.request("http://localhost/api/properties/prop_other")).json()).property.neighbors).toEqual([]);
+  expect((await (await app.request("http://localhost/api/properties/prop_other/neighbors", { headers: { cookie: ownerCookie } })).json()).neighbors).toEqual([]);
+  expect((await (await app.request("http://localhost/api/properties/prop_test/neighbors", { headers: { cookie: ownerCookie } })).json()).neighbors).toHaveLength(1);
 });
 
 test("neighbors: requester with two houses must say which one the pair is from", async () => {
@@ -1560,6 +1573,8 @@ test("neighbors: requester with two houses must say which one the pair is from",
   expect((await (await app.request("http://localhost/api/properties/prop_home_b/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("none");
   expect((await (await app.request("http://localhost/api/properties/prop_test")).json()).property.neighbors.map((row: { property_id: string }) => row.property_id)).toEqual(["prop_home_a"]);
   expect((await (await app.request("http://localhost/api/properties/prop_home_b")).json()).property.neighbors).toEqual([]);
+  expect((await (await app.request("http://localhost/api/properties/prop_home_a/neighbors", { headers: { cookie: visitorCookie } })).json()).neighbors).toHaveLength(1);
+  expect((await (await app.request("http://localhost/api/properties/prop_home_b/neighbors", { headers: { cookie: visitorCookie } })).json()).neighbors).toEqual([]);
 });
 
 test("neighbors: a property page lists every confirmed house, including past eight", async () => {

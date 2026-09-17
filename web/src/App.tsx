@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ProfileCard } from "./account-profile";
-import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty, type NeighborPerson } from "./api";
+import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty } from "./api";
 import { useAuth } from "./auth";
-import { eventLabel, NeighborButton, NeighborHouseIcon, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
+import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
 import { DebugSheet } from "./debug";
 import { HomePage } from "./home";
 import { useMeta } from "./meta";
@@ -566,44 +566,15 @@ function EyeIcon() {
   );
 }
 
-function NeighborAvatar({ photoUrl }: { photoUrl: string | null }) {
-  return photoUrl ? (
-    <img className="neighbor-avatar" src={photoUrl} alt="" />
-  ) : (
-    <span className="neighbor-avatar" aria-hidden="true">
-      <NeighborHouseIcon className="neighbor-avatar-icon" />
-    </span>
-  );
-}
-
 function AccountPage() {
   const { user, signOut, refresh } = useAuth();
   const [properties, setProperties] = useState<MaintainedProperty[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
-  const [incoming, setIncoming] = useState<NeighborPerson[]>([]);
-  const [outgoing, setOutgoing] = useState<NeighborPerson[]>([]);
-  const [neighbors, setNeighbors] = useState<NeighborPerson[]>([]);
-  const [neighborBusy, setNeighborBusy] = useState<string | null>(null);
-  const loadNeighbors = () => api.myNeighbors().then((d) => {
-    setIncoming(d.incoming);
-    setOutgoing(d.outgoing);
-    setNeighbors(d.neighbors);
-  });
   useEffect(() => {
     if (!user) return;
     api.myProperties().then((d) => setProperties(d.properties));
     api.myClaims().then((d) => setClaims(d.claims));
-    loadNeighbors();
   }, [user]);
-  const decideNeighbor = async (requestId: string, decision: "accepted" | "declined") => {
-    setNeighborBusy(`${requestId}:${decision}`);
-    try {
-      await api.reviewNeighbor(requestId, decision);
-      await loadNeighbors();
-    } finally {
-      setNeighborBusy(null);
-    }
-  };
   if (!user) return <Navigate to="/signin" replace />;
   const ownedIds = new Set(properties.map((property) => property.property_id));
   const openClaims = claims.filter((claim) => (
@@ -635,67 +606,6 @@ function AccountPage() {
               <span>{claim.formatted}</span>
               <span className={`badge ${claim.status}`}>{claim.status}</span>
             </Link>
-          ))}
-        </div>
-      </section>
-      <section className="section">
-        <h2>Neighbors</h2>
-        <div className="group">
-          {incoming.length === 0 && outgoing.length === 0 && neighbors.length === 0 && (
-            <div className="row"><span className="meta-line">None yet</span></div>
-          )}
-          {incoming.map((person) => (
-            <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-incoming">
-              <NeighborAvatar photoUrl={person.photo_url} />
-              <div className="neighbor-copy">
-                <span className="row-label">{person.label}</span>
-                <span className="meta-line">Wants to be neighbors</span>
-              </div>
-              <div className="inbox-actions">
-                <button
-                  type="button"
-                  className="btn small"
-                  disabled={neighborBusy !== null}
-                  data-testid="neighbor-approve"
-                  onClick={() => void decideNeighbor(person.request_id, "accepted")}
-                >
-                  {neighborBusy === `${person.request_id}:accepted` ? "Saving…" : "Approve"}
-                </button>
-                <button
-                  type="button"
-                  className="btn secondary small"
-                  disabled={neighborBusy !== null}
-                  data-testid="neighbor-decline"
-                  onClick={() => void decideNeighbor(person.request_id, "declined")}
-                >
-                  {neighborBusy === `${person.request_id}:declined` ? "Saving…" : "Decline"}
-                </button>
-              </div>
-            </div>
-          ))}
-          {outgoing.map((person) => (
-            <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-outgoing">
-              <NeighborAvatar photoUrl={person.photo_url} />
-              {person.property_id ? (
-                <Link className="row-label" to={`/property/${person.property_id}`}>{person.label}</Link>
-              ) : (
-                <span className="row-label">{person.label}</span>
-              )}
-              <span className={`badge ${person.status}`}>{person.status}</span>
-            </div>
-          ))}
-          {neighbors.map((person) => (
-            person.property_id ? (
-              <Link className="row neighbor-row" key={person.request_id} to={`/property/${person.property_id}`} data-testid="neighbor-row">
-                <NeighborAvatar photoUrl={person.photo_url} />
-                <span className="row-label">{person.label}</span>
-              </Link>
-            ) : (
-              <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-row">
-                <NeighborAvatar photoUrl={person.photo_url} />
-                <span className="row-label">{person.label}</span>
-              </div>
-            )
           ))}
         </div>
       </section>

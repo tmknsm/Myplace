@@ -1,4 +1,4 @@
-import { ownerLabel } from "../../../shared/profile.ts";
+import { ownerLabel, ownerPhoto } from "../../../shared/profile.ts";
 import { getSql } from "../db.ts";
 import { id } from "../ids.ts";
 
@@ -11,6 +11,13 @@ interface NeighborUserRow {
   last_name: string | null;
   handle: string | null;
   anonymize: boolean;
+  avatar_url: string | null;
+}
+
+export interface NeighborOwner {
+  user_id: string;
+  label: string;
+  photo_url: string;
 }
 
 export interface NeighborPerson {
@@ -18,6 +25,7 @@ export interface NeighborPerson {
   user_id: string;
   label: string;
   photo_url: string | null;
+  owners: NeighborOwner[];
   status: string;
   created_at: string;
   property_id: string | null;
@@ -41,6 +49,35 @@ function presentPerson(row: NeighborUserRow) {
     user_id: row.user_id,
     label: ownerLabel({ ...row, anonymize }),
   };
+}
+
+function presentOwner(row: NeighborUserRow): NeighborOwner {
+  const anonymize = Boolean(row.anonymize);
+  return {
+    user_id: row.user_id,
+    label: ownerLabel({ ...row, anonymize }),
+    photo_url: ownerPhoto(row),
+  };
+}
+
+async function ownersOf(propertyIds: Array<string | null | undefined>): Promise<Map<string, NeighborOwner[]>> {
+  const ids = [...new Set(propertyIds.filter((value): value is string => Boolean(value)))];
+  const map = new Map<string, NeighborOwner[]>();
+  if (ids.length === 0) return map;
+  const sql = getSql();
+  const rows = await sql<(NeighborUserRow & { property_id: string })[]>`
+    SELECT m.property_id, u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url
+    FROM property_maintainers m
+    JOIN users u ON u.user_id = m.user_id
+    WHERE m.revoked_at IS NULL AND m.property_id IN ${sql(ids)}
+    ORDER BY m.verified_at ASC
+  `;
+  for (const row of rows) {
+    const list = map.get(row.property_id) ?? [];
+    list.push(presentOwner(row));
+    map.set(row.property_id, list);
+  }
+  return map;
 }
 
 export async function neighborState(
@@ -180,8 +217,11 @@ export async function reviewNeighbor(userId: string, requestId: string, decision
   return { ok: true as const, decision };
 }
 
-export async function loadMyNeighbors(userId: string): Promise<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }> {
+export async function loadMyNeighbors(userId: string, propertyId?: string): Promise<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }> {
   const sql = getSql();
+  const scoped = propertyId
+    ? sql`AND (r.property_id = ${propertyId} OR r.from_property_id = ${propertyId})`
+    : sql``;
   const rows = await sql<(NeighborUserRow & {
     request_id: string;
     status: string;
@@ -195,7 +235,7 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
     SELECT
       r.request_id, r.status, r.created_at, r.from_user_id,
       CASE WHEN r.from_user_id = ${userId} THEN r.property_id ELSE r.from_property_id END AS property_id,
-      u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize,
+      u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url,
       a.formatted,
       d.document_id,
       d.byte_size
@@ -220,9 +260,11 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
           WHERE m.property_id = r.property_id AND m.user_id = ${userId} AND m.revoked_at IS NULL
         )
       )
+      ${scoped}
     ORDER BY r.created_at DESC
   `;
 
+  const owners = await ownersOf(rows.map((row) => row.property_id));
   const incoming: NeighborPerson[] = [];
   const outgoing: NeighborPerson[] = [];
   const neighbors: NeighborPerson[] = [];
@@ -233,6 +275,7 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
       ...shown,
       label: row.formatted || shown.label,
       photo_url: housePhotoUrl(row.document_id, row.byte_size),
+      owners: row.property_id ? owners.get(row.property_id) ?? [] : [],
       property_id: row.property_id,
       status: row.status,
       created_at: row.created_at,

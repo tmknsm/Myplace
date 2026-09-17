@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
+import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, NeighborHouseIcon, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
@@ -527,6 +527,7 @@ export function PropertyPageView() {
 
   const showAbout = owner || hasSummary;
   const showPhotos = owner || gallery.some(hasFile);
+  const showNeighbors = owner || (property.neighbors ?? []).length > 0;
   const showImprovements = owner || property.improvements.length > 0;
   const showSystems = systemsTopics.length > 0;
   const rooms = property.rooms ?? [];
@@ -545,7 +546,7 @@ export function PropertyPageView() {
   const nav: Array<{ id: string; label: string }> = [
     ...(showPhotos || previews("photos") ? [{ id: "photos", label: "Photos" }] : []),
     ...(showAbout ? [{ id: "about", label: "About" }] : []),
-    ...((property.neighbors ?? []).length > 0 ? [{ id: "neighbors", label: "Neighbors" }] : []),
+    ...(showNeighbors ? [{ id: "neighbors", label: "Neighbors" }] : []),
     ...(showCharacter || previews("character") ? [{ id: "character", label: "Style" }] : []),
     ...(showRooms || previews("rooms") ? [{ id: "rooms", label: "Rooms" }] : []),
     ...(showImprovements || previews("improvements") ? [{ id: "improvements", label: "Improvements" }] : []),
@@ -800,8 +801,8 @@ export function PropertyPageView() {
             />
           )}
 
-          {(property.neighbors ?? []).length > 0 && (
-            <NeighborsSection propertyId={id} neighbors={property.neighbors} />
+          {showNeighbors && (
+            <NeighborsSection owner={owner} propertyId={id} neighbors={property.neighbors ?? []} />
           )}
 
           {showCharacter && (
@@ -1486,6 +1487,39 @@ function neighborTileLabel(neighbor: PropertyNeighbor): string {
 }
 
 
+function NeighborAvatar({ photoUrl }: { photoUrl: string | null }) {
+  return photoUrl ? (
+    <img className="neighbor-avatar" src={photoUrl} alt="" />
+  ) : (
+    <span className="neighbor-avatar" aria-hidden="true">
+      <NeighborHouseIcon className="neighbor-avatar-icon" />
+    </span>
+  );
+}
+
+function NeighborOwnerBadges({ owners }: { owners: NeighborPerson["owners"] }) {
+  if (owners.length === 0) return null;
+  return (
+    <div className="owner-bylines">
+      {owners.map((person) => (
+        <div key={person.user_id} className="owner-byline" data-testid="neighbor-owner-badge">
+          <img src={person.photo_url} alt="" width={16} height={16} />
+          <span>{person.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NeighborRowCopy({ person }: { person: NeighborPerson }) {
+  return (
+    <div className="neighbor-copy">
+      <NeighborOwnerBadges owners={person.owners} />
+      <span className="row-label">{person.label}</span>
+    </div>
+  );
+}
+
 function NeighborsGrid({ neighbors }: { neighbors: PropertyNeighbor[] }) {
   return (
     <div className="neighbor-grid" data-testid="neighbor-grid">
@@ -1508,19 +1542,111 @@ function NeighborsGrid({ neighbors }: { neighbors: PropertyNeighbor[] }) {
   );
 }
 
-function NeighborsSection({ propertyId, neighbors }: { propertyId: string; neighbors: PropertyNeighbor[] }) {
+function NeighborManageList({
+  incoming,
+  outgoing,
+  neighbors,
+  busy,
+  onReview,
+}: {
+  incoming: NeighborPerson[];
+  outgoing: NeighborPerson[];
+  neighbors: NeighborPerson[];
+  busy: string | null;
+  onReview: (requestId: string, decision: "accepted" | "declined") => void;
+}) {
+  if (incoming.length === 0 && outgoing.length === 0 && neighbors.length === 0) {
+    return (
+      <div className="group empty-card" data-testid="neighbors-empty">
+        None yet. Someone can ask from their page.
+      </div>
+    );
+  }
+  return (
+    <div className="group">
+      {incoming.map((person) => (
+        <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-incoming">
+          <NeighborAvatar photoUrl={person.photo_url} />
+          <div className="neighbor-copy">
+            <NeighborOwnerBadges owners={person.owners} />
+            <span className="row-label">{person.label}</span>
+            <span className="meta-line">Wants to be neighbors</span>
+          </div>
+          <div className="inbox-actions">
+            <button
+              type="button"
+              className="btn small"
+              disabled={busy !== null}
+              data-testid="neighbor-approve"
+              onClick={() => onReview(person.request_id, "accepted")}
+            >
+              {busy === `${person.request_id}:accepted` ? "Saving…" : "Approve"}
+            </button>
+            <button
+              type="button"
+              className="btn secondary small"
+              disabled={busy !== null}
+              data-testid="neighbor-decline"
+              onClick={() => onReview(person.request_id, "declined")}
+            >
+              {busy === `${person.request_id}:declined` ? "Saving…" : "Decline"}
+            </button>
+          </div>
+        </div>
+      ))}
+      {outgoing.map((person) => (
+        <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-outgoing">
+          <NeighborAvatar photoUrl={person.photo_url} />
+          {person.property_id ? (
+            <Link className="neighbor-copy" to={`/property/${person.property_id}`}>
+              <NeighborOwnerBadges owners={person.owners} />
+              <span className="row-label">{person.label}</span>
+            </Link>
+          ) : (
+            <NeighborRowCopy person={person} />
+          )}
+          <span className={`badge ${person.status}`}>{person.status}</span>
+        </div>
+      ))}
+      {neighbors.map((person) => (
+        person.property_id ? (
+          <Link className="row neighbor-row" key={person.request_id} to={`/property/${person.property_id}`} data-testid="neighbor-row">
+            <NeighborAvatar photoUrl={person.photo_url} />
+            <NeighborRowCopy person={person} />
+          </Link>
+        ) : (
+          <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-row">
+            <NeighborAvatar photoUrl={person.photo_url} />
+            <NeighborRowCopy person={person} />
+          </div>
+        )
+      ))}
+    </div>
+  );
+}
+
+function NeighborsSection({ owner, propertyId, neighbors }: { owner: boolean; propertyId: string; neighbors: PropertyNeighbor[] }) {
   const allHref = `/property/${propertyId}/neighbors`;
   return (
     <section className="section" id="neighbors" data-testid="neighbors-section">
       <div className="section-head">
         <h2>Neighbors</h2>
-        {neighbors.length > NEIGHBOR_PREVIEW_LIMIT && (
+        {(owner || neighbors.length > NEIGHBOR_PREVIEW_LIMIT) && (
           <div className="section-head-actions">
-            <Link className="text-btn accent" to={allHref} data-testid="neighbors-view-all">View all</Link>
+            {neighbors.length > NEIGHBOR_PREVIEW_LIMIT && (
+              <Link className="text-btn accent" to={allHref} data-testid="neighbors-view-all">View all</Link>
+            )}
+            {owner && (
+              <Link className="text-btn accent" to={allHref} data-testid="neighbors-edit">Edit</Link>
+            )}
           </div>
         )}
       </div>
-      <NeighborsGrid neighbors={neighbors.slice(0, NEIGHBOR_PREVIEW_LIMIT)} />
+      {neighbors.length > 0 ? (
+        <NeighborsGrid neighbors={neighbors.slice(0, NEIGHBOR_PREVIEW_LIMIT)} />
+      ) : (
+        <div className="group empty-card">None yet. Someone can ask from their page.</div>
+      )}
     </section>
   );
 }
@@ -1529,23 +1655,29 @@ export function PropertyNeighborsPage() {
   const { id } = useParams();
   const { user } = useAuth();
   const [data, setData] = useState<PageData | null>(null);
+  const [list, setList] = useState<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      setData(await api.property(id));
+      const page = await api.property(id);
+      setData(page);
+      const mine = Boolean(page.viewer.maintainer && !page.viewer.openClaim);
+      setList(mine ? await api.propertyNeighbors(id) : null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load property");
     }
   }, [id]);
 
-  useEffect(() => { setData(null); }, [id]);
+  useEffect(() => { setData(null); setList(null); }, [id]);
   useEffect(() => { void load(); }, [load, user?.user_id]);
 
   const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
-  const neighbors = data?.property.neighbors ?? [];
+  const tiles = data?.property.neighbors ?? [];
+  const owner = Boolean(data?.viewer.maintainer && !data.viewer.openClaim);
   useEffect(() => {
     if (!data) return;
     const previous = document.title;
@@ -1553,9 +1685,19 @@ export function PropertyNeighborsPage() {
     return () => { document.title = previous; };
   }, [data, title]);
 
+  const review = async (requestId: string, decision: "accepted" | "declined") => {
+    setBusy(`${requestId}:${decision}`);
+    try {
+      await api.reviewNeighbor(requestId, decision);
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!data || !id) return <PageSpinner label="Loading record" />;
-  if (neighbors.length === 0) return <Navigate to={`/property/${id}`} replace />;
+  if (!data || !id || (owner && !list)) return <PageSpinner label="Loading record" />;
+  if (!owner && tiles.length === 0) return <Navigate to={`/property/${id}`} replace />;
 
   return (
     <div className="page property-page neighbors-page">
@@ -1563,7 +1705,17 @@ export function PropertyNeighborsPage() {
       <div className="section-head">
         <h1>Neighbors</h1>
       </div>
-      <NeighborsGrid neighbors={neighbors} />
+      {owner && list ? (
+        <NeighborManageList
+          incoming={list.incoming}
+          outgoing={list.outgoing}
+          neighbors={list.neighbors}
+          busy={busy}
+          onReview={(requestId, decision) => void review(requestId, decision)}
+        />
+      ) : (
+        <NeighborsGrid neighbors={tiles} />
+      )}
     </div>
   );
 }

@@ -498,6 +498,17 @@ app.get("/api/me/neighbors", async (c) => {
   return c.json(await loadMyNeighbors(user.user_id));
 });
 
+app.get("/api/properties/:id/neighbors", async (c) => {
+  const user = requireUser(c);
+  const propertyId = c.req.param("id");
+  const core = await loadPropertyCore(propertyId);
+  if (!core) return c.json({ error: "Property not found" }, 404);
+  if (!(await isMaintainer(user.user_id, propertyId))) {
+    return c.json({ error: "Only a current maintainer can do that." }, 403);
+  }
+  return c.json(await loadMyNeighbors(user.user_id, propertyId));
+});
+
 app.get("/api/properties/:id/neighbor", async (c) => {
   const user = c.get("user");
   const propertyId = c.req.param("id");

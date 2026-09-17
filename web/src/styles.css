@@ -697,7 +697,8 @@ img, svg { max-width: 100%; }
 .row-avatars img:nth-child(2) { z-index: 2; }
 .row-avatars img:nth-child(3) { z-index: 1; }
 .row:hover .row-avatars img { border-color: var(--surface-2); }
-.neighbor-row { justify-content: flex-start; }
+.neighbor-row { justify-content: flex-start; align-items: flex-start; }
+.neighbor-row .neighbor-avatar { margin-top: 2px; }
 .neighbor-avatar {
   width: 32px;
   height: 32px;
@@ -726,11 +727,15 @@ img, svg { max-width: 100%; }
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  align-items: flex-start;
+  gap: 4px;
+  text-decoration: none;
+  color: inherit;
 }
+.neighbor-copy .owner-bylines { margin: 0; }
 .neighbor-copy .row-label { white-space: normal; }
 .neighbor-row .inbox-actions,
-.neighbor-row .badge { margin-left: auto; flex-shrink: 0; }
+.neighbor-row .badge { margin-left: auto; flex-shrink: 0; align-self: center; }
 
 .timeline { list-style: none; padding: 4px 8px 8px 20px; margin: 0; }
 .timeline li {
