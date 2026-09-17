@@ -2849,7 +2849,7 @@ html.peek-gated body {
   bottom: 0;
   z-index: 2;
   margin: auto calc(-1 * var(--sheet-inline)) 0;
-  padding: 12px var(--sheet-inline) calc(12px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px));
+  padding: 24px var(--sheet-inline) calc(12px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px));
   border-top: 1px solid var(--hairline);
   background: var(--chrome-fill);
   backdrop-filter: var(--chrome-blur);
