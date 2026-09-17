@@ -3247,8 +3247,10 @@ html.peek-gated body {
 .property-page .photo-grid.is-catalog.is-public > .photo-card:first-child .photo-open {
   aspect-ratio: 16 / 10;
 }
-.photos-page .back-link { margin-bottom: 12px; }
-.photos-page .section-head h1 {
+.photos-page .back-link,
+.neighbors-page .back-link { margin-bottom: 12px; }
+.photos-page .section-head h1,
+.neighbors-page .section-head h1 {
   font-size: 28px;
   letter-spacing: -0.02em;
   font-weight: 650;
