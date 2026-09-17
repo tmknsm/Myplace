@@ -103,9 +103,9 @@ export async function requestNeighbor(fromUserId: string, toUserId: string, prop
     LIMIT 1
   `;
   const open = existing[0];
-  if (open?.status === "accepted") return { request: open };
-  if (open?.status === "pending" && open.from_user_id === fromUserId) return { request: open };
-  if (open?.status === "pending" && open.to_user_id === fromUserId) {
+  if (open && open.status === "accepted") return { request: open };
+  if (open && open.status === "pending" && open.from_user_id === fromUserId) return { request: open };
+  if (open && open.status === "pending" && open.to_user_id === fromUserId) {
     await sql`
       UPDATE neighbor_requests
       SET status = 'accepted', decided_at = now()
@@ -161,7 +161,7 @@ export async function reviewNeighbor(userId: string, requestId: string, decision
     SET status = ${decision}, decided_at = now()
     WHERE request_id = ${requestId}
   `;
-  return { ok: true, status: decision };
+  return { ok: true as const, decision };
 }
 
 export async function loadMyNeighbors(userId: string): Promise<{ incoming: NeighborPerson[]; neighbors: NeighborPerson[] }> {

@@ -1433,6 +1433,7 @@ test("neighbors: asking back accepts the pending request", async () => {
   const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
   if (!owner || !visitor) throw new Error("expected both users");
   const result = await requestNeighbor(owner.user_id, visitor.user_id, "prop_test");
-  expect("request" in result && result.request.status).toBe("accepted");
+  if (!("request" in result) || !result.request) throw new Error("error" in result ? result.error : "missing request");
+  expect(result.request.status).toBe("accepted");
 });
 

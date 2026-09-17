@@ -79,7 +79,7 @@ export const api = {
   neighborProperty: (id: string) =>
     request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`, { method: "POST" }),
   reviewNeighbor: (id: string, decision: "accepted" | "declined") =>
-    request<{ ok: boolean; status: string }>(`/api/neighbors/${id}/review`, {
+    request<{ ok: boolean; decision: string }>(`/api/neighbors/${id}/review`, {
       method: "POST",
       body: JSON.stringify({ decision }),
     }),
