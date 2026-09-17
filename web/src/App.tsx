@@ -571,10 +571,12 @@ function AccountPage() {
   const [properties, setProperties] = useState<MaintainedProperty[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [incoming, setIncoming] = useState<NeighborPerson[]>([]);
+  const [outgoing, setOutgoing] = useState<NeighborPerson[]>([]);
   const [neighbors, setNeighbors] = useState<NeighborPerson[]>([]);
   const [neighborBusy, setNeighborBusy] = useState<string | null>(null);
   const loadNeighbors = () => api.myNeighbors().then((d) => {
     setIncoming(d.incoming);
+    setOutgoing(d.outgoing);
     setNeighbors(d.neighbors);
   });
   useEffect(() => {
@@ -629,7 +631,7 @@ function AccountPage() {
       <section className="section">
         <h2>Neighbors</h2>
         <div className="group">
-          {incoming.length === 0 && neighbors.length === 0 && (
+          {incoming.length === 0 && outgoing.length === 0 && neighbors.length === 0 && (
             <div className="row"><span className="meta-line">None yet</span></div>
           )}
           {incoming.map((person) => (
@@ -659,6 +661,13 @@ function AccountPage() {
                   {neighborBusy === `${person.request_id}:declined` ? "Saving…" : "Decline"}
                 </button>
               </div>
+            </div>
+          ))}
+          {outgoing.map((person) => (
+            <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-outgoing">
+              <img className="neighbor-avatar" src={person.photo_url} alt="" />
+              <span className="row-label">{person.label}</span>
+              <span className={`badge ${person.status}`}>{person.status}</span>
             </div>
           ))}
           {neighbors.map((person) => (

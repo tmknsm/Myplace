@@ -75,7 +75,7 @@ export const api = {
   claim: (id: string) => request<{ claim: Claim; documents: Doc[] }>(`/api/claims/${id}`),
   myClaims: () => request<{ claims: Claim[] }>("/api/me/claims"),
   myProperties: () => request<{ properties: MaintainedProperty[] }>("/api/me/properties"),
-  myNeighbors: () => request<{ incoming: NeighborPerson[]; neighbors: NeighborPerson[] }>("/api/me/neighbors"),
+  myNeighbors: () => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>("/api/me/neighbors"),
   neighborStatus: (id: string) => request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`),
   neighborProperty: (id: string) =>
     request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`, { method: "POST" }),

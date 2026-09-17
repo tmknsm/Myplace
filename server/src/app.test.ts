@@ -1373,6 +1373,12 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   expect(sent.status).toBe(200);
   expect((await sent.json()).neighbor.status).toBe("pending");
 
+  const sentList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
+  expect(sentList.outgoing).toHaveLength(1);
+  expect(sentList.outgoing[0].label).toBe("Sam Ellison");
+  expect(sentList.outgoing[0].status).toBe("pending");
+  expect(sentList.outgoing[0].photo_url).toBeTruthy();
+
   const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
   expect(inbox.incoming).toHaveLength(1);
   expect(inbox.incoming[0].label).toBe("Ada Visitor");

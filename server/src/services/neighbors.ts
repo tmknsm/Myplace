@@ -164,7 +164,7 @@ export async function reviewNeighbor(userId: string, requestId: string, decision
   return { ok: true as const, decision };
 }
 
-export async function loadMyNeighbors(userId: string): Promise<{ incoming: NeighborPerson[]; neighbors: NeighborPerson[] }> {
+export async function loadMyNeighbors(userId: string): Promise<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }> {
   const sql = getSql();
   const rows = await sql<(NeighborUserRow & {
     request_id: string;
@@ -183,6 +183,7 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
   `;
 
   const incoming: NeighborPerson[] = [];
+  const outgoing: NeighborPerson[] = [];
   const neighbors: NeighborPerson[] = [];
   for (const row of rows) {
     const person = {
@@ -193,6 +194,7 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
     };
     if (row.status === "accepted") neighbors.push(person);
     else if (row.status === "pending" && row.from_user_id !== userId) incoming.push(person);
+    else if (row.status === "pending") outgoing.push(person);
   }
-  return { incoming, neighbors };
+  return { incoming, outgoing, neighbors };
 }
