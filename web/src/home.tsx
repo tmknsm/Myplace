@@ -332,9 +332,9 @@ export function HomePage() {
         </figure>
         <div className="home-hero-copy">
           <div className="kicker">Hudson Valley, New York</div>
-          <h1 id="home-title">Claim your house and tell us about it.</h1>
+          <h1 id="home-title">Your house already has a page. Make it yours.</h1>
           <p className="home-lede">
-            Every parcel already has a page. Add the details only you know—then hand that story off when the house moves on to its next chapter.
+            Find it below, add the details only you know—then hand that story off when the house moves on to its next chapter.
           </p>
           <div className="home-search-anchor" ref={searchAnchor}>
             <div className="home-search">
