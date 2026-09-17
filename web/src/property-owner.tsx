@@ -5,8 +5,8 @@ import { dateLabel, DOCUMENT_TYPE_LABEL, fileSize, fileUrl, isImage, type Toast 
 /**
  * Sections only a maintainer sees. Open disputes stay on the profile next to
  * the facts they contest. The document vault, co-maintainers, email
- * preferences, and handoff live on the owner tools page. Incoming requests
- * and notices sit in the inbox behind the bell.
+ * preferences, and handoff live on the owner tools page. Incoming neighbor
+ * requests, change requests, and notices sit in the inbox behind the bell.
  */
 
 const PREFERENCE_LABEL: Record<string, { label: string; help: string }> = {

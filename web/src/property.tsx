@@ -1571,26 +1571,26 @@ function NeighborManageList({
             <NeighborOwnerBadges owners={person.owners} />
             <span className="row-label">{person.label}</span>
             <span className="meta-line">Wants to be neighbors</span>
-          </div>
-          <div className="inbox-actions">
-            <button
-              type="button"
-              className="btn small"
-              disabled={busy !== null}
-              data-testid="neighbor-approve"
-              onClick={() => onReview(person.request_id, "accepted")}
-            >
-              {busy === `${person.request_id}:accepted` ? "Saving…" : "Approve"}
-            </button>
-            <button
-              type="button"
-              className="btn secondary small"
-              disabled={busy !== null}
-              data-testid="neighbor-decline"
-              onClick={() => onReview(person.request_id, "declined")}
-            >
-              {busy === `${person.request_id}:declined` ? "Saving…" : "Decline"}
-            </button>
+            <div className="inbox-actions">
+              <button
+                type="button"
+                className="btn small"
+                disabled={busy !== null}
+                data-testid="neighbor-approve"
+                onClick={() => onReview(person.request_id, "accepted")}
+              >
+                {busy === `${person.request_id}:accepted` ? "Saving…" : "Approve"}
+              </button>
+              <button
+                type="button"
+                className="btn secondary small"
+                disabled={busy !== null}
+                data-testid="neighbor-decline"
+                onClick={() => onReview(person.request_id, "declined")}
+              >
+                {busy === `${person.request_id}:declined` ? "Saving…" : "Decline"}
+              </button>
+            </div>
           </div>
         </div>
       ))}

@@ -1431,6 +1431,19 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   expect(inbox.incoming[0].owners).toEqual([expect.objectContaining({ label: "Ada Visitor" })]);
   expect(inbox.neighbors).toHaveLength(0);
 
+  const ownerInbox = await (await app.request("http://localhost/api/properties/prop_test/inbox", { headers: { cookie: ownerCookie } })).json();
+  expect(ownerInbox.items).toEqual([expect.objectContaining({
+    kind: "neighbor_request",
+    title: "Neighbor request",
+    neighborRequestId: inbox.incoming[0].request_id,
+    fromPropertyId: "prop_home",
+    actions: ["accept", "decline", "view"],
+  })]);
+  expect(ownerInbox.items[0].body).toContain("Ada Visitor");
+  expect(ownerInbox.items[0].body).toContain("12 State Street");
+  const ownerWaiting = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
+  expect(ownerWaiting.viewer.inboxCount).toBe(1);
+
   const fromHome = await (await app.request("http://localhost/api/properties/prop_home/neighbors", { headers: { cookie: visitorCookie } })).json();
   expect(fromHome.outgoing).toHaveLength(1);
   expect(fromHome.outgoing[0].label).toBe("441 Warren Street, Hudson, NY 12534");
@@ -1447,6 +1460,8 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
 
   const ownerList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
   expect(ownerList.incoming).toHaveLength(0);
+  expect((await (await app.request("http://localhost/api/properties/prop_test/inbox", { headers: { cookie: ownerCookie } })).json()).items).toEqual([]);
+  expect((await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json()).viewer.inboxCount).toBe(0);
   expect(ownerList.neighbors[0].label).toBe("12 State Street, Hudson, NY 12534");
   expect(ownerList.neighbors[0].photo_url).toBe("/api/documents/doc_home_cover/file?v=12000");
   expect(ownerList.neighbors[0].owners).toEqual([expect.objectContaining({ label: "Ada Visitor" })]);

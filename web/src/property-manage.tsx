@@ -11,7 +11,7 @@ import { DOCUMENT_TYPE_LABEL, dateLabel, useToast, type Toast } from "./property
  * Owner tools live on their own pages, reached from the settings button
  * beside Share on a house you maintain: the vault, maintainers, email
  * preferences, and handoff at /property/:id/manage. The bell opens the
- * inbox of requests and notices for that property.
+ * inbox of neighbor requests, change requests, and notices for that property.
  */
 
 type PageData = { property: PropertyPage; viewer: Viewer };
@@ -193,6 +193,7 @@ const KIND_LABEL: Record<InboxItem["kind"], string> = {
   contribution_request: "Request",
   dispute: "Dispute",
   notice: "Notice",
+  neighbor_request: "Neighbor",
 };
 
 export function PropertyInboxPage() {
@@ -229,18 +230,28 @@ function InboxList({ propertyId, onChange, toast }: { propertyId: string; onChan
   useEffect(() => { void load(); }, [load]);
 
   const act = async (item: InboxItem, action: InboxItem["actions"][number]) => {
-    if (!item.contributionId) return;
+    if (action === "view") return;
     setBusy(`${item.id}:${action}`);
     try {
-      if (action === "accept") {
-        await api.reviewContribution(item.contributionId, "accepted");
-        toast(item.fieldLabel ? `${item.fieldLabel} updated from the request.` : "Request accepted.");
-      } else if (action === "decline") {
-        await api.reviewContribution(item.contributionId, "rejected");
-        toast("Request declined.");
-      } else if (action === "withdraw") {
-        await api.withdrawContribution(item.contributionId);
-        toast("Dispute withdrawn.");
+      if (item.kind === "neighbor_request" && item.neighborRequestId) {
+        if (action === "accept") {
+          await api.reviewNeighbor(item.neighborRequestId, "accepted");
+          toast("You're neighbors.");
+        } else if (action === "decline") {
+          await api.reviewNeighbor(item.neighborRequestId, "declined");
+          toast("Neighbor request declined.");
+        }
+      } else if (item.contributionId) {
+        if (action === "accept") {
+          await api.reviewContribution(item.contributionId, "accepted");
+          toast(item.fieldLabel ? `${item.fieldLabel} updated from the request.` : "Request accepted.");
+        } else if (action === "decline") {
+          await api.reviewContribution(item.contributionId, "rejected");
+          toast("Request declined.");
+        } else if (action === "withdraw") {
+          await api.withdrawContribution(item.contributionId);
+          toast("Dispute withdrawn.");
+        }
       }
       await load();
       await onChange();
@@ -255,7 +266,7 @@ function InboxList({ propertyId, onChange, toast }: { propertyId: string; onChan
     <section className="section" id="inbox" data-testid="owner-inbox">
       <h2>Messages</h2>
       <p className="meta-line section-note">
-        Requests to change this page, disputes you've filed, and notices from official sources. Accepting a request writes it to the owner layer.
+        Neighbor requests, proposed changes, disputes you've filed, and notices from official sources. Accepting a change writes it to the owner layer.
       </p>
       {error && <p className="error">{error}</p>}
       {items === null && !error && (
@@ -265,59 +276,59 @@ function InboxList({ propertyId, onChange, toast }: { propertyId: string; onChan
       )}
       {items && items.length === 0 && (
         <div className="group empty-card" data-testid="inbox-empty">
-          Nothing waiting. Requests, disputes and county updates land here.
+          Nothing waiting. Neighbor requests, changes, disputes and county updates land here.
         </div>
       )}
       {items && items.length > 0 && (
         <div className="group">
           {items.map((item) => (
             <div key={item.id} className="row inbox-row" data-testid={`inbox-${item.kind}`}>
-              <div>
+              <div className="inbox-row-copy">
                 <div className="inbox-title">
                   <strong>{item.title}</strong>
-                  <span className={`badge ${item.kind === "contribution_request" ? "pending" : item.kind === "dispute" ? "disputed" : ""}`}>
+                  <span className={`badge ${item.kind === "contribution_request" || item.kind === "neighbor_request" ? "pending" : item.kind === "dispute" ? "disputed" : ""}`}>
                     {KIND_LABEL[item.kind]}
                   </span>
                 </div>
                 <div className="meta-line">{item.body}</div>
                 <div className="meta-line">{dateLabel(item.createdAt)}</div>
-              </div>
-              <div className="inbox-actions">
-                {item.actions.includes("accept") && (
-                  <button
-                    type="button"
-                    className="btn small"
-                    disabled={busy !== null}
-                    data-testid="inbox-accept"
-                    onClick={() => void act(item, "accept")}
-                  >
-                    {busy === `${item.id}:accept` ? "Saving…" : "Accept"}
-                  </button>
-                )}
-                {item.actions.includes("decline") && (
-                  <button
-                    type="button"
-                    className="btn secondary small"
-                    disabled={busy !== null}
-                    data-testid="inbox-decline"
-                    onClick={() => void act(item, "decline")}
-                  >
-                    {busy === `${item.id}:decline` ? "Saving…" : "Decline"}
-                  </button>
-                )}
-                {item.actions.includes("withdraw") && (
-                  <button
-                    type="button"
-                    className="text-link"
-                    disabled={busy !== null}
-                    onClick={() => void act(item, "withdraw")}
-                  >
-                    Withdraw
-                  </button>
-                )}
-                {item.actions.includes("view") && (
-                  <Link className="text-link" to={`/property/${propertyId}`}>View</Link>
-                )}
+                <div className="inbox-actions">
+                  {item.actions.includes("accept") && (
+                    <button
+                      type="button"
+                      className="btn small"
+                      disabled={busy !== null}
+                      data-testid="inbox-accept"
+                      onClick={() => void act(item, "accept")}
+                    >
+                      {busy === `${item.id}:accept` ? "Saving…" : item.kind === "neighbor_request" ? "Approve" : "Accept"}
+                    </button>
+                  )}
+                  {item.actions.includes("decline") && (
+                    <button
+                      type="button"
+                      className="btn secondary small"
+                      disabled={busy !== null}
+                      data-testid="inbox-decline"
+                      onClick={() => void act(item, "decline")}
+                    >
+                      {busy === `${item.id}:decline` ? "Saving…" : "Decline"}
+                    </button>
+                  )}
+                  {item.actions.includes("withdraw") && (
+                    <button
+                      type="button"
+                      className="text-link"
+                      disabled={busy !== null}
+                      onClick={() => void act(item, "withdraw")}
+                    >
+                      Withdraw
+                    </button>
+                  )}
+                  {item.actions.includes("view") && (
+                    <Link className="text-link" to={item.fromPropertyId ? `/property/${item.fromPropertyId}` : `/property/${propertyId}`}>View</Link>
+                  )}
+                </div>
               </div>
             </div>
           ))}

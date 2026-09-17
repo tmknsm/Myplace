@@ -740,7 +740,10 @@ img, svg { max-width: 100%; }
 }
 .neighbor-copy .owner-bylines { margin: 0; }
 .neighbor-copy .row-label { white-space: normal; }
-.neighbor-row .inbox-actions,
+.neighbor-copy .inbox-actions {
+  margin-top: 6px;
+  justify-content: flex-start;
+}
 .neighbor-row .badge { margin-left: auto; flex-shrink: 0; align-self: center; }
 
 .timeline { list-style: none; padding: 4px 8px 8px 20px; margin: 0; }
@@ -1999,14 +2002,23 @@ tr:last-child td { border-bottom: 0; }
 }
 .inbox-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .inbox-row { align-items: flex-start; }
+.inbox-row-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
 .inbox-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   flex-shrink: 0;
 }
+.inbox-row-copy .inbox-actions { margin-top: 6px; }
 .inbox-actions .text-link { margin-left: 0; }
 .manage-cta {
   position: sticky;

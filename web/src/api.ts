@@ -283,7 +283,7 @@ export interface PropertyNeighbor {
 }
 
 export type InboxAction = "accept" | "decline" | "withdraw" | "view";
-export type InboxKind = "contribution_request" | "dispute" | "notice";
+export type InboxKind = "contribution_request" | "dispute" | "notice" | "neighbor_request";
 
 export interface InboxItem {
   id: string;
@@ -296,6 +296,8 @@ export interface InboxItem {
   proposedValue: unknown;
   note: string | null;
   contributionId: string | null;
+  neighborRequestId: string | null;
+  fromPropertyId: string | null;
   actions: InboxAction[];
 }
 
