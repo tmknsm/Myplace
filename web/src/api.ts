@@ -260,6 +260,7 @@ export interface NeighborPerson {
   photo_url: string;
   status: string;
   created_at: string;
+  property_id: string | null;
 }
 
 export type InboxAction = "accept" | "decline" | "withdraw" | "view";

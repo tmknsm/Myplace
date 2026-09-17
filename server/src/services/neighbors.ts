@@ -28,6 +28,7 @@ export interface NeighborPerson {
   photo_url: string;
   status: string;
   created_at: string;
+  property_id: string | null;
 }
 
 function presentPerson(row: NeighborUserRow) {
@@ -171,12 +172,24 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
     status: string;
     created_at: string;
     from_user_id: string;
+    home_property_id: string | null;
+    home_formatted: string | null;
   })[]>`
     SELECT
       r.request_id, r.status, r.created_at, r.from_user_id,
-      u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url
+      u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url,
+      home.property_id AS home_property_id,
+      home.formatted AS home_formatted
     FROM neighbor_requests r
     JOIN users u ON u.user_id = CASE WHEN r.from_user_id = ${userId} THEN r.to_user_id ELSE r.from_user_id END
+    LEFT JOIN LATERAL (
+      SELECT m.property_id, a.formatted
+      FROM property_maintainers m
+      LEFT JOIN property_addresses a ON a.property_id = m.property_id AND a.is_current
+      WHERE m.user_id = u.user_id AND m.revoked_at IS NULL
+      ORDER BY CASE WHEN m.property_id = r.property_id THEN 0 ELSE 1 END, a.formatted
+      LIMIT 1
+    ) home ON true
     WHERE r.status IN ('pending', 'accepted')
       AND (r.from_user_id = ${userId} OR r.to_user_id = ${userId})
     ORDER BY r.created_at DESC
@@ -186,9 +199,12 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
   const outgoing: NeighborPerson[] = [];
   const neighbors: NeighborPerson[] = [];
   for (const row of rows) {
+    const shown = presentPerson(row);
     const person = {
       request_id: row.request_id,
-      ...presentPerson(row),
+      ...shown,
+      label: row.home_formatted || shown.label,
+      property_id: row.home_property_id,
       status: row.status,
       created_at: row.created_at,
     };

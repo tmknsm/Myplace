@@ -1375,7 +1375,7 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
 
   const sentList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
   expect(sentList.outgoing).toHaveLength(1);
-  expect(sentList.outgoing[0].label).toBe("Sam Ellison");
+  expect(sentList.outgoing[0].label).toBe("441 Warren Street, Hudson, NY 12534");
   expect(sentList.outgoing[0].status).toBe("pending");
   expect(sentList.outgoing[0].photo_url).toBeTruthy();
 
@@ -1397,7 +1397,7 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   expect(ownerList.neighbors[0].photo_url).toBeTruthy();
 
   const visitorList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
-  expect(visitorList.neighbors[0].label).toBe("Sam Ellison");
+  expect(visitorList.neighbors[0].label).toBe("441 Warren Street, Hudson, NY 12534");
 
   const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();
   expect(after.viewer.neighbor.status).toBe("accepted");

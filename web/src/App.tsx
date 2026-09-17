@@ -666,15 +666,26 @@ function AccountPage() {
           {outgoing.map((person) => (
             <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-outgoing">
               <img className="neighbor-avatar" src={person.photo_url} alt="" />
-              <span className="row-label">{person.label}</span>
+              {person.property_id ? (
+                <Link className="row-label" to={`/property/${person.property_id}`}>{person.label}</Link>
+              ) : (
+                <span className="row-label">{person.label}</span>
+              )}
               <span className={`badge ${person.status}`}>{person.status}</span>
             </div>
           ))}
           {neighbors.map((person) => (
-            <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-row">
-              <img className="neighbor-avatar" src={person.photo_url} alt="" />
-              <span className="row-label">{person.label}</span>
-            </div>
+            person.property_id ? (
+              <Link className="row neighbor-row" key={person.request_id} to={`/property/${person.property_id}`} data-testid="neighbor-row">
+                <img className="neighbor-avatar" src={person.photo_url} alt="" />
+                <span className="row-label">{person.label}</span>
+              </Link>
+            ) : (
+              <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-row">
+                <img className="neighbor-avatar" src={person.photo_url} alt="" />
+                <span className="row-label">{person.label}</span>
+              </div>
+            )
           ))}
         </div>
       </section>
