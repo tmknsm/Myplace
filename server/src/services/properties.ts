@@ -133,6 +133,56 @@ export async function loadPropertyPage(propertyId: string, options: { viewerIsMa
   };
 }
 
+function sortMaintainers<T extends { role: string }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    if (a.role === b.role) return 0;
+    return a.role === "owner" ? -1 : 1;
+  });
+}
+
+/** Properties this user maintains, each with everyone on the page. */
+export async function loadMyProperties(userId: string) {
+  const sql = getSql();
+  const mine = await sql<{
+    property_id: string;
+    municipality: string | null;
+    formatted: string | null;
+    role: string;
+    verified_at: Date | string;
+  }[]>`
+    SELECT p.property_id, p.municipality, a.formatted, m.role, m.verified_at
+    FROM property_maintainers m
+    JOIN properties p ON p.property_id = m.property_id
+    LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
+    WHERE m.user_id = ${userId} AND m.revoked_at IS NULL
+    ORDER BY a.formatted
+  `;
+  if (mine.length === 0) return [];
+
+  const people = await sql<(MaintainerRow & { property_id: string })[]>`
+    SELECT m.property_id, m.maintainer_id, m.user_id, m.role, m.verified_at,
+           u.display_name, u.first_name, u.last_name, u.handle, u.anonymize,
+           u.avatar_url, u.primary_email
+    FROM property_maintainers mine
+    JOIN property_maintainers m ON m.property_id = mine.property_id AND m.revoked_at IS NULL
+    JOIN users u ON u.user_id = m.user_id
+    WHERE mine.user_id = ${userId} AND mine.revoked_at IS NULL
+    ORDER BY m.verified_at ASC
+  `;
+
+  const byProperty = new Map<string, ReturnType<typeof presentMaintainer>[]>();
+  for (const row of people) {
+    const list = byProperty.get(row.property_id) ?? [];
+    list.push(presentMaintainer(row, true));
+    byProperty.set(row.property_id, list);
+  }
+
+  return mine.map((row) => ({
+    ...row,
+    maintainers: sortMaintainers(byProperty.get(row.property_id) ?? []),
+  }));
+}
+
 export async function searchProperties(query: string, limit = 12) {
   const sql = getSql();
   const q = query.trim();

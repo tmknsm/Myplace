@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ProfileCard } from "./account-profile";
-import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary } from "./api";
+import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty } from "./api";
 import { useAuth } from "./auth";
 import { eventLabel, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
 import { DebugSheet } from "./debug";
@@ -567,7 +567,7 @@ function EyeIcon() {
 
 function AccountPage() {
   const { user, signOut, refresh } = useAuth();
-  const [properties, setProperties] = useState<{ property_id: string; formatted: string | null }[]>([]);
+  const [properties, setProperties] = useState<MaintainedProperty[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   useEffect(() => {
     if (!user) return;
@@ -588,7 +588,14 @@ function AccountPage() {
           )}
           {properties.map((property) => (
             <Link className="row" key={property.property_id} to={`/property/${property.property_id}`} data-testid="owned-property">
-              {property.formatted}
+              <span className="row-label">{property.formatted}</span>
+              {property.maintainers.length > 0 && (
+                <span className="row-avatars">
+                  {property.maintainers.map((person) => (
+                    <img key={person.user_id} src={person.photo_url} alt={person.label} />
+                  ))}
+                </span>
+              )}
             </Link>
           ))}
           {openClaims.map((claim) => (

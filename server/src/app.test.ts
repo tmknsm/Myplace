@@ -260,6 +260,9 @@ test("search, property page, and claim review", async () => {
   });
   const mineBody = await mine.json();
   expect(mineBody.properties[0].property_id).toBe("prop_test");
+  expect(mineBody.properties[0].maintainers).toEqual([
+    expect.objectContaining({ role: "owner", photo_url: expect.any(String) }),
+  ]);
 
   const update = await app.request("http://localhost/api/properties/prop_test/owner-fields", {
     method: "POST",
@@ -931,6 +934,10 @@ test("each maintainer anonymizes independently", async () => {
   const people = afterOwner.property.maintainers as Array<{ role: string; label: string }>;
   expect(people.find((row) => row.role === "owner")?.label).toBe("@hudsonowner");
   expect(people.find((row) => row.role === "co_owner")?.label).toBe("Kelsey Tomkins");
+
+  const mine = await (await app.request("http://localhost/api/me/properties", { headers: { cookie: ownerCookie } })).json();
+  expect(mine.properties[0].maintainers.map((row: { role: string }) => row.role)).toEqual(["owner", "co_owner"]);
+  expect(mine.properties[0].maintainers.every((row: { photo_url: string }) => row.photo_url)).toBe(true);
 
   const hideCo = await app.request("http://localhost/api/me", {
     method: "PATCH",

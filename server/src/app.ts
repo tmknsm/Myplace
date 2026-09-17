@@ -59,6 +59,7 @@ import {
 } from "./services/owner.ts";
 import { addCoMaintainer, grantOwnership, revokeOwnership } from "./services/ownership.ts";
 import {
+  loadMyProperties,
   loadPropertyCore,
   loadPropertyPage,
   parcelsInBbox,
@@ -616,16 +617,7 @@ app.get("/api/me/claims", async (c) => {
 
 app.get("/api/me/properties", async (c) => {
   const user = requireUser(c);
-  const sql = getSql();
-  const properties = await sql`
-    SELECT p.property_id, p.municipality, a.formatted, m.role, m.verified_at
-    FROM property_maintainers m
-    JOIN properties p ON p.property_id = m.property_id
-    LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
-    WHERE m.user_id = ${user.user_id} AND m.revoked_at IS NULL
-    ORDER BY a.formatted
-  `;
-  return c.json({ properties });
+  return c.json({ properties: await loadMyProperties(user.user_id) });
 });
 
 app.post("/api/properties/:id/documents", async (c) => {

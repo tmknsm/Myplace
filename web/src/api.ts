@@ -441,6 +441,7 @@ export interface MaintainedProperty {
   formatted: string | null;
   municipality: string | null;
   role: string;
+  maintainers: Maintainer[];
 }
 
 export interface MailSummary {
