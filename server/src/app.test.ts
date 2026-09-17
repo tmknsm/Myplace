@@ -1380,6 +1380,7 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
 
   const before = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();
   expect(before.viewer.neighbor.status).toBe("none");
+  expect(before.property.neighbors).toEqual([]);
 
   const sent = await app.request("http://localhost/api/properties/prop_test/neighbor", {
     method: "POST",
@@ -1387,6 +1388,7 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   });
   expect(sent.status).toBe(200);
   expect((await sent.json()).neighbor.status).toBe("pending");
+  expect((await (await app.request("http://localhost/api/properties/prop_test")).json()).property.neighbors).toEqual([]);
 
   const sentList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
   expect(sentList.outgoing).toHaveLength(1);
@@ -1417,6 +1419,17 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();
   expect(after.viewer.neighbor.status).toBe("accepted");
   expect((await (await app.request("http://localhost/api/properties/prop_home/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("accepted");
+  expect(after.property.neighbors).toEqual([expect.objectContaining({
+    property_id: "prop_home",
+    formatted: "12 State Street, Hudson, NY 12534",
+  })]);
+  const publicPage = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(publicPage.property.neighbors).toHaveLength(1);
+  const homePage = await (await app.request("http://localhost/api/properties/prop_home")).json();
+  expect(homePage.property.neighbors).toEqual([expect.objectContaining({
+    property_id: "prop_test",
+    formatted: "441 Warren Street, Hudson, NY 12534",
+  })]);
 });
 
 test("neighbors: decline clears the request so they can ask again", async () => {
@@ -1480,6 +1493,8 @@ test("neighbors: a connection is only for that address, not every house they own
   expect((await (await app.request("http://localhost/api/properties/prop_test/neighbor", { headers: { cookie: visitorCookie } })).json()).neighbor.status).toBe("accepted");
   expect((await (await app.request("http://localhost/api/properties/prop_other/neighbor", { headers: { cookie: visitorCookie } })).json()).neighbor.status).toBe("none");
   expect((await (await app.request("http://localhost/api/properties/prop_home/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("accepted");
+  expect((await (await app.request("http://localhost/api/properties/prop_test")).json()).property.neighbors.map((row: { property_id: string }) => row.property_id)).toEqual(["prop_home"]);
+  expect((await (await app.request("http://localhost/api/properties/prop_other")).json()).property.neighbors).toEqual([]);
 });
 
 test("neighbors: requester with two houses must say which one the pair is from", async () => {
@@ -1514,5 +1529,31 @@ test("neighbors: requester with two houses must say which one the pair is from",
 
   expect((await (await app.request("http://localhost/api/properties/prop_home_a/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("accepted");
   expect((await (await app.request("http://localhost/api/properties/prop_home_b/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("none");
+  expect((await (await app.request("http://localhost/api/properties/prop_test")).json()).property.neighbors.map((row: { property_id: string }) => row.property_id)).toEqual(["prop_home_a"]);
+  expect((await (await app.request("http://localhost/api/properties/prop_home_b")).json()).property.neighbors).toEqual([]);
+});
+
+test("neighbors: a property page lists every confirmed house, including past eight", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const [owner] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'owner@example.com'`;
+  if (!owner) throw new Error("expected owner");
+
+  for (let i = 0; i < 9; i += 1) {
+    const email = `n${i}@example.com`;
+    await signIn(email);
+    const [person] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = ${email}`;
+    if (!person) throw new Error("expected neighbor");
+    const homeId = `prop_n${i}`;
+    await giveHome(person.user_id, homeId, `${10 + i} Neighbor Street, Hudson, NY 12534`);
+    await sql`
+      INSERT INTO neighbor_requests (request_id, from_user_id, to_user_id, property_id, from_property_id, status, decided_at)
+      VALUES (${`nbr_n${i}`}, ${person.user_id}, ${owner.user_id}, 'prop_test', ${homeId}, 'accepted', now())
+    `;
+  }
+
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(page.property.neighbors).toHaveLength(9);
+  expect(page.property.neighbors[0].formatted).toMatch(/Neighbor Street/);
 });
 

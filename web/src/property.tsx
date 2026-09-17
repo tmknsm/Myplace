@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyPage, type Room, type Viewer } from "./api";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
@@ -545,6 +545,7 @@ export function PropertyPageView() {
   const nav: Array<{ id: string; label: string }> = [
     ...(showPhotos || previews("photos") ? [{ id: "photos", label: "Photos" }] : []),
     ...(showAbout ? [{ id: "about", label: "About" }] : []),
+    ...((property.neighbors ?? []).length > 0 ? [{ id: "neighbors", label: "Neighbors" }] : []),
     ...(showCharacter || previews("character") ? [{ id: "character", label: "Style" }] : []),
     ...(showRooms || previews("rooms") ? [{ id: "rooms", label: "Rooms" }] : []),
     ...(showImprovements || previews("improvements") ? [{ id: "improvements", label: "Improvements" }] : []),
@@ -797,6 +798,10 @@ export function PropertyPageView() {
               onEdit={() => openSheet({ kind: "about" })}
               onChange={refresh}
             />
+          )}
+
+          {(property.neighbors ?? []).length > 0 && (
+            <NeighborsSection propertyId={id} neighbors={property.neighbors} />
           )}
 
           {showCharacter && (
@@ -1470,6 +1475,101 @@ function AboutSection({
         </div>
       )}
     </section>
+  );
+}
+
+const NEIGHBOR_PREVIEW_LIMIT = 8;
+
+function neighborTileLabel(neighbor: PropertyNeighbor): string {
+  const street = [neighbor.street_number, neighbor.street_name].filter(Boolean).join(" ");
+  return street || neighbor.formatted || "Neighbor";
+}
+
+function NeighborsGrid({ neighbors }: { neighbors: PropertyNeighbor[] }) {
+  return (
+    <div className="neighbor-grid" data-testid="neighbor-grid">
+      {neighbors.map((neighbor) => {
+        const label = neighborTileLabel(neighbor);
+        return (
+          <Link
+            key={neighbor.property_id}
+            className="neighbor-card"
+            to={`/property/${neighbor.property_id}`}
+            data-testid="neighbor-tile"
+            aria-label={neighbor.formatted || label}
+          >
+            <span className="neighbor-tile">
+              {neighbor.photo_url ? (
+                <img src={neighbor.photo_url} alt="" />
+              ) : (
+                <span className="neighbor-tile-fallback">{neighbor.street_number || label}</span>
+              )}
+            </span>
+            <span className="neighbor-card-label">{label}</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function NeighborsSection({ propertyId, neighbors }: { propertyId: string; neighbors: PropertyNeighbor[] }) {
+  const allHref = `/property/${propertyId}/neighbors`;
+  return (
+    <section className="section" id="neighbors" data-testid="neighbors-section">
+      <div className="section-head">
+        <h2>Neighbors</h2>
+        {neighbors.length > NEIGHBOR_PREVIEW_LIMIT && (
+          <div className="section-head-actions">
+            <Link className="text-btn accent" to={allHref} data-testid="neighbors-view-all">View all</Link>
+          </div>
+        )}
+      </div>
+      <NeighborsGrid neighbors={neighbors.slice(0, NEIGHBOR_PREVIEW_LIMIT)} />
+    </section>
+  );
+}
+
+export function PropertyNeighborsPage() {
+  const { id } = useParams();
+  const { user } = useAuth();
+  const [data, setData] = useState<PageData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!id) return;
+    try {
+      setData(await api.property(id));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load property");
+    }
+  }, [id]);
+
+  useEffect(() => { setData(null); }, [id]);
+  useEffect(() => { void load(); }, [load, user?.user_id]);
+
+  const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
+  const neighbors = data?.property.neighbors ?? [];
+  useEffect(() => {
+    if (!data) return;
+    const previous = document.title;
+    document.title = `Neighbors · ${title} · Myplace`;
+    return () => { document.title = previous; };
+  }, [data, title]);
+
+  if (error) return <div className="page"><p className="error">{error}</p></div>;
+  if (!data || !id) return <PageSpinner label="Loading record" />;
+  if (neighbors.length === 0) return <Navigate to={`/property/${id}`} replace />;
+
+  return (
+    <div className="page property-page neighbors-page">
+      <Link className="back-link" to={`/property/${id}`}>‹ {title}</Link>
+      <div className="section-head">
+        <h1>Neighbors</h1>
+      </div>
+      <NeighborsGrid neighbors={neighbors} />
+    </div>
   );
 }
 

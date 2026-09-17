@@ -24,6 +24,14 @@ export interface NeighborPerson {
   property_id: string | null;
 }
 
+export interface PropertyNeighbor {
+  property_id: string;
+  formatted: string | null;
+  street_number: string | null;
+  street_name: string | null;
+  photo_url: string | null;
+}
+
 function presentPerson(row: NeighborUserRow) {
   const anonymize = Boolean(row.anonymize);
   return {
@@ -217,4 +225,59 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
     else if (row.status === "pending") outgoing.push(person);
   }
   return { incoming, outgoing, neighbors };
+}
+
+/** Confirmed house-to-house neighbors of one address. Public on the property page. */
+export async function loadPropertyNeighbors(propertyId: string): Promise<PropertyNeighbor[]> {
+  const sql = getSql();
+  const rows = await sql<{
+    property_id: string;
+    formatted: string | null;
+    street_number: string | null;
+    street_name: string | null;
+    document_id: string | null;
+    byte_size: number | null;
+  }[]>`
+    WITH linked AS (
+      SELECT
+        CASE WHEN r.property_id = ${propertyId} THEN r.from_property_id ELSE r.property_id END AS property_id,
+        COALESCE(r.decided_at, r.created_at) AS decided_at
+      FROM neighbor_requests r
+      WHERE r.status = 'accepted'
+        AND r.from_property_id IS NOT NULL
+        AND (r.property_id = ${propertyId} OR r.from_property_id = ${propertyId})
+    ),
+    unique_linked AS (
+      SELECT DISTINCT ON (property_id) property_id, decided_at
+      FROM linked
+      ORDER BY property_id, decided_at DESC
+    )
+    SELECT
+      u.property_id,
+      a.formatted,
+      a.street_number,
+      a.street_name,
+      d.document_id,
+      d.byte_size
+    FROM unique_linked u
+    LEFT JOIN property_addresses a ON a.property_id = u.property_id AND a.is_current
+    LEFT JOIN LATERAL (
+      SELECT document_id, byte_size
+      FROM documents
+      WHERE property_id = u.property_id
+        AND removed_at IS NULL
+        AND visibility = 'public'
+        AND (mime_type LIKE 'image/%' OR document_type = 'photo')
+      ORDER BY is_cover DESC, created_at DESC
+      LIMIT 1
+    ) d ON TRUE
+    ORDER BY u.decided_at DESC
+  `;
+  return rows.map((row) => ({
+    property_id: row.property_id,
+    formatted: row.formatted,
+    street_number: row.street_number,
+    street_name: row.street_name,
+    photo_url: row.document_id ? `/api/documents/${row.document_id}/file?v=${row.byte_size ?? 0}` : null,
+  }));
 }

@@ -266,6 +266,14 @@ export interface NeighborPerson {
   property_id: string | null;
 }
 
+export interface PropertyNeighbor {
+  property_id: string;
+  formatted: string | null;
+  street_number: string | null;
+  street_name: string | null;
+  photo_url: string | null;
+}
+
 export type InboxAction = "accept" | "decline" | "withdraw" | "view";
 export type InboxKind = "contribution_request" | "dispute" | "notice";
 
@@ -429,6 +437,7 @@ export interface PropertyPage {
   documents: Doc[];
   invitations: Invitation[];
   disputes: Dispute[];
+  neighbors: PropertyNeighbor[];
 }
 
 export interface Claim {

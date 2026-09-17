@@ -57,7 +57,7 @@ import {
   setCoverPhoto,
   TRANSFERABLE_TYPES,
 } from "./services/owner.ts";
-import { loadMyNeighbors, neighborState, requestNeighborsOnProperty, reviewNeighbor } from "./services/neighbors.ts";
+import { loadMyNeighbors, loadPropertyNeighbors, neighborState, requestNeighborsOnProperty, reviewNeighbor } from "./services/neighbors.ts";
 import { addCoMaintainer, grantOwnership, revokeOwnership } from "./services/ownership.ts";
 import {
   loadMyProperties,
@@ -467,7 +467,7 @@ app.get("/api/properties/:id", async (c) => {
     const dispute = disputes.find((item) => item.fieldKey === fact.fieldKey);
     return dispute ? { ...fact, dispute } : fact;
   });
-  const [improvements, rooms, documents, invitations, invitation, preferences, inbox] = await Promise.all([
+  const [improvements, rooms, documents, invitations, invitation, preferences, inbox, neighbors] = await Promise.all([
     loadImprovements(page.property_id, maintainer),
     loadRooms(page.property_id, maintainer),
     loadDocuments(page.property_id, maintainer),
@@ -475,9 +475,10 @@ app.get("/api/properties/:id", async (c) => {
     user && !maintainer ? pendingInvitationFor(page.property_id, user.primary_email) : Promise.resolve(null),
     maintainer && user ? loadPreferences(user.user_id, page.property_id) : Promise.resolve(null),
     maintainer ? loadInbox(page.property_id) : Promise.resolve([]),
+    loadPropertyNeighbors(page.property_id),
   ]);
   return c.json({
-    property: { ...page, facts, improvements, rooms, documents, invitations, disputes },
+    property: { ...page, facts, improvements, rooms, documents, invitations, disputes, neighbors },
     viewer: {
       maintainer,
       role: role?.role ?? null,
