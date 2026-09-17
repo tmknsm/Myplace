@@ -2843,13 +2843,18 @@ html.peek-gated body {
 .sheet-form .inline-choice { margin-top: 14px; }
 /* Same idea as .manage-cta: the actions sit at the end of the form and stick
    to the bottom of the sheet while the fields scroll underneath. Extra
-   padding covers the phone sheet's off-screen bleed. */
+   padding covers the phone sheet's off-screen bleed. 24px sits outside the
+   bar so the last field doesn't crowd the sticky buttons. */
+.sheet-form > *:has(+ .action-row.sheet-actions),
+.improvement-form > *:has(+ .action-row.sheet-actions) {
+  margin-bottom: 24px;
+}
 .action-row.sheet-actions {
   position: sticky;
   bottom: 0;
   z-index: 2;
   margin: auto calc(-1 * var(--sheet-inline)) 0;
-  padding: 24px var(--sheet-inline) calc(12px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px));
+  padding: 12px var(--sheet-inline) calc(12px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px));
   border-top: 1px solid var(--hairline);
   background: var(--chrome-fill);
   backdrop-filter: var(--chrome-blur);
