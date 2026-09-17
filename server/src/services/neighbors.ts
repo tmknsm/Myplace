@@ -1,4 +1,4 @@
-import { ownerLabel, ownerPhoto } from "../../../shared/profile.ts";
+import { ownerLabel } from "../../../shared/profile.ts";
 import { getSql } from "../db.ts";
 import { id } from "../ids.ts";
 
@@ -11,14 +11,13 @@ interface NeighborUserRow {
   last_name: string | null;
   handle: string | null;
   anonymize: boolean;
-  avatar_url: string | null;
 }
 
 export interface NeighborPerson {
   request_id: string;
   user_id: string;
   label: string;
-  photo_url: string;
+  photo_url: string | null;
   status: string;
   created_at: string;
   property_id: string | null;
@@ -32,12 +31,15 @@ export interface PropertyNeighbor {
   photo_url: string | null;
 }
 
+function housePhotoUrl(documentId: string | null, byteSize: number | null): string | null {
+  return documentId ? `/api/documents/${documentId}/file?v=${byteSize ?? 0}` : null;
+}
+
 function presentPerson(row: NeighborUserRow) {
   const anonymize = Boolean(row.anonymize);
   return {
     user_id: row.user_id,
     label: ownerLabel({ ...row, anonymize }),
-    photo_url: ownerPhoto(row),
   };
 }
 
@@ -187,15 +189,29 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
     from_user_id: string;
     property_id: string | null;
     formatted: string | null;
+    document_id: string | null;
+    byte_size: number | null;
   })[]>`
     SELECT
       r.request_id, r.status, r.created_at, r.from_user_id,
       CASE WHEN r.from_user_id = ${userId} THEN r.property_id ELSE r.from_property_id END AS property_id,
-      u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url,
-      a.formatted
+      u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize,
+      a.formatted,
+      d.document_id,
+      d.byte_size
     FROM neighbor_requests r
     JOIN users u ON u.user_id = CASE WHEN r.from_user_id = ${userId} THEN r.to_user_id ELSE r.from_user_id END
     LEFT JOIN property_addresses a ON a.property_id = CASE WHEN r.from_user_id = ${userId} THEN r.property_id ELSE r.from_property_id END AND a.is_current
+    LEFT JOIN LATERAL (
+      SELECT document_id, byte_size
+      FROM documents
+      WHERE property_id = CASE WHEN r.from_user_id = ${userId} THEN r.property_id ELSE r.from_property_id END
+        AND removed_at IS NULL
+        AND visibility = 'public'
+        AND (mime_type LIKE 'image/%' OR document_type = 'photo')
+      ORDER BY is_cover DESC, created_at DESC
+      LIMIT 1
+    ) d ON TRUE
     WHERE r.status IN ('pending', 'accepted')
       AND (
         r.from_user_id = ${userId}
@@ -216,6 +232,7 @@ export async function loadMyNeighbors(userId: string): Promise<{ incoming: Neigh
       request_id: row.request_id,
       ...shown,
       label: row.formatted || shown.label,
+      photo_url: housePhotoUrl(row.document_id, row.byte_size),
       property_id: row.property_id,
       status: row.status,
       created_at: row.created_at,
@@ -278,6 +295,6 @@ export async function loadPropertyNeighbors(propertyId: string): Promise<Propert
     formatted: row.formatted,
     street_number: row.street_number,
     street_name: row.street_name,
-    photo_url: row.document_id ? `/api/documents/${row.document_id}/file?v=${row.byte_size ?? 0}` : null,
+    photo_url: housePhotoUrl(row.document_id, row.byte_size),
   }));
 }

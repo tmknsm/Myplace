@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
-import { actorLabel, eventLabel, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
+import { actorLabel, eventLabel, NeighborHouseIcon, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
 import { useMeta } from "./meta";
 import { DisputesSection } from "./property-owner";
@@ -1485,15 +1485,6 @@ function neighborTileLabel(neighbor: PropertyNeighbor): string {
   return street || neighbor.formatted || "Neighbor";
 }
 
-function NeighborHouseIcon() {
-  return (
-    <svg className="neighbor-tile-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M4 11.2 12 4l8 7.2" />
-      <path d="M6.5 10.2V20h11V10.2" />
-      <path d="M10 20v-6h4v6" />
-    </svg>
-  );
-}
 
 function NeighborsGrid({ neighbors }: { neighbors: PropertyNeighbor[] }) {
   return (

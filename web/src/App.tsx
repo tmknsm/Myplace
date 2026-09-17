@@ -3,7 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, use
 import { ProfileCard } from "./account-profile";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty, type NeighborPerson } from "./api";
 import { useAuth } from "./auth";
-import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
+import { eventLabel, NeighborButton, NeighborHouseIcon, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
 import { DebugSheet } from "./debug";
 import { HomePage } from "./home";
 import { useMeta } from "./meta";
@@ -566,6 +566,16 @@ function EyeIcon() {
   );
 }
 
+function NeighborAvatar({ photoUrl }: { photoUrl: string | null }) {
+  return photoUrl ? (
+    <img className="neighbor-avatar" src={photoUrl} alt="" />
+  ) : (
+    <span className="neighbor-avatar" aria-hidden="true">
+      <NeighborHouseIcon className="neighbor-avatar-icon" />
+    </span>
+  );
+}
+
 function AccountPage() {
   const { user, signOut, refresh } = useAuth();
   const [properties, setProperties] = useState<MaintainedProperty[]>([]);
@@ -636,7 +646,7 @@ function AccountPage() {
           )}
           {incoming.map((person) => (
             <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-incoming">
-              <img className="neighbor-avatar" src={person.photo_url} alt="" />
+              <NeighborAvatar photoUrl={person.photo_url} />
               <div className="neighbor-copy">
                 <span className="row-label">{person.label}</span>
                 <span className="meta-line">Wants to be neighbors</span>
@@ -665,7 +675,7 @@ function AccountPage() {
           ))}
           {outgoing.map((person) => (
             <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-outgoing">
-              <img className="neighbor-avatar" src={person.photo_url} alt="" />
+              <NeighborAvatar photoUrl={person.photo_url} />
               {person.property_id ? (
                 <Link className="row-label" to={`/property/${person.property_id}`}>{person.label}</Link>
               ) : (
@@ -677,12 +687,12 @@ function AccountPage() {
           {neighbors.map((person) => (
             person.property_id ? (
               <Link className="row neighbor-row" key={person.request_id} to={`/property/${person.property_id}`} data-testid="neighbor-row">
-                <img className="neighbor-avatar" src={person.photo_url} alt="" />
+                <NeighborAvatar photoUrl={person.photo_url} />
                 <span className="row-label">{person.label}</span>
               </Link>
             ) : (
               <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-row">
-                <img className="neighbor-avatar" src={person.photo_url} alt="" />
+                <NeighborAvatar photoUrl={person.photo_url} />
                 <span className="row-label">{person.label}</span>
               </div>
             )

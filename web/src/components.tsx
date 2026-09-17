@@ -84,6 +84,17 @@ function PeopleIcon() {
   );
 }
 
+/** Grey house mark used when a neighbor row or tile has no hero photo yet. */
+export function NeighborHouseIcon({ className = "neighbor-tile-icon" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 11.2 12 4l8 7.2" />
+      <path d="M6.5 10.2V20h11V10.2" />
+      <path d="M10 20v-6h4v6" />
+    </svg>
+  );
+}
+
 /** Neighbor the people on this claimed page. Hidden on your own houses. */
 export function NeighborButton({ propertyId }: { propertyId: string }) {
   const { user } = useAuth();

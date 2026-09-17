@@ -107,6 +107,18 @@ async function giveHome(userId: string, propertyId: string, formatted: string) {
   `;
 }
 
+async function giveCover(propertyId: string, documentId: string) {
+  await sql`
+    INSERT INTO documents (
+      document_id, property_id, storage_key, original_filename,
+      mime_type, byte_size, document_type, visibility, is_cover
+    ) VALUES (
+      ${documentId}, ${propertyId}, ${`property-documents/${propertyId}/${documentId}/front.webp`},
+      'front.webp', 'image/webp', 12000, 'photo', 'public', true
+    )
+  `;
+}
+
 async function signIn(email: string, admin = false) {
   if (admin) {
     await sql`
@@ -1386,6 +1398,8 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
   if (!visitor) throw new Error("expected visitor");
   await giveHome(visitor.user_id, "prop_home", "12 State Street, Hudson, NY 12534");
+  await giveCover("prop_test", "doc_test_cover");
+  await giveCover("prop_home", "doc_home_cover");
 
   const ownerPage = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
   expect(ownerPage.viewer.neighbor.status).toBe("hidden");
@@ -1407,11 +1421,12 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   expect(sentList.outgoing).toHaveLength(1);
   expect(sentList.outgoing[0].label).toBe("441 Warren Street, Hudson, NY 12534");
   expect(sentList.outgoing[0].status).toBe("pending");
-  expect(sentList.outgoing[0].photo_url).toBeTruthy();
+  expect(sentList.outgoing[0].photo_url).toBe("/api/documents/doc_test_cover/file?v=12000");
 
   const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
   expect(inbox.incoming).toHaveLength(1);
   expect(inbox.incoming[0].label).toBe("12 State Street, Hudson, NY 12534");
+  expect(inbox.incoming[0].photo_url).toBe("/api/documents/doc_home_cover/file?v=12000");
   expect(inbox.neighbors).toHaveLength(0);
 
   const review = await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
@@ -1424,10 +1439,11 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   const ownerList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
   expect(ownerList.incoming).toHaveLength(0);
   expect(ownerList.neighbors[0].label).toBe("12 State Street, Hudson, NY 12534");
-  expect(ownerList.neighbors[0].photo_url).toBeTruthy();
+  expect(ownerList.neighbors[0].photo_url).toBe("/api/documents/doc_home_cover/file?v=12000");
 
   const visitorList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
   expect(visitorList.neighbors[0].label).toBe("441 Warren Street, Hudson, NY 12534");
+  expect(visitorList.neighbors[0].photo_url).toBe("/api/documents/doc_test_cover/file?v=12000");
 
   const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();
   expect(after.viewer.neighbor.status).toBe("accepted");

@@ -260,7 +260,7 @@ export interface NeighborPerson {
   request_id: string;
   user_id: string;
   label: string;
-  photo_url: string;
+  photo_url: string | null;
   status: string;
   created_at: string;
   property_id: string | null;
