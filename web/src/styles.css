@@ -3516,13 +3516,128 @@ html.peek-gated body {
   aspect-ratio: 16 / 10;
 }
 .photos-page .back-link,
+.posts-page .back-link,
 .neighbors-page .back-link { margin-bottom: 12px; }
 .photos-page .section-head h1,
+.posts-page .section-head h1,
 .neighbors-page .section-head h1 {
   font-size: 28px;
   letter-spacing: -0.02em;
   font-weight: 650;
 }
+
+/* ---- Posts ------------------------------------------------------------ */
+/* Byline, then the page's photo mosaic, then the caption. No card around it:
+   the photos are the card. */
+.post { min-width: 0; }
+.post-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 4px 10px;
+}
+.post-head .confirm-inline { flex-shrink: 0; }
+.post-head .text-link { margin-left: 0; }
+/* The owner's Remove waits quietly until asked; only the confirm turns red. */
+.post-head > .text-link.danger { color: var(--muted); }
+.post-head > .text-link.danger:hover { color: var(--danger); }
+.post-byline { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.post-byline img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 28px;
+  background: var(--surface-2);
+}
+.post-who { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.post-who strong {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.post-who time { font-size: 12px; color: var(--muted); }
+.post-body {
+  margin: 12px 4px 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.post-list { display: flex; flex-direction: column; }
+.post-list .post + .post { margin-top: 28px; padding-top: 28px; border-top: 1px solid var(--hairline); }
+
+/* The mosaic, sized to the post: two across, and an odd count gives the first
+   photo the full width so nothing is left hanging. Same tiles as the gallery. */
+.photo-grid.is-post { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gutter, 6px); }
+.photo-grid.is-post .photo-card { border-radius: 0; box-shadow: none; background: var(--surface-2); }
+.photo-grid.is-post .photo-open { aspect-ratio: 1 / 1; }
+.photo-grid.is-post.is-odd > .photo-card:first-child { grid-column: 1 / -1; }
+.photo-grid.is-post.is-odd > .photo-card:first-child .photo-open { aspect-ratio: 16 / 10; }
+
+/* The sticky Post bar at the foot of an owner's page. The page's own bottom
+   padding moves inside so the bar sits on the very bottom edge. */
+.property-page.has-post-bar { padding-bottom: 0; }
+.property-page.has-post-bar .profile-grid,
+.property-page.has-post-bar .posts-body { padding-bottom: 28px; }
+/* A short posts list still puts the bar on the bottom edge of the screen. */
+.posts-page.has-post-bar {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--topbar-height, 84px));
+}
+.posts-page .posts-body { flex: 1 0 auto; }
+.post-cta .btn { max-width: 480px; }
+
+/* New post sheet: the photos go up top in the same mosaic, then the caption. */
+.post-form-photos { margin: 4px 0 12px; }
+.post-form .photo-grid.is-post { border-radius: var(--radius-sm, 8px); overflow: hidden; }
+.post-form .photo-grid.is-post .photo-card { background: var(--surface-2); }
+.post-form .photo-open { cursor: default; }
+.post-form .photo-open img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.post-form .photo-missing-label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 12px; text-align: center; font-size: 11px; text-transform: none; letter-spacing: 0; overflow-wrap: anywhere; }
+.post-drop {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(29, 29, 31, 0.7);
+  color: #fff;
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.post-add-more { margin-top: 8px; }
+/* The empty state doubles as the picker: one big, obvious target. */
+.post-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-sm, 8px);
+  border: 1.5px dashed color-mix(in srgb, var(--ink) 22%, transparent);
+  color: var(--ink-soft);
+  text-align: center;
+  cursor: pointer;
+}
+.post-pick:hover { background: var(--surface-2); border-color: color-mix(in srgb, var(--ink) 32%, transparent); }
+.post-pick-mark { font-size: 32px; line-height: 1; font-weight: 300; color: var(--muted); }
+.post-pick-label { font-size: 15px; font-weight: 560; color: var(--ink); }
+.post-pick-hint { font-size: 12px; color: var(--muted); padding: 0 16px; }
+.post-form .sheet-actions .btn .spinner { width: 14px; height: 14px; margin-right: 8px; }
 .property-page .photo-strip { gap: var(--gutter); }
 .property-page .photo-thumb,
 .property-page .photo-add,

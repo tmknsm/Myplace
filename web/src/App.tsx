@@ -7,7 +7,7 @@ import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, Settings
 import { DebugSheet } from "./debug";
 import { HomePage } from "./home";
 import { useMeta } from "./meta";
-import { PropertyNeighborsPage, PropertyPageView, PropertyPhotosPage } from "./property";
+import { PropertyNeighborsPage, PropertyPageView, PropertyPhotosPage, PropertyPostsPage } from "./property";
 import { NotificationsRedirect, PropertyInboxPage, PropertyManagePage } from "./property-manage";
 import { useToast } from "./property-shared";
 
@@ -761,6 +761,7 @@ export function App() {
         <Route path="/map" element={<MapPage />} />
         <Route path="/property/:id" element={<PropertyPageView />} />
         <Route path="/property/:id/photos" element={<PropertyPhotosPage />} />
+        <Route path="/property/:id/posts" element={<PropertyPostsPage />} />
         <Route path="/property/:id/neighbors" element={<PropertyNeighborsPage />} />
         <Route path="/property/:id/claim" element={<ClaimPage />} />
         <Route path="/property/:id/claim/:claimId" element={<ClaimStatusPage />} />

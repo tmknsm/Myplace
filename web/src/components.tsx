@@ -582,6 +582,8 @@ export function eventLabel(type: string): string {
     "room.added": "Room added",
     "room.updated": "Room updated",
     "room.removed": "Room removed",
+    "post.added": "Post added",
+    "post.removed": "Post removed",
     "document.added": "Document added",
     "document.replaced": "Document replaced",
     "document.removed": "Document removed",

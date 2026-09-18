@@ -140,6 +140,10 @@ export const api = {
   patchImprovement: (id: string, body: Partial<ImprovementInput>) =>
     request<{ improvement: Improvement }>(`/api/improvements/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteImprovement: (id: string) => request<{ ok: boolean }>(`/api/improvements/${id}`, { method: "DELETE" }),
+  posts: (id: string) => request<{ posts: Post[] }>(`/api/properties/${id}/posts`),
+  createPost: (id: string, body: { body: string }) =>
+    request<{ post: Post }>(`/api/properties/${id}/posts`, { method: "POST", body: JSON.stringify(body) }),
+  deletePost: (id: string) => request<{ ok: boolean }>(`/api/posts/${id}`, { method: "DELETE" }),
   createRoom: (id: string, body: RoomInput) =>
     request<{ room: Room }>(`/api/properties/${id}/rooms`, { method: "POST", body: JSON.stringify(body) }),
   patchRoom: (id: string, body: Partial<RoomInput>) =>
@@ -462,10 +466,21 @@ export interface PropertyPage {
   historyNote: string;
   improvements: Improvement[];
   rooms: Room[];
+  posts: Post[];
   documents: Doc[];
   invitations: Invitation[];
   disputes: Dispute[];
   neighbors: PropertyNeighbor[];
+}
+
+export interface Post {
+  post_id: string;
+  property_id: string;
+  created_by: string | null;
+  body: string | null;
+  created_at: string;
+  author: { user_id: string; label: string; photo_url: string } | null;
+  documents: Doc[];
 }
 
 export interface Claim {
@@ -494,6 +509,7 @@ export interface Doc {
   improvement_id?: string | null;
   room_id?: string | null;
   topic_id?: string | null;
+  post_id?: string | null;
   is_cover?: boolean;
   has_file?: boolean;
   byte_size: number;

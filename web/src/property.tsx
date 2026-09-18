@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, type DebugClaimResult, type Doc, type Engagement, type Fact, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PhotoComment, type PhotoPerson, type PhotoPost, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
+import { ApiError, api, type DebugClaimResult, type Doc, type Engagement, type Fact, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PhotoComment, type PhotoPerson, type PhotoPost, type Post, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, NeighborHouseIcon, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
@@ -235,8 +235,9 @@ function applyClaimedOwner(data: PageData, result: DebugClaimResult): PageData {
   };
 }
 
+/** Post photos belong to their post; paint and style attachments to their cards. */
 function isGalleryPhoto(doc: Doc): boolean {
-  return isImage(doc) && doc.topic_id !== "paint" && doc.topic_id !== "style";
+  return isImage(doc) && !doc.post_id && doc.topic_id !== "paint" && doc.topic_id !== "style";
 }
 
 /** Cover first, then the rest in the order they arrived. */
@@ -268,6 +269,7 @@ export function PropertyPageView() {
   const [toast, showToast] = useToast();
   const [improvementFormOpen, setImprovementFormOpen] = useState(false);
   const [roomFormOpen, setRoomFormOpen] = useState(false);
+  const postSheet = useSheet();
   // The header's plus button: shown once the owner's Add photos / Add
   // improvement row has scrolled fully behind the top bar.
   const actionsRef = useRef<HTMLDivElement | null>(null);
@@ -547,7 +549,9 @@ export function PropertyPageView() {
   const rooms = property.rooms ?? [];
   const showRooms = owner || rooms.length > 0;
   const showCharacter = characterTopics.length > 0;
-  const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id && !doc.room_id && !doc.topic_id).length;
+  const vaultCount = property.documents.filter((doc) => !isImage(doc) && !doc.improvement_id && !doc.room_id && !doc.topic_id && !doc.post_id).length;
+  const posts = property.posts ?? [];
+  const showPosts = posts.length > 0;
 
   // Nobody has claimed this page yet: show the owner's half as outlines so a
   // prospective owner can see what it becomes. Pages someone else maintains
@@ -558,6 +562,7 @@ export function PropertyPageView() {
   const previews = (sectionId: string) => previewCards.some((card) => card.id === sectionId);
 
   const nav: Array<{ id: string; label: string }> = [
+    ...(showPosts ? [{ id: "posts", label: "Posts" }] : []),
     ...(showPhotos || previews("photos") ? [{ id: "photos", label: "Photos" }] : []),
     ...(showAbout ? [{ id: "about", label: "About" }] : []),
     ...(showNeighbors ? [{ id: "neighbors", label: "Neighbors" }] : []),
@@ -624,7 +629,7 @@ export function PropertyPageView() {
   );
 
   return (
-    <div className={`page wide profile property-page${gated ? " is-gated" : ""}`} data-testid="property-profile">
+    <div className={`page wide profile property-page${gated ? " is-gated" : ""}${owner ? " has-post-bar" : ""}`} data-testid="property-profile">
       <div className="profile-hero-band">{hero}</div>
 
       <header className="profile-head group">
@@ -791,6 +796,10 @@ export function PropertyPageView() {
             />
           )}
 
+          {showPosts && (
+            <PostsSection posts={posts} {...sectionProps} />
+          )}
+
           {showPhotos && (
             <PhotosSection
               photos={gallery}
@@ -934,6 +943,17 @@ export function PropertyPageView() {
           )}
         </div>
       </div>
+      )}
+
+      {owner && (
+        <PostBar
+          propertyId={id}
+          sheet={postSheet}
+          onPosted={async (post) => {
+            showToast("Posted.");
+            await refresh((page) => ({ ...page, posts: [post, ...(page.posts ?? []).filter((row) => row.post_id !== post.post_id)] }));
+          }}
+        />
       )}
 
       {owner && (
@@ -4414,6 +4434,362 @@ export function PropertyPhotosPage() {
           onClose={() => setLightbox(null)}
           onChange={refresh}
           toast={showToast}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Posts: the owner's photos and a caption, newest at the top of the page
+// ---------------------------------------------------------------------------
+
+const POST_PHOTO_LIMIT = 10;
+const POST_BODY_MAX = 2000;
+
+function postsPagePath(propertyId: string): string {
+  return `/property/${propertyId}/posts`;
+}
+
+/**
+ * The property page's mosaic, sized to the post. Two across; an odd count
+ * gives the first photo the full width so nothing is left hanging.
+ */
+function PostMosaic({ count, children }: { count: number; children: ReactNode }) {
+  return (
+    <div className={`photo-grid is-public is-post${count % 2 === 1 ? " is-odd" : ""}`} data-count={count}>
+      {children}
+    </div>
+  );
+}
+
+function PostByline({ post }: { post: Post }) {
+  const when = dateLabel(post.created_at) ?? "";
+  return (
+    <div className="post-byline">
+      {post.author && <img src={post.author.photo_url} alt="" width={28} height={28} />}
+      <div className="post-who">
+        <strong>{post.author?.label ?? "Owner"}</strong>
+        <time dateTime={post.created_at}>{when}</time>
+      </div>
+    </div>
+  );
+}
+
+function PostCard({
+  post,
+  owner,
+  onChange,
+  toast,
+}: {
+  post: Post;
+  owner: boolean;
+  onChange: PageRefresh;
+  toast: Toast;
+}) {
+  const photos = post.documents.filter((doc) => isImage(doc) && (owner || hasFile(doc)));
+  const [open, setOpen] = useState<number | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await api.deletePost(post.post_id);
+      toast("Post removed.");
+      await onChange((page) => ({ ...page, posts: (page.posts ?? []).filter((row) => row.post_id !== post.post_id) }));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not remove the post.");
+      setBusy(false);
+      setConfirm(false);
+    }
+  };
+  return (
+    <article className="post" data-testid="post-card">
+      <header className="post-head">
+        <PostByline post={post} />
+        {owner && (
+          confirm ? (
+            <span className="confirm-inline">
+              Remove this post?
+              <button type="button" className="text-link danger" disabled={busy} data-testid="post-remove-confirm" onClick={() => void remove()}>Remove</button>
+              <button type="button" className="text-link" disabled={busy} onClick={() => setConfirm(false)}>Keep</button>
+            </span>
+          ) : (
+            <button type="button" className="text-link danger" data-testid="post-remove" onClick={() => setConfirm(true)}>Remove</button>
+          )
+        )}
+      </header>
+      {photos.length > 0 && (
+        <PostMosaic count={photos.length}>
+          {photos.map((doc, index) => (
+            <figure key={doc.document_id} className={`photo-card ${hasFile(doc) ? "" : "is-missing"}`}>
+              <button type="button" className="photo-open" onClick={() => setOpen(index)} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
+                {hasFile(doc) ? <PhotoImage src={fileUrl(doc)} alt={doc.caption ?? ""} /> : <span className="photo-missing-label">Missing</span>}
+              </button>
+            </figure>
+          ))}
+        </PostMosaic>
+      )}
+      {post.body && <p className="post-body">{post.body}</p>}
+      {open !== null && photos[open] && (
+        <PhotoLightbox photos={photos} index={open} owner={owner} onIndex={setOpen} onClose={() => setOpen(null)} onChange={onChange} toast={toast} />
+      )}
+    </article>
+  );
+}
+
+function PostsSection({
+  posts,
+  owner,
+  propertyId,
+  onChange,
+  toast,
+}: {
+  posts: Post[];
+  owner: boolean;
+  propertyId: string;
+  onChange: PageRefresh;
+  toast: Toast;
+}) {
+  const latest = posts[0];
+  if (!latest) return null;
+  return (
+    <section className="section" id="posts" data-testid="posts-section">
+      <div className="section-head">
+        <h2>Posts</h2>
+        <div className="section-head-actions">
+          <Link className="text-btn accent" to={postsPagePath(propertyId)} data-testid="posts-view-all">View all</Link>
+        </div>
+      </div>
+      <PostCard post={latest} owner={owner} onChange={onChange} toast={toast} />
+    </section>
+  );
+}
+
+/** The sticky bar at the foot of an owner's page, and the sheet it opens. */
+function PostBar({
+  propertyId,
+  sheet,
+  onPosted,
+}: {
+  propertyId: string;
+  sheet: ReturnType<typeof useSheet>;
+  onPosted: (post: Post) => Promise<void> | void;
+}) {
+  return (
+    <>
+      <div className="manage-cta post-cta">
+        <button type="button" className="btn" data-testid="post-button" onClick={sheet.show}>Post</button>
+      </div>
+      <Sheet open={sheet.open} title="New post" lede="A few photos and what's new. It goes at the top of your page." onClose={sheet.hide} testId="post-sheet">
+        <PostForm
+          key={sheet.seq}
+          propertyId={propertyId}
+          onCancel={sheet.hide}
+          onPosted={async (post) => {
+            sheet.hide();
+            await onPosted(post);
+          }}
+        />
+      </Sheet>
+    </>
+  );
+}
+
+interface PendingPhoto {
+  key: string;
+  file: File;
+  url: string;
+}
+
+function PostForm({
+  propertyId,
+  onCancel,
+  onPosted,
+}: {
+  propertyId: string;
+  onCancel: () => void;
+  onPosted: (post: Post) => Promise<void> | void;
+}) {
+  const [photos, setPhotos] = useState<PendingPhoto[]>([]);
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const urls = useRef<Set<string>>(new Set());
+  useEffect(() => () => { for (const url of urls.current) URL.revokeObjectURL(url); }, []);
+
+  const add = (files: File[]) => {
+    setError(null);
+    setPhotos((current) => {
+      const room = Math.max(0, POST_PHOTO_LIMIT - current.length);
+      if (files.length > room) setError(`Up to ${POST_PHOTO_LIMIT} photos in a post.`);
+      const next = files.slice(0, room).map((file) => {
+        const url = URL.createObjectURL(file);
+        urls.current.add(url);
+        return { key: `${file.name}:${file.size}:${file.lastModified}:${Math.random()}`, file, url };
+      });
+      return [...current, ...next];
+    });
+  };
+  const drop = (key: string) => setPhotos((current) => current.filter((photo) => photo.key !== key));
+
+  const canPost = !busy && (photos.length > 0 || body.trim().length > 0);
+  const full = photos.length >= POST_PHOTO_LIMIT;
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    setProgress(0);
+    let created: Post | null = null;
+    try {
+      created = (await api.createPost(propertyId, { body: body.trim() })).post;
+      for (const photo of photos) {
+        await api.upload(propertyId, photo.file, { postId: created.post_id, documentType: "photo" });
+        setProgress((n) => n + 1);
+      }
+      const fresh = (await api.posts(propertyId)).posts.find((row) => row.post_id === created!.post_id) ?? created;
+      await onPosted(fresh);
+    } catch (err) {
+      // A post missing its photos is worse than no post; take it back and let them retry.
+      if (created) await api.deletePost(created.post_id).catch(() => undefined);
+      setError(err instanceof Error ? err.message : "Could not post. Try again.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="post-form sheet-form" data-testid="post-form" onSubmit={(event) => { event.preventDefault(); if (canPost) void submit(); }}>
+      <div className="post-form-photos">
+        {photos.length === 0 ? (
+          <PhotoFileButton className="post-pick" busy={false} multiple testId="post-photo-input" onPick={add} onError={setError}>
+            <span className="post-pick-mark" aria-hidden="true">+</span>
+            <span className="post-pick-label">Add photos</span>
+            <span className="post-pick-hint">Up to {POST_PHOTO_LIMIT}. They'll sit above your caption.</span>
+          </PhotoFileButton>
+        ) : (
+          <>
+            <PostMosaic count={photos.length}>
+              {photos.map((photo) => (
+                <figure key={photo.key} className="photo-card is-pending-photo">
+                  <div className="photo-open">
+                    <PreviewImage src={photo.url} name={photo.file.name} />
+                    {!busy && (
+                      <button type="button" className="post-drop" aria-label={`Remove ${photo.file.name}`} onClick={() => drop(photo.key)}>×</button>
+                    )}
+                  </div>
+                </figure>
+              ))}
+            </PostMosaic>
+            {!full && !busy && (
+              <PhotoFileButton className="text-btn accent post-add-more" busy={false} multiple testId="post-photo-more" onPick={add} onError={setError}>
+                Add more
+              </PhotoFileButton>
+            )}
+          </>
+        )}
+      </div>
+      <label className="stack">
+        <span>Caption</span>
+        <textarea
+          className="field"
+          rows={4}
+          value={body}
+          maxLength={POST_BODY_MAX}
+          placeholder="What's new at the house?"
+          disabled={busy}
+          data-testid="post-body"
+          onChange={(event) => setBody(event.target.value)}
+        />
+      </label>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="action-row compact sheet-actions">
+        <button type="submit" className="btn" disabled={!canPost} data-testid="post-submit">
+          {busy && <Spinner />}
+          {busy ? (photos.length ? `Posting ${Math.min(progress + 1, photos.length)} of ${photos.length}…` : "Posting…") : "Post"}
+        </button>
+        <button type="button" className="btn secondary" onClick={onCancel} disabled={busy}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+/** A picked photo before upload. Formats the browser can't draw fall back to the file name. */
+function PreviewImage({ src, name }: { src: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <span className="photo-missing-label">{name}</span>;
+  return <img src={src} alt="" onError={() => setFailed(true)} />;
+}
+
+export function PropertyPostsPage() {
+  const { id } = useParams();
+  const { user } = useAuth();
+  const [data, setData] = useState<PageData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, showToast] = useToast();
+  const postSheet = useSheet();
+
+  const load = useCallback(async () => {
+    if (!id) return;
+    try {
+      setData(await api.property(id));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load property");
+    }
+  }, [id]);
+
+  const refresh = useCallback<PageRefresh>(async (patch) => {
+    if (patch) {
+      setData((current) => current ? { ...current, property: patch(current.property) } : current);
+    }
+    await load();
+  }, [load]);
+
+  useEffect(() => { setData(null); }, [id]);
+  useEffect(() => { void load(); }, [load, user?.user_id]);
+
+  const { title } = propertyHeading(data?.property ?? { formatted: null, municipality: null });
+  useEffect(() => {
+    if (!data) return;
+    const previous = document.title;
+    document.title = `Posts · ${title} · Myplace`;
+    return () => { document.title = previous; };
+  }, [data, title]);
+
+  if (error) return <div className="page"><p className="error">{error}</p></div>;
+  if (!data || !id) return <PageSpinner label="Loading posts" />;
+
+  const { property, viewer } = data;
+  const owner = Boolean(viewer.maintainer && !viewer.openClaim);
+  const posts = property.posts ?? [];
+
+  return (
+    <div className={`page property-page posts-page${owner ? " has-post-bar" : ""}`}>
+      <div className="posts-body">
+        <Link className="back-link" to={`/property/${id}`}>‹ {title}</Link>
+        <div className="section-head">
+          <h1>Posts</h1>
+        </div>
+        {toast && <div className="toast" role="status">{toast}</div>}
+        {posts.length === 0 ? (
+          <div className="group empty-card">{owner ? "Nothing posted yet. Tap Post to share a few photos and what's new." : "The owner hasn't posted yet."}</div>
+        ) : (
+          <div className="post-list">
+            {posts.map((post) => (
+              <PostCard key={post.post_id} post={post} owner={owner} onChange={refresh} toast={showToast} />
+            ))}
+          </div>
+        )}
+      </div>
+      {owner && (
+        <PostBar
+          propertyId={id}
+          sheet={postSheet}
+          onPosted={async (post) => {
+            showToast("Posted.");
+            await refresh((page) => ({ ...page, posts: [post, ...(page.posts ?? []).filter((row) => row.post_id !== post.post_id)] }));
+          }}
         />
       )}
     </div>
