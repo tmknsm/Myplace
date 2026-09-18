@@ -1801,7 +1801,6 @@ tr:last-child td { border-bottom: 0; }
 .hero-pill:hover { background: var(--surface); }
 .hero-pill.quiet { color: var(--ink-soft); font-weight: 500; }
 .hero-pill.warn { color: var(--warn); }
-.hero-cta { box-shadow: none; }
 .profile-hero .maplibregl-ctrl-top-right { top: var(--hero-pad); right: var(--hero-pad); }
 .profile-hero .maplibregl-ctrl-bottom-right { bottom: var(--hero-pad-bottom); right: var(--hero-pad); }
 
