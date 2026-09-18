@@ -1548,7 +1548,7 @@ tr:last-child td { border-bottom: 0; }
   padding-bottom: 28px;
 }
 .account-page.has-go .page-toast {
-  bottom: calc(76px + env(safe-area-inset-bottom));
+  bottom: calc(96px + env(safe-area-inset-bottom));
 }
 .page-toast {
   position: fixed;
