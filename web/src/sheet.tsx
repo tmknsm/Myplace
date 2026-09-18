@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   AXIS_LOCK,
   DISMISS_EASE,
   DISMISS_MS,
+  bindPressDrag,
   dismissIntent,
   isInteractiveTarget,
   sampleVelocity,
@@ -73,131 +74,91 @@ export function Sheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [phase, onClose]);
 
-  const drag = useRef<{
-    pointerId: number;
-    startY: number;
-    lastY: number;
-    lastT: number;
-    velocity: number;
-    mode: DragMode;
-    fromHandle: boolean;
-  } | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
-  const bodyAtTop = () => (bodyRef.current?.scrollTop ?? 0) <= 0;
-
-  const beginSheetDrag = (state: NonNullable<typeof drag.current>, target: HTMLElement) => {
-    state.mode = "sheet";
-    const panel = panelRef.current;
-    if (panel) {
-      panel.style.transition = "none";
-      panel.style.animation = "none";
-    }
-    if (backdropRef.current) backdropRef.current.style.transition = "none";
-    if (bodyRef.current) bodyRef.current.style.overflow = "hidden";
-    target.setPointerCapture?.(state.pointerId);
-  };
-
-  const applySheetDrag = (dy: number) => {
-    const panel = panelRef.current;
-    if (!panel) return;
-    const offset = Math.max(0, dy);
-    panel.style.transform = `translate3d(0, ${offset}px, 0)`;
-    if (backdropRef.current) {
-      const fade = Math.max(0.28, 1 - offset / (panel.offsetHeight || 640));
-      backdropRef.current.style.setProperty("--sheet-dim", String(fade));
-    }
-  };
-
-  const onPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    if (phaseRef.current !== "open") return;
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    if (isInteractiveTarget(event.target)) return;
-    const fromHandle = Boolean((event.target as Element).closest?.(".sheet-panel-head"));
-    const state = {
-      pointerId: event.pointerId,
-      startY: event.clientY,
-      lastY: event.clientY,
-      lastT: performance.now(),
-      velocity: 0,
-      mode: (fromHandle ? "sheet" : "pending") as DragMode,
-      fromHandle,
-    };
-    drag.current = state;
-    if (fromHandle) beginSheetDrag(state, event.currentTarget);
-  }, []);
-
-  const onPointerMove = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const state = drag.current;
-    if (!state || state.pointerId !== event.pointerId) return;
-    const sample = sampleVelocity(state.lastY, state.lastT, event.clientY, performance.now());
-    state.velocity = sample.velocity;
-    state.lastY = sample.lastY;
-    state.lastT = sample.lastT;
-
-    if (state.mode === "pending") {
-      const dy = event.clientY - state.startY;
-      if (Math.abs(dy) < AXIS_LOCK) return;
-      if (dy > 0 && (state.fromHandle || bodyAtTop())) {
-        beginSheetDrag(state, event.currentTarget);
-      } else {
-        state.mode = "scroll";
-        return;
-      }
-    }
-
-    if (state.mode !== "sheet") return;
-    event.preventDefault();
-    applySheetDrag(event.clientY - state.startY);
-  }, []);
-
-  const endDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const state = drag.current;
-    const panel = panelRef.current;
-    drag.current = null;
-    if (!state || !panel) return;
-    if (state.pointerId === event.pointerId) {
-      event.currentTarget.releasePointerCapture?.(event.pointerId);
-    }
-    if (bodyRef.current) bodyRef.current.style.overflow = "";
-    if (state.mode !== "sheet") return;
-
-    const dy = Math.max(0, event.clientY - state.startY);
-    const height = panel.offsetHeight || 640;
-    const dismiss = dismissIntent(dy, state.velocity, height, "down");
-    panel.style.transition = `transform ${DISMISS_MS}ms ${DISMISS_EASE}`;
-    if (backdropRef.current) backdropRef.current.style.transition = "";
-    if (dismiss) {
-      dragDismiss.current = true;
-      panel.style.transform = "translate3d(0, 110%, 0)";
-      onClose();
-      return;
-    }
-    panel.style.transform = "";
-    panel.style.animation = "";
-    backdropRef.current?.style.removeProperty("--sheet-dim");
-    window.setTimeout(() => { if (panel) panel.style.transition = ""; }, DISMISS_MS);
-  }, [onClose]);
-
-  // Native touchmove is passive at React's root; we need preventDefault so a
-  // downward flick from the top of the list cannot rubber-band the body scroll.
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel || phase !== "open") return;
-    const onTouchMove = (event: TouchEvent) => {
-      const state = drag.current;
-      if (!state) return;
-      const y = event.touches[0]?.clientY;
-      if (y == null) return;
-      if (state.mode === "sheet") {
-        event.preventDefault();
-        return;
-      }
-      if (state.mode === "pending" && y > state.startY && (state.fromHandle || bodyAtTop())) {
-        event.preventDefault();
+
+    let startY = 0;
+    let lastY = 0;
+    let lastT = 0;
+    let velocity = 0;
+    let mode: DragMode = "pending";
+    let fromHandle = false;
+
+    const bodyAtTop = () => (bodyRef.current?.scrollTop ?? 0) <= 0;
+
+    const beginSheetDrag = () => {
+      mode = "sheet";
+      panel.classList.add("is-dragging");
+      panel.style.transition = "none";
+      panel.style.animation = "none";
+      if (backdropRef.current) backdropRef.current.style.transition = "none";
+      if (bodyRef.current) bodyRef.current.style.overflow = "hidden";
+    };
+
+    const applySheetDrag = (dy: number) => {
+      const offset = Math.max(0, dy);
+      panel.style.transform = `translate3d(0, ${offset}px, 0)`;
+      if (backdropRef.current) {
+        const fade = Math.max(0.28, 1 - offset / (panel.offsetHeight || 640));
+        backdropRef.current.style.setProperty("--sheet-dim", String(fade));
       }
     };
-    panel.addEventListener("touchmove", onTouchMove, { passive: false });
-    return () => panel.removeEventListener("touchmove", onTouchMove);
+
+    return bindPressDrag(panel, {
+      onStart: (point, target) => {
+        if (isInteractiveTarget(target)) return false;
+        fromHandle = Boolean((target as Element | null)?.closest?.(".sheet-panel-head"));
+        startY = point.y;
+        lastY = point.y;
+        lastT = performance.now();
+        velocity = 0;
+        mode = fromHandle ? "sheet" : "pending";
+        if (fromHandle) beginSheetDrag();
+        return true;
+      },
+      onMove: (point, event) => {
+        const sample = sampleVelocity(lastY, lastT, point.y, performance.now());
+        velocity = sample.velocity;
+        lastY = sample.lastY;
+        lastT = sample.lastT;
+        const dy = point.y - startY;
+
+        if (mode === "pending") {
+          if (Math.abs(dy) < AXIS_LOCK) return;
+          if (dy > 0 && (fromHandle || bodyAtTop())) beginSheetDrag();
+          else {
+            mode = "scroll";
+            return;
+          }
+        }
+        if (mode !== "sheet") return;
+        if (event.cancelable) event.preventDefault();
+        applySheetDrag(dy);
+      },
+      onEnd: (point) => {
+        panel.classList.remove("is-dragging");
+        if (bodyRef.current) bodyRef.current.style.overflow = "";
+        if (mode !== "sheet") return;
+        const dy = Math.max(0, point.y - startY);
+        const height = panel.offsetHeight || 640;
+        panel.style.transition = `transform ${DISMISS_MS}ms ${DISMISS_EASE}`;
+        if (backdropRef.current) backdropRef.current.style.transition = "";
+        if (dismissIntent(dy, velocity, height, "down")) {
+          dragDismiss.current = true;
+          panel.style.transform = "translate3d(0, 110%, 0)";
+          onCloseRef.current();
+          return;
+        }
+        panel.style.transform = "";
+        panel.style.animation = "";
+        backdropRef.current?.style.removeProperty("--sheet-dim");
+        window.setTimeout(() => { panel.style.transition = ""; }, DISMISS_MS);
+      },
+    });
   }, [phase]);
 
   if (phase === "closed") return null;
@@ -216,10 +177,6 @@ export function Sheet({
         aria-modal="true"
         aria-labelledby="sheet-title"
         data-testid={testId ?? "sheet"}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
       >
         <header className="sheet-panel-head">
           <i className="sheet-grabber" aria-hidden="true" />

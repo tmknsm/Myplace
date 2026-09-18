@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
 /** Shared flick-to-dismiss physics for the photo lightbox and bottom sheets. */
 
@@ -47,11 +47,90 @@ export function sampleVelocity(
   return { velocity: (y - lastY) / dt, lastY: y, lastT: now };
 }
 
+type Point = { x: number; y: number };
+
+/**
+ * Pointer + touch on the same node. Chrome's device-mode touch path often
+ * skips pointermove, so touchmove itself has to drive the drag (and must
+ * be non-passive so we can preventDefault).
+ */
+export function bindPressDrag(
+  node: HTMLElement,
+  handlers: {
+    onStart: (point: Point, target: EventTarget | null) => boolean;
+    onMove: (point: Point, event: Event) => void;
+    onEnd: (point: Point) => void;
+  },
+): () => void {
+  let active: "pointer" | "touch" | null = null;
+  let pointerId: number | null = null;
+
+  const onPointerDown = (event: PointerEvent) => {
+    if (active) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (event.pointerType === "touch") return; // touch* handlers own fingers
+    if (!handlers.onStart({ x: event.clientX, y: event.clientY }, event.target)) return;
+    active = "pointer";
+    pointerId = event.pointerId;
+    node.setPointerCapture?.(event.pointerId);
+  };
+  const onPointerMove = (event: PointerEvent) => {
+    if (active !== "pointer" || event.pointerId !== pointerId) return;
+    handlers.onMove({ x: event.clientX, y: event.clientY }, event);
+  };
+  const onPointerUp = (event: PointerEvent) => {
+    if (active !== "pointer" || event.pointerId !== pointerId) return;
+    active = null;
+    pointerId = null;
+    node.releasePointerCapture?.(event.pointerId);
+    handlers.onEnd({ x: event.clientX, y: event.clientY });
+  };
+
+  const onTouchStart = (event: TouchEvent) => {
+    if (active) return;
+    const touch = event.touches[0];
+    if (!touch) return;
+    if (!handlers.onStart({ x: touch.clientX, y: touch.clientY }, event.target)) return;
+    active = "touch";
+  };
+  const onTouchMove = (event: TouchEvent) => {
+    if (active !== "touch") return;
+    const touch = event.touches[0];
+    if (!touch) return;
+    handlers.onMove({ x: touch.clientX, y: touch.clientY }, event);
+  };
+  const onTouchEnd = (event: TouchEvent) => {
+    if (active !== "touch") return;
+    active = null;
+    const touch = event.changedTouches[0];
+    handlers.onEnd({ x: touch?.clientX ?? 0, y: touch?.clientY ?? 0 });
+  };
+
+  node.addEventListener("pointerdown", onPointerDown);
+  node.addEventListener("pointermove", onPointerMove);
+  node.addEventListener("pointerup", onPointerUp);
+  node.addEventListener("pointercancel", onPointerUp);
+  node.addEventListener("touchstart", onTouchStart, { passive: true });
+  node.addEventListener("touchmove", onTouchMove, { passive: false });
+  node.addEventListener("touchend", onTouchEnd);
+  node.addEventListener("touchcancel", onTouchEnd);
+  return () => {
+    node.removeEventListener("pointerdown", onPointerDown);
+    node.removeEventListener("pointermove", onPointerMove);
+    node.removeEventListener("pointerup", onPointerUp);
+    node.removeEventListener("pointercancel", onPointerUp);
+    node.removeEventListener("touchstart", onTouchStart);
+    node.removeEventListener("touchmove", onTouchMove);
+    node.removeEventListener("touchend", onTouchEnd);
+    node.removeEventListener("touchcancel", onTouchEnd);
+  };
+}
+
 type AxisLock = "pending" | "x" | "y";
 
 /**
- * Vertical flick-to-dismiss for the photo lightbox. Horizontal travel is left
- * to the snap track; once the gesture locks to Y the photo follows the finger
+ * Vertical flick-to-dismiss for the photo lightbox. Horizontal travel pages
+ * the snap track; once the gesture locks to Y the photo follows the finger
  * up or down and a flick or a long drag closes it.
  */
 export function useLightboxDismiss(
@@ -63,9 +142,6 @@ export function useLightboxDismiss(
   trackRef: RefObject<HTMLDivElement | null>;
   dragged: RefObject<boolean>;
   leaving: boolean;
-  onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
-  onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void;
-  onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void;
 } {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const motionRef = useRef<HTMLDivElement | null>(null);
@@ -73,16 +149,9 @@ export function useLightboxDismiss(
   const [leaving, setLeaving] = useState(false);
   const leavingRef = useRef(false);
   const dragged = useRef(false);
-  const drag = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    lastY: number;
-    lastT: number;
-    velocity: number;
-    lock: AxisLock;
-  } | null>(null);
   const closeTimer = useRef(0);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   const apply = (dy: number) => {
     const motion = motionRef.current;
@@ -108,7 +177,6 @@ export function useLightboxDismiss(
       root.style.background = "";
       root.style.transition = "";
     }
-    if (trackRef.current) trackRef.current.style.overflow = "";
     rootRef.current?.classList.remove("is-dragging");
   };
 
@@ -132,110 +200,105 @@ export function useLightboxDismiss(
       root.classList.add("is-dismissing");
     }
     window.clearTimeout(closeTimer.current);
-    closeTimer.current = window.setTimeout(onClose, DISMISS_MS);
-  }, [onClose]);
-
-  const onPointerDown = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    if (!enabled || leavingRef.current) return;
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    if (isInteractiveTarget(event.target)) return;
-    dragged.current = false;
-    drag.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      lastY: event.clientY,
-      lastT: performance.now(),
-      velocity: 0,
-      lock: "pending",
-    };
-  }, [enabled]);
-
-  const onPointerMove = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const state = drag.current;
-    if (!state || state.pointerId !== event.pointerId || leavingRef.current) return;
-    const sample = sampleVelocity(state.lastY, state.lastT, event.clientY, performance.now());
-    state.velocity = sample.velocity;
-    state.lastY = sample.lastY;
-    state.lastT = sample.lastT;
-
-    if (state.lock === "pending") {
-      const dx = event.clientX - state.startX;
-      const dy = event.clientY - state.startY;
-      if (Math.abs(dx) < AXIS_LOCK && Math.abs(dy) < AXIS_LOCK) return;
-      if (Math.abs(dy) > Math.abs(dx) * 1.15) {
-        state.lock = "y";
-        dragged.current = true;
-        event.currentTarget.setPointerCapture?.(event.pointerId);
-        rootRef.current?.classList.add("is-dragging");
-        if (trackRef.current) trackRef.current.style.overflow = "hidden";
-        const motion = motionRef.current;
-        if (motion) motion.style.transition = "none";
-        if (rootRef.current) rootRef.current.style.transition = "none";
-      } else {
-        state.lock = "x";
-        return;
-      }
-    }
-
-    if (state.lock !== "y") return;
-    event.preventDefault();
-    apply(event.clientY - state.startY);
+    closeTimer.current = window.setTimeout(() => onCloseRef.current(), DISMISS_MS);
   }, []);
-
-  const onPointerUp = useCallback((event: ReactPointerEvent<HTMLElement>) => {
-    const state = drag.current;
-    drag.current = null;
-    if (!state || state.pointerId !== event.pointerId) return;
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-    if (state.lock !== "y" || leavingRef.current) return;
-
-    const dy = event.clientY - state.startY;
-    const height = rootRef.current?.offsetHeight || window.innerHeight;
-    if (dismissIntent(dy, state.velocity, height, "vertical")) {
-      flyAway(dy, state.velocity);
-      return;
-    }
-    const motion = motionRef.current;
-    const root = rootRef.current;
-    if (motion) {
-      motion.style.transition = `transform ${DISMISS_MS}ms ${DISMISS_EASE}, opacity ${DISMISS_MS}ms ease`;
-      motion.style.transform = "";
-      motion.style.opacity = "";
-    }
-    if (root) {
-      root.style.transition = `background ${DISMISS_MS}ms ease`;
-      root.style.background = "";
-    }
-    if (trackRef.current) trackRef.current.style.overflow = "";
-    root?.classList.remove("is-dragging");
-    window.setTimeout(clearInline, DISMISS_MS);
-  }, [flyAway]);
 
   useEffect(() => {
     const node = motionRef.current;
-    if (!node || !enabled) return;
-    const onTouchMove = (event: TouchEvent) => {
-      const state = drag.current;
-      if (!state) return;
-      if (state.lock === "y") {
-        event.preventDefault();
-        return;
-      }
-      if (state.lock !== "pending") return;
-      const touch = event.touches[0];
-      if (!touch) return;
-      const dx = touch.clientX - state.startX;
-      const dy = touch.clientY - state.startY;
-      if (Math.abs(dy) > AXIS_LOCK && Math.abs(dy) > Math.abs(dx) * 1.15) {
-        event.preventDefault();
-      }
+    if (!node || !enabled || leavingRef.current) return;
+
+    let startX = 0;
+    let startY = 0;
+    let lastY = 0;
+    let lastT = 0;
+    let velocity = 0;
+    let lock: AxisLock = "pending";
+    let startScroll = 0;
+
+    const beginY = () => {
+      lock = "y";
+      dragged.current = true;
+      rootRef.current?.classList.add("is-dragging");
+      const motion = motionRef.current;
+      if (motion) motion.style.transition = "none";
+      if (rootRef.current) rootRef.current.style.transition = "none";
     };
-    node.addEventListener("touchmove", onTouchMove, { passive: false });
-    return () => node.removeEventListener("touchmove", onTouchMove);
-  }, [enabled]);
+
+    const unbind = bindPressDrag(node, {
+      onStart: (point, target) => {
+        if (leavingRef.current) return false;
+        if (isInteractiveTarget(target)) return false;
+        dragged.current = false;
+        startX = point.x;
+        startY = point.y;
+        lastY = point.y;
+        lastT = performance.now();
+        velocity = 0;
+        lock = "pending";
+        startScroll = trackRef.current?.scrollLeft ?? 0;
+        return true;
+      },
+      onMove: (point, event) => {
+        const sample = sampleVelocity(lastY, lastT, point.y, performance.now());
+        velocity = sample.velocity;
+        lastY = sample.lastY;
+        lastT = sample.lastT;
+        const dx = point.x - startX;
+        const dy = point.y - startY;
+
+        if (lock === "pending") {
+          if (Math.abs(dx) < AXIS_LOCK && Math.abs(dy) < AXIS_LOCK) return;
+          if (Math.abs(dy) > Math.abs(dx) * 1.15) beginY();
+          else lock = "x";
+        }
+
+        if (lock === "x") {
+          const track = trackRef.current;
+          if (track) track.scrollLeft = startScroll - dx;
+          return;
+        }
+
+        if (lock !== "y") return;
+        if (event.cancelable) event.preventDefault();
+        apply(dy);
+      },
+      onEnd: (point) => {
+        if (lock === "x") {
+          const track = trackRef.current;
+          if (track) {
+            const width = track.clientWidth || 1;
+            const next = Math.round(track.scrollLeft / width);
+            track.scrollTo({ left: next * width, behavior: "smooth" });
+          }
+          return;
+        }
+        if (lock !== "y" || leavingRef.current) return;
+        const dy = point.y - startY;
+        const height = rootRef.current?.offsetHeight || window.innerHeight;
+        if (dismissIntent(dy, velocity, height, "vertical")) {
+          flyAway(dy, velocity);
+          return;
+        }
+        const motion = motionRef.current;
+        const root = rootRef.current;
+        if (motion) {
+          motion.style.transition = `transform ${DISMISS_MS}ms ${DISMISS_EASE}, opacity ${DISMISS_MS}ms ease`;
+          motion.style.transform = "";
+          motion.style.opacity = "";
+        }
+        if (root) {
+          root.style.transition = `background ${DISMISS_MS}ms ease`;
+          root.style.background = "";
+        }
+        root?.classList.remove("is-dragging");
+        window.setTimeout(clearInline, DISMISS_MS);
+      },
+    });
+
+    return unbind;
+  }, [enabled, flyAway, leaving]);
 
   useEffect(() => () => window.clearTimeout(closeTimer.current), []);
 
-  return { rootRef, motionRef, trackRef, dragged, leaving, onPointerDown, onPointerMove, onPointerUp };
+  return { rootRef, motionRef, trackRef, dragged, leaving };
 }
