@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from "react";
 import type { Doc } from "./api";
-import { PHOTO_VARIANT_WIDTHS, type PhotoVariantWidth } from "../../shared/image-size.ts";
 
 export const MULTILINE_FIELDS = new Set([
   "profile.summary", "renovations", "additions", "structures", "maintenance",
@@ -146,27 +145,8 @@ export function hasFile(doc: Doc): boolean {
   return doc.has_file !== false;
 }
 
-/** The archived upload, or a display-sized WebP when `width` is given. */
-export function fileUrl(doc: Doc, width?: PhotoVariantWidth): string {
-  const base = `/api/documents/${doc.document_id}/file?v=${doc.byte_size ?? 0}`;
-  return width ? `${base}&w=${width}` : base;
-}
-
-/**
- * Responsive sources for a photo slot. `sizes` describes the slot's CSS
- * width so the browser fetches the smallest variant that still looks sharp.
- */
-export const PHOTO_SIZES = {
-  /** Full-bleed hero and lightbox stage. */
-  hero: "(min-width: 881px) 1120px, 100vw",
-  /** Cover card that spans the photo grid. */
-  cover: "(min-width: 881px) 1120px, 100vw",
-  /** One cell of a two- or three-across grid. */
-  thumb: "(min-width: 881px) 380px, 50vw",
-} as const;
-
-export function photoSrcSet(doc: Doc): string {
-  return PHOTO_VARIANT_WIDTHS.map((width) => `${fileUrl(doc, width)} ${width}w`).join(", ");
+export function fileUrl(doc: Doc): string {
+  return `/api/documents/${doc.document_id}/file?v=${doc.byte_size ?? 0}`;
 }
 
 export type Toast = (message: string) => void;
