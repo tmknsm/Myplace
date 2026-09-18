@@ -3768,14 +3768,17 @@ html.peek-gated body {
     }
     /* The single sheet covers the tabs throughout; no interim glass of their own. */
     .profile-grid .profile-nav-wrap::before { display: none; }
-    .chrome-glass::before {
+    /* Only while a profile grid is on the page. Leaving it for the photos or
+       posts page removes the timeline's source, and a timeline with no source
+       would otherwise hold the row wherever it was when you left. */
+    body:has(.profile-grid) .chrome-glass::before {
       /* Constant size once docking begins (a one-off step), then only translates. */
       animation: chrome-sheet-grow both, chrome-sheet-slide both;
       animation-timing-function: steps(1, jump-start), linear;
       animation-timeline: --profile-grid;
       animation-range: cover 0px cover var(--search-row-height);
     }
-    .topbar .header-search.narrow-only {
+    body:has(.profile-grid) .topbar .header-search.narrow-only {
       animation: search-row-tuck linear both;
       animation-timeline: --profile-grid;
       animation-range: cover 0px cover var(--search-row-height);
