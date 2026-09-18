@@ -1,9 +1,10 @@
-import { ownerLabel } from "../../../shared/profile.ts";
+import { ownerLabel, ownerPhoto } from "../../../shared/profile.ts";
 import { getSql } from "../db.ts";
 import { id } from "../ids.ts";
 import { FIELD_BY_KEY, formatFieldValue, ownerWritable } from "../vocab.ts";
 import { insertAssertion } from "./assertions.ts";
 import { emitEvent } from "./events.ts";
+import { anonymizedOn } from "./neighbors.ts";
 import { missingDocumentKeys } from "./storage.ts";
 
 export const IMPROVEMENT_CATEGORIES = [
@@ -82,6 +83,7 @@ export interface DocumentRow {
   improvement_id: string | null;
   room_id?: string | null;
   topic_id?: string | null;
+  post_id?: string | null;
   original_filename: string | null;
   document_type: string | null;
   mime_type: string | null;
@@ -144,7 +146,7 @@ export async function loadImprovements(propertyId: string, viewerIsMaintainer: b
 export async function loadDocuments(propertyId: string, viewerIsMaintainer: boolean) {
   const sql = getSql();
   const documents = await withFileFlags(await sql<StoredDocumentRow[]>`
-    SELECT document_id, property_id, improvement_id, room_id, topic_id, original_filename, document_type, mime_type,
+    SELECT document_id, property_id, improvement_id, room_id, topic_id, post_id, original_filename, document_type, mime_type,
            byte_size, visibility, transferability, caption, is_cover, created_at, uploaded_by, storage_key
     FROM documents
     WHERE property_id = ${propertyId} AND claim_id IS NULL AND removed_at IS NULL
@@ -190,6 +192,72 @@ export async function loadRooms(propertyId: string, viewerIsMaintainer: boolean)
       documents: visible.filter((doc) => doc.room_id === row.room_id),
     };
   });
+}
+
+export const POST_BODY_MAX = 2000;
+
+export interface PostRow {
+  post_id: string;
+  property_id: string;
+  created_by: string | null;
+  body: string | null;
+  created_at: string;
+}
+
+interface PostAuthorRow {
+  user_id: string;
+  display_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  handle: string | null;
+  avatar_url: string | null;
+}
+
+export interface PostView extends PostRow {
+  author: { user_id: string; label: string; photo_url: string } | null;
+  documents: DocumentRow[];
+}
+
+/**
+ * An owner's posts, newest first, each with its photos. Posts are public; the
+ * only thing a maintainer sees that a visitor does not is a photo whose file
+ * has gone missing. The author is named the way this house knows them.
+ */
+export async function loadPosts(propertyId: string, viewerIsMaintainer: boolean, postId?: string): Promise<PostView[]> {
+  const sql = getSql();
+  const posts = await sql<(PostRow & PostAuthorRow)[]>`
+    SELECT p.post_id, p.property_id, p.created_by, p.body, p.created_at,
+           u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.avatar_url
+    FROM property_posts p
+    LEFT JOIN users u ON u.user_id = p.created_by
+    WHERE p.property_id = ${propertyId} AND p.removed_at IS NULL
+      AND ${postId ? sql`p.post_id = ${postId}` : sql`TRUE`}
+    ORDER BY p.created_at DESC
+  `;
+  if (posts.length === 0) return [];
+  const [documents, hidden] = await Promise.all([
+    withFileFlags(await sql<StoredDocumentRow[]>`
+      SELECT document_id, property_id, improvement_id, room_id, topic_id, post_id, original_filename, document_type, mime_type,
+             byte_size, visibility, transferability, caption, is_cover, created_at, uploaded_by, storage_key
+      FROM documents
+      WHERE property_id = ${propertyId} AND removed_at IS NULL
+        AND post_id IN ${sql(posts.map((row) => row.post_id))}
+      ORDER BY created_at
+    `),
+    anonymizedOn(propertyId, posts.map((row) => row.user_id).filter((value): value is string => Boolean(value))),
+  ]);
+  const visible = viewerIsMaintainer ? documents : documents.filter((doc) => doc.has_file);
+  return posts.map(({ user_id, display_name, first_name, last_name, handle, avatar_url, ...row }) => ({
+    ...row,
+    author: user_id
+      ? {
+          user_id,
+          label: ownerLabel({ display_name, first_name, last_name, handle, anonymize: hidden.get(user_id) ?? false }),
+          photo_url: ownerPhoto({ avatar_url, user_id }),
+        }
+      : null,
+    documents: visible.filter((doc) => doc.post_id === row.post_id),
+  }));
 }
 
 /** Make one photo the profile cover, or clear the cover when `documentId` is null. */

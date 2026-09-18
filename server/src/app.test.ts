@@ -48,6 +48,7 @@ beforeEach(async () => {
   await sql`DELETE FROM documents`;
   await sql`DELETE FROM property_improvements`;
   await sql`DELETE FROM property_rooms`;
+  await sql`DELETE FROM property_posts`;
   await sql`DELETE FROM property_maintainers`;
   await sql`DELETE FROM ownership_claims`;
   await sql`DELETE FROM property_events`;
@@ -1661,6 +1662,107 @@ test("room photos stay with the room and follow its visibility", async () => {
   const gone = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).json() as Page;
   expect(gone.property.rooms).toEqual([]);
   expect(gone.property.documents.map((doc) => doc.document_id)).not.toContain(documentId);
+});
+
+test("posts: an owner's photos and caption show on the page, newest first, and come off together", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("poster@example.com", "poster-desk@example.com");
+  await sql`UPDATE users SET first_name = 'Sam', last_name = 'Ellison', handle = 'samwrites' WHERE primary_email = 'poster@example.com'`;
+  const strangerCookie = await signIn("stranger@example.com");
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const upload = async (fields: Record<string, string>, who = cookie, name = "post.png", type = "image/png") => {
+    const form = new FormData();
+    form.append("file", new File([png], name, { type }));
+    for (const [key, value] of Object.entries(fields)) form.append(key, value);
+    return app.request("http://localhost/api/properties/prop_test/documents", { method: "POST", headers: { cookie: who }, body: form });
+  };
+  type PostView = { post_id: string; body: string | null; author: { label: string } | null; documents: Array<{ document_id: string; visibility: string; post_id: string | null }> };
+  type Page = { property: { posts: PostView[]; documents: Array<{ document_id: string; post_id?: string | null }>; events: Array<{ event_type: string }> } };
+
+  // Nothing yet: the page carries an empty list, not a missing one.
+  const empty = await (await app.request("http://localhost/api/properties/prop_test")).json() as Page;
+  expect(empty.property.posts).toEqual([]);
+
+  // Strangers can read posts but not write them.
+  const denied = await app.request("http://localhost/api/properties/prop_test/posts", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: strangerCookie },
+    body: JSON.stringify({ body: "not mine" }),
+  });
+  expect(denied.status).toBe(403);
+  const anonymous = await app.request("http://localhost/api/properties/prop_test/posts", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ body: "nobody" }),
+  });
+  expect(anonymous.status).toBe(401);
+
+  const tooLong = await app.request("http://localhost/api/properties/prop_test/posts", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ body: "x".repeat(2001) }),
+  });
+  expect(tooLong.status).toBe(400);
+
+  const first = await app.request("http://localhost/api/properties/prop_test/posts", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ body: "  New porch railings went in this weekend.  " }),
+  });
+  expect(first.status).toBe(201);
+  const { post } = await first.json() as { post: PostView };
+  expect(post.body).toBe("New porch railings went in this weekend.");
+  expect(post.author?.label).toBe("Sam Ellison");
+  expect(post.documents).toEqual([]);
+
+  // Photos attach to the post, always public, and never as the cover.
+  expect((await upload({ postId: "post_nope" })).status).toBe(404);
+  expect((await upload({ postId: post.post_id }, strangerCookie)).status).toBe(403);
+  expect((await upload({ postId: post.post_id }, cookie, "receipt.pdf", "application/pdf")).status).toBe(400);
+  const a = await upload({ postId: post.post_id, visibility: "private", cover: "true" });
+  expect(a.status).toBe(201);
+  const b = await upload({ postId: post.post_id });
+  expect(b.status).toBe(201);
+  const docA = (await a.json() as { documentId: string }).documentId;
+  const docB = (await b.json() as { documentId: string }).documentId;
+
+  const second = await app.request("http://localhost/api/properties/prop_test/posts", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({}),
+  });
+  expect(second.status).toBe(201);
+  const latest = (await second.json() as { post: PostView }).post;
+  expect(latest.body).toBeNull();
+
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json() as Page;
+  expect(page.property.posts.map((row) => row.post_id)).toEqual([latest.post_id, post.post_id]);
+  const withPhotos = page.property.posts[1]!;
+  expect(withPhotos.documents.map((doc) => doc.document_id)).toEqual([docA, docB]);
+  expect(withPhotos.documents.every((doc) => doc.visibility === "public" && doc.post_id === post.post_id)).toBe(true);
+  // The page's document list tags post photos so the gallery can leave them out.
+  expect(page.property.documents.find((doc) => doc.document_id === docA)?.post_id).toBe(post.post_id);
+  expect(page.property.documents.find((doc) => doc.document_id === docA && (doc as { is_cover?: boolean }).is_cover)).toBeUndefined();
+  // One history entry per post; the photos don't each add a line.
+  expect(page.property.events.filter((event) => event.event_type === "post.added")).toHaveLength(2);
+  expect(page.property.events.filter((event) => event.event_type === "photo.added")).toHaveLength(0);
+
+  const listed = await (await app.request("http://localhost/api/properties/prop_test/posts")).json() as { posts: PostView[] };
+  expect(listed.posts).toHaveLength(2);
+
+  // The author is named the way this house knows them.
+  await setVisibility(cookie, "prop_test", { anonymize: true });
+  const hidden = await (await app.request("http://localhost/api/properties/prop_test/posts")).json() as { posts: PostView[] };
+  expect(hidden.posts[1]?.author?.label).toBe("@samwrites");
+
+  // Only a maintainer removes a post, and its photos leave with it.
+  expect((await app.request(`http://localhost/api/posts/${post.post_id}`, { method: "DELETE", headers: { cookie: strangerCookie } })).status).toBe(403);
+  expect((await app.request(`http://localhost/api/posts/${post.post_id}`, { method: "DELETE", headers: { cookie } })).status).toBe(200);
+  expect((await app.request(`http://localhost/api/posts/${post.post_id}`, { method: "DELETE", headers: { cookie } })).status).toBe(404);
+  const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).json() as Page;
+  expect(after.property.posts.map((row) => row.post_id)).toEqual([latest.post_id]);
+  expect(after.property.documents.map((doc) => doc.document_id)).not.toContain(docA);
+  expect(after.property.documents.map((doc) => doc.document_id)).not.toContain(docB);
 });
 
 test("owner can attach a photo to a topic card", async () => {

@@ -42,6 +42,7 @@ import {
   IMPROVEMENT_CATEGORIES,
   loadDocuments,
   loadImprovements,
+  loadPosts,
   loadRooms,
   loadInbox,
   loadOpenDisputes,
@@ -51,6 +52,7 @@ import {
   parseCostCents,
   parseDate,
   pendingInvitationFor,
+  POST_BODY_MAX,
   PREFERENCE_OPTIONS,
   reviewContribution,
   savePreferences,
@@ -490,9 +492,10 @@ app.get("/api/properties/:id", async (c) => {
     const dispute = disputes.find((item) => item.fieldKey === fact.fieldKey);
     return dispute ? { ...fact, dispute } : fact;
   });
-  const [improvements, rooms, documents, invitations, invitation, preferences, inbox, neighbors] = await Promise.all([
+  const [improvements, rooms, posts, documents, invitations, invitation, preferences, inbox, neighbors] = await Promise.all([
     loadImprovements(page.property_id, maintainer),
     loadRooms(page.property_id, maintainer),
+    loadPosts(page.property_id, maintainer),
     loadDocuments(page.property_id, maintainer),
     maintainer ? loadPendingInvitations(page.property_id) : Promise.resolve([]),
     user && !maintainer ? pendingInvitationFor(page.property_id, user.primary_email) : Promise.resolve(null),
@@ -501,7 +504,7 @@ app.get("/api/properties/:id", async (c) => {
     loadPropertyNeighbors(page.property_id),
   ]);
   return c.json({
-    property: { ...page, facts, improvements, rooms, documents, invitations, disputes, neighbors },
+    property: { ...page, facts, improvements, rooms, posts, documents, invitations, disputes, neighbors },
     viewer: {
       maintainer,
       role: role?.role ?? null,
@@ -764,14 +767,19 @@ app.post("/api/properties/:id/documents", async (c) => {
   const improvementId = typeof form.improvementId === "string" && form.improvementId ? form.improvementId : null;
   const roomId = typeof form.roomId === "string" && form.roomId ? form.roomId : null;
   const topicId = typeof form.topicId === "string" && form.topicId ? form.topicId : null;
+  const postId = typeof form.postId === "string" && form.postId ? form.postId : null;
   const caption = typeof form.caption === "string" && form.caption.trim() ? form.caption.trim() : null;
   const isImage = file.type.startsWith("image/");
-  const asCover = form.cover === "true" && isImage && !claimId;
+  if (postId && !isImage) return c.json({ error: "Posts take photos only." }, 400);
+  const asCover = form.cover === "true" && isImage && !claimId && !postId;
   const requestedType = typeof form.documentType === "string" && form.documentType ? form.documentType : null;
   const documentType = requestedType ?? (improvementId || roomId || topicId ? (isImage ? "photo" : "receipt") : isImage ? "photo" : "other");
-  const visibility = typeof form.visibility === "string" && form.visibility
-    ? form.visibility
-    : (documentType === "photo" || isImage ? "public" : "private");
+  // A post is public by nature, so its photos are too.
+  const visibility = postId
+    ? "public"
+    : typeof form.visibility === "string" && form.visibility
+      ? form.visibility
+      : (documentType === "photo" || isImage ? "public" : "private");
   const transferability = typeof form.transferability === "string" && form.transferability
     ? form.transferability
     : TRANSFERABLE_TYPES.has(documentType) ? "property_transferable" : "personal";
@@ -806,22 +814,30 @@ app.post("/api/properties/:id/documents", async (c) => {
     if (!room[0]) return c.json({ error: "Room not found" }, 404);
   }
   if (topicId && !isTopicId(topicId)) return c.json({ error: "Unknown topic." }, 400);
+  if (postId) {
+    const post = await sql`
+      SELECT post_id FROM property_posts
+      WHERE post_id = ${postId} AND property_id = ${propertyId} AND removed_at IS NULL
+    `;
+    if (!post[0]) return c.json({ error: "Post not found" }, 404);
+  }
 
   const documentId = id("doc");
   const upload = await storeUpload(propertyId, documentId, file);
   const { stored, key } = upload;
   await sql`
     INSERT INTO documents (
-      document_id, property_id, claim_id, improvement_id, room_id, topic_id, uploaded_by, storage_key, original_filename,
+      document_id, property_id, claim_id, improvement_id, room_id, topic_id, post_id, uploaded_by, storage_key, original_filename,
       mime_type, byte_size, document_type, visibility, transferability, caption
     ) VALUES (
-      ${documentId}, ${propertyId}, ${claimId}, ${improvementId}, ${roomId}, ${topicId}, ${user.user_id}, ${key}, ${stored.filename},
+      ${documentId}, ${propertyId}, ${claimId}, ${improvementId}, ${roomId}, ${topicId}, ${postId}, ${user.user_id}, ${key}, ${stored.filename},
       ${stored.mime}, ${stored.bytes.byteLength}, ${documentType}, ${visibility}, ${transferability}, ${caption}
     )
   `;
   upload.commit((optimized, optimizedKey) => recordOptimizedFile(documentId, optimized, optimizedKey));
   if (asCover) await setCoverPhoto(propertyId, documentId);
-  if (!claimId) {
+  // The post itself is the history entry; its photos don't each get one.
+  if (!claimId && !postId) {
     await emitEvent({
       propertyId,
       eventType: isImage ? "photo.added" : "document.added",
@@ -1005,6 +1021,60 @@ async function requireMaintainer(c: Parameters<typeof requireUser>[0], propertyI
   }
   return user;
 }
+
+// ---- Posts: an owner's photos and a caption on their own page --------------
+// Anyone who can see the page can read them. Only a current maintainer writes
+// one, and photos ride in afterwards through the documents upload with postId.
+app.get("/api/properties/:id/posts", async (c) => {
+  const propertyId = c.req.param("id");
+  const user = c.get("user");
+  const maintainer = Boolean(user && await isMaintainer(user.user_id, propertyId));
+  return c.json({ posts: await loadPosts(propertyId, maintainer) });
+});
+
+app.post("/api/properties/:id/posts", async (c) => {
+  const propertyId = c.req.param("id");
+  const user = await requireMaintainer(c, propertyId);
+  const body = await c.req.json<{ body?: string }>().catch(() => ({} as { body?: string }));
+  const text = typeof body.body === "string" ? body.body.trim() : "";
+  if (text.length > POST_BODY_MAX) return c.json({ error: `Keep the caption under ${POST_BODY_MAX} characters.` }, 400);
+  const sql = getSql();
+  const postId = id("post");
+  await sql`
+    INSERT INTO property_posts (post_id, property_id, created_by, body)
+    VALUES (${postId}, ${propertyId}, ${user.user_id}, ${text || null})
+  `;
+  await emitEvent({
+    propertyId,
+    eventType: "post.added",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { post_id: postId },
+  });
+  const [post] = await loadPosts(propertyId, true, postId);
+  return c.json({ post }, 201);
+});
+
+app.delete("/api/posts/:id", async (c) => {
+  const user = requireUser(c);
+  const sql = getSql();
+  const rows = await sql<{ post_id: string; property_id: string }[]>`
+    SELECT post_id, property_id FROM property_posts WHERE post_id = ${c.req.param("id")} AND removed_at IS NULL
+  `;
+  const post = rows[0];
+  if (!post) return c.json({ error: "Not found" }, 404);
+  if (!(await isMaintainer(user.user_id, post.property_id))) return c.json({ error: "Forbidden" }, 403);
+  await sql`UPDATE property_posts SET removed_at = now() WHERE post_id = ${post.post_id}`;
+  await sql`UPDATE documents SET removed_at = now() WHERE post_id = ${post.post_id} AND removed_at IS NULL`;
+  await emitEvent({
+    propertyId: post.property_id,
+    eventType: "post.removed",
+    actorType: "verified_owner",
+    actorId: user.user_id,
+    payload: { post_id: post.post_id },
+  });
+  return c.json({ ok: true });
+});
 
 app.post("/api/properties/:id/improvements", async (c) => {
   const propertyId = c.req.param("id");
