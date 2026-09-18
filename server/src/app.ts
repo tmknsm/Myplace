@@ -274,9 +274,7 @@ app.patch("/api/me", async (c) => {
     handle = parsed.handle;
   }
   const anonymize = body.anonymize ?? user.anonymize;
-  // Street hiding lives under the private/alias package: turning private off
-  // also puts the street back on the page.
-  const hideStreet = anonymize ? (body.hide_street ?? user.hide_street) : false;
+  const hideStreet = body.hide_street ?? user.hide_street;
   await sql`
     UPDATE users
     SET anonymize = ${anonymize},

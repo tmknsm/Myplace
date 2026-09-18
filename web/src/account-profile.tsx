@@ -7,8 +7,8 @@ import { useToast } from "./property-shared";
 
 /**
  * The top of the account page: one photo, the name property pages show, then
- * visibility. Private is off until they create an alias. Turning it on
- * reveals the handle and the option to hide the street on their house page.
+ * visibility. Hide my address is its own switch. Hide my name is off until
+ * they create an alias; turning it on reveals the alias field.
  */
 export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promise<void> }) {
   const [busy, setBusy] = useState<"anonymize" | "handle" | "street" | "photo" | null>(null);
@@ -90,7 +90,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
       const saved = await api.updateMe({ anonymize: !user.anonymize });
       await onUser();
       return saved.user.anonymize
-        ? "Private is on. Add an alias to use on property pages."
+        ? "Your name is hidden. Add an alias to use on property pages."
         : "Property pages now show your real name.";
     }, "Could not update that.");
 
@@ -153,7 +153,25 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
         <div className="group profile-card-settings">
           <div className="row">
             <div>
-              <strong>Private</strong>
+              <strong>Hide my address</strong>
+              <div className="meta-line">Hide your street address on your property page.</div>
+            </div>
+            <button
+              type="button"
+              className={`switch${hideStreet ? " on" : ""}`}
+              role="switch"
+              aria-checked={hideStreet}
+              aria-label="Hide my address"
+              disabled={busy !== null}
+              data-testid="hide-street-toggle"
+              onClick={() => void flipStreet()}
+            >
+              <span className="visually-hidden">{hideStreet ? "On" : "Off"}</span>
+            </button>
+          </div>
+          <div className="row">
+            <div>
+              <strong>Hide my name</strong>
               <div className="meta-line">
                 Create an alias to use instead of your real name on property pages.
               </div>
@@ -163,7 +181,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
               className={`switch${user.anonymize ? " on" : ""}`}
               role="switch"
               aria-checked={user.anonymize}
-              aria-label="Private"
+              aria-label="Hide my name"
               disabled={busy !== null}
               data-testid="anonymize-toggle"
               onClick={() => void flipPrivate()}
@@ -172,70 +190,50 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
             </button>
           </div>
           {user.anonymize && (
-            <>
-              <form
-                className="row profile-handle-row"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  saveHandle();
-                }}
-              >
-                <label className="profile-handle-label">
-                  <strong>Alias</strong>
-                  <span className={`profile-handle${availability === "unavailable" || availability === "invalid" ? " is-error" : availability === "available" ? " is-ok" : ""}`}>
-                    <span className="profile-handle-at" aria-hidden="true">@</span>
-                    <input
-                      className="field"
-                      type="text"
-                      autoComplete="username"
-                      autoCapitalize="none"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      maxLength={24}
-                      value={handleDraft}
-                      onChange={(event) => setHandleDraft(event.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
-                      placeholder="yourname"
-                      aria-invalid={availability === "unavailable" || availability === "invalid"}
-                      data-testid="profile-handle"
-                    />
-                  </span>
-                  <span className={`meta-line${hintClass}`} data-testid="profile-handle-hint">
-                    {hintText}
-                  </span>
-                </label>
-                <div className={`profile-handle-accept${canSaveHandle ? " is-on" : ""}`}>
-                  <div className="profile-handle-accept-slot">
-                    <button
-                      type="submit"
-                      className="btn profile-handle-accept-btn"
-                      disabled={!canSaveHandle || busy !== null}
-                      tabIndex={canSaveHandle ? 0 : -1}
-                      data-testid="profile-handle-accept"
-                    >
-                      {busy === "handle" ? "Saving…" : "Accept"}
-                    </button>
-                  </div>
+            <form
+              className="row profile-handle-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                saveHandle();
+              }}
+            >
+              <label className="profile-handle-label">
+                <strong>Alias</strong>
+                <span className={`profile-handle${availability === "unavailable" || availability === "invalid" ? " is-error" : availability === "available" ? " is-ok" : ""}`}>
+                  <span className="profile-handle-at" aria-hidden="true">@</span>
+                  <input
+                    className="field"
+                    type="text"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    maxLength={24}
+                    value={handleDraft}
+                    onChange={(event) => setHandleDraft(event.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
+                    placeholder="yourname"
+                    aria-invalid={availability === "unavailable" || availability === "invalid"}
+                    data-testid="profile-handle"
+                  />
+                </span>
+                <span className={`meta-line${hintClass}`} data-testid="profile-handle-hint">
+                  {hintText}
+                </span>
+              </label>
+              <div className={`profile-handle-accept${canSaveHandle ? " is-on" : ""}`}>
+                <div className="profile-handle-accept-slot">
+                  <button
+                    type="submit"
+                    className="btn profile-handle-accept-btn"
+                    disabled={!canSaveHandle || busy !== null}
+                    tabIndex={canSaveHandle ? 0 : -1}
+                    data-testid="profile-handle-accept"
+                  >
+                    {busy === "handle" ? "Saving…" : "Accept"}
+                  </button>
                 </div>
-              </form>
-              <div className="row">
-                <div>
-                  <strong>Hide my address</strong>
-                  <div className="meta-line">Hide your street address on your property page.</div>
-                </div>
-                <button
-                  type="button"
-                  className={`switch${hideStreet ? " on" : ""}`}
-                  role="switch"
-                  aria-checked={hideStreet}
-                  aria-label="Hide my address"
-                  disabled={busy !== null}
-                  data-testid="hide-street-toggle"
-                  onClick={() => void flipStreet()}
-                >
-                  <span className="visually-hidden">{hideStreet ? "On" : "Off"}</span>
-                </button>
               </div>
-            </>
+            </form>
           )}
         </div>
       </section>

@@ -997,6 +997,27 @@ test("private works before a handle; visitors see Owner", async () => {
   expect(hidden.property.maintainers[0].display_name).toBeUndefined();
 });
 
+test("hiding the street does not require hiding the name", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("owner@example.com");
+  await sql`UPDATE users SET anonymize = false, handle = 'hudsonowner', first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
+
+  const hide = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ hide_street: true }),
+  });
+  expect(hide.status).toBe(200);
+  const saved = await hide.json();
+  expect(saved.user.hide_street).toBe(true);
+  expect(saved.user.anonymize).toBe(false);
+
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(page.property.hide_street).toBe(true);
+  expect(page.property.formatted).toBe("Hudson, NY 12534");
+  expect(page.property.maintainers[0].label).toBe("Sam Ellison");
+});
+
 test("hiding the street redacts it for visitors and the owner", async () => {
   await seedProperty();
   const cookie = await verifiedOwner("owner@example.com");
@@ -1020,12 +1041,22 @@ test("hiding the street redacts it for visitors and the owner", async () => {
   expect(owner.property.formatted).toBe("Hudson, NY 12534");
   expect(owner.property.formatted).not.toMatch(/441/);
 
-  const off = await app.request("http://localhost/api/me", {
+  const nameOff = await app.request("http://localhost/api/me", {
     method: "PATCH",
     headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ anonymize: false }),
   });
-  expect((await off.json()).user.hide_street).toBe(false);
+  expect((await nameOff.json()).user.hide_street).toBe(true);
+  const stillHidden = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(stillHidden.property.hide_street).toBe(true);
+  expect(stillHidden.property.formatted).toBe("Hudson, NY 12534");
+
+  const streetOff = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ hide_street: false }),
+  });
+  expect((await streetOff.json()).user.hide_street).toBe(false);
   const shown = await (await app.request("http://localhost/api/properties/prop_test")).json();
   expect(shown.property.hide_street).toBe(false);
   expect(shown.property.formatted).toBe("441 Warren Street, Hudson, NY 12534");
