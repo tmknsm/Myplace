@@ -9,6 +9,7 @@ import { HomePage } from "./home";
 import { useMeta } from "./meta";
 import { PropertyNeighborsPage, PropertyPageView, PropertyPhotosPage } from "./property";
 import { NotificationsRedirect, PropertyInboxPage, PropertyManagePage } from "./property-manage";
+import { useToast } from "./property-shared";
 
 function Layout({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
@@ -550,6 +551,7 @@ function AccountPage() {
   const [properties, setProperties] = useState<MaintainedProperty[] | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [toast, showToast] = useToast();
   const loadHomes = async () => {
     const [homes, mine] = await Promise.all([api.myProperties(), api.myClaims()]);
     setProperties(homes.properties);
@@ -574,7 +576,7 @@ function AccountPage() {
   ));
   return (
     <div className="page account-page">
-      <ProfileCard user={user} onUser={refresh} />
+      <ProfileCard user={user} onUser={refresh} showToast={showToast} />
       <section className="section" data-testid="properties-section">
         <h2>Properties</h2>
         <PropertyPicker properties={homes} selectedId={selected?.property_id ?? null} onSelect={setSelectedId}>
@@ -591,13 +593,16 @@ function AccountPage() {
       </section>
       {properties && (
         <>
-          <VisibilityCard user={user} property={selected} onUser={refresh} onProperty={patchProperty} />
-          <ManageCard property={selected} onProperty={patchProperty} />
+          <VisibilityCard user={user} property={selected} onUser={refresh} onProperty={patchProperty} showToast={showToast} />
+          <ManageCard property={selected} onProperty={patchProperty} showToast={showToast} />
         </>
       )}
       <div className="action-row account-signout">
         <button className="btn secondary" onClick={() => signOut()} data-testid="account-signout">Sign out</button>
       </div>
+      {toast && (
+        <div className="page-toast" role="status" data-testid="account-toast">{toast}</div>
+      )}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { formatHandle, ownerLabel, ownerPhoto, parseHandle } from "../../shared/
 import { api, type MaintainedProperty, type User } from "./api";
 import { Spinner } from "./components";
 import { snapshotPhotoFile } from "./optimize-photo";
-import { useToast } from "./property-shared";
+import { type Toast } from "./property-shared";
 
 /** Street half of an address, for the picker row and the scope label under a section title. */
 export function shortAddress(property: Pick<MaintainedProperty, "formatted" | "municipality">): string {
@@ -22,9 +22,8 @@ function localityOf(property: Pick<MaintainedProperty, "formatted" | "municipali
 }
 
 /** Photo and the name on the account. What each property page shows is set per house below. */
-export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promise<void> }) {
+export function ProfileCard({ user, onUser, showToast }: { user: User; onUser: () => Promise<void>; showToast: Toast }) {
   const [busy, setBusy] = useState(false);
-  const [toast, showToast] = useToast();
   const uploadPhoto = async (file: File) => {
     if (busy) return;
     setBusy(true);
@@ -65,9 +64,6 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
         <h1 className="display profile-card-name" data-testid="profile-name">{label}</h1>
         <p className="meta-line profile-card-sub" data-testid="profile-sub">{user.primary_email}</p>
       </section>
-      {toast && (
-        <div className="page-toast" role="status" data-testid="profile-toast">{toast}</div>
-      )}
     </>
   );
 }
@@ -164,14 +160,15 @@ export function VisibilityCard({
   property,
   onUser,
   onProperty,
+  showToast,
 }: {
   user: User;
   property: MaintainedProperty | null;
   onUser: () => Promise<void>;
   onProperty: (patch: Pick<MaintainedProperty, "property_id"> & Partial<MaintainedProperty>) => void;
+  showToast: Toast;
 }) {
   const [busy, setBusy] = useState<"anonymize" | "handle" | "street" | null>(null);
-  const [toast, showToast] = useToast();
   const [handleDraft, setHandleDraft] = useState((user.handle ?? "").replace(/^@+/, ""));
   const [availability, setAvailability] = useState<"idle" | "checking" | "available" | "unavailable" | "invalid">("idle");
   const [handleHint, setHandleHint] = useState<string | null>(null);
@@ -373,9 +370,6 @@ export function VisibilityCard({
           </div>
         )}
       </section>
-      {toast && (
-        <div className="page-toast" role="status" data-testid="visibility-toast">{toast}</div>
-      )}
     </>
   );
 }
@@ -388,12 +382,13 @@ export function VisibilityCard({
 export function ManageCard({
   property,
   onProperty,
+  showToast,
 }: {
   property: MaintainedProperty | null;
   onProperty: (patch: Pick<MaintainedProperty, "property_id"> & Partial<MaintainedProperty>) => void;
+  showToast: Toast;
 }) {
   const [busy, setBusy] = useState(false);
-  const [toast, showToast] = useToast();
   const where = property ? shortAddress(property) : null;
 
   const flipRemoved = () => {
@@ -445,9 +440,6 @@ export function ManageCard({
           </div>
         )}
       </section>
-      {toast && (
-        <div className="page-toast" role="status" data-testid="manage-toast">{toast}</div>
-      )}
     </>
   );
 }
