@@ -1516,21 +1516,6 @@ tr:last-child td { border-bottom: 0; }
   background-position: center;
   background-repeat: no-repeat;
 }
-.picker-open {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 44px;
-  color: var(--muted);
-  text-decoration: none;
-  transition: color 120ms ease, background 120ms ease;
-}
-.picker-open svg { width: 18px; height: 18px; }
-.picker-open:hover { color: var(--ink); background: var(--surface-2); }
-.picker-open:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent);
-}
 .section-scope {
   font-size: 13px;
   color: var(--muted);
@@ -1553,11 +1538,17 @@ tr:last-child td { border-bottom: 0; }
   display: flex;
   flex-direction: column;
   min-height: calc(100dvh - var(--topbar-height, 84px));
+  padding-bottom: 0;
 }
+.account-body { flex: 1 0 auto; }
 .account-signout {
   margin-top: auto;
   justify-content: center;
   padding-top: 36px;
+  padding-bottom: 28px;
+}
+.account-page.has-go .page-toast {
+  bottom: calc(76px + env(safe-area-inset-bottom));
 }
 .page-toast {
   position: fixed;

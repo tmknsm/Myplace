@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ManageCard, ProfileCard, PropertyPicker, VisibilityCard } from "./account-profile";
+import { ManageCard, ProfileCard, PropertyPicker, shortAddress, VisibilityCard } from "./account-profile";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty } from "./api";
 import { useAuth } from "./auth";
 import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, SettingsButton, ShareButton } from "./components";
@@ -575,31 +575,57 @@ function AccountPage() {
     !ownedIds.has(claim.property_id) && claim.status !== "superseded" && claim.status !== "revoked"
   ));
   return (
-    <div className="page account-page">
-      <ProfileCard user={user} onUser={refresh} showToast={showToast} />
-      <section className="section" data-testid="properties-section">
-        <h2>Properties</h2>
-        <PropertyPicker properties={homes} selectedId={selected?.property_id ?? null} onSelect={setSelectedId}>
-          {properties && homes.length === 0 && openClaims.length === 0 && (
-            <div className="row"><span className="meta-line">None yet</span></div>
-          )}
-          {openClaims.map((claim) => (
-            <Link className="row" key={claim.claim_id} to={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
-              <span>{claim.formatted}</span>
-              <span className={`badge ${claim.status}`}>{claim.status}</span>
-            </Link>
-          ))}
-        </PropertyPicker>
-      </section>
-      {properties && (
-        <>
-          <VisibilityCard user={user} property={selected} onUser={refresh} onProperty={patchProperty} showToast={showToast} />
-          <ManageCard property={selected} onProperty={patchProperty} showToast={showToast} />
-        </>
-      )}
-      <div className="action-row account-signout">
-        <button className="btn secondary" onClick={() => signOut()} data-testid="account-signout">Sign out</button>
+    <div className={`page account-page${selected ? " has-go" : ""}`}>
+      <div className="account-body">
+        <ProfileCard user={user} onUser={refresh} showToast={showToast} />
+        <section className="section" data-testid="properties-section">
+          <h2>Properties</h2>
+          <PropertyPicker properties={homes} selectedId={selected?.property_id ?? null} onSelect={setSelectedId}>
+            {properties && homes.length === 0 && openClaims.length === 0 && (
+              <div className="row"><span className="meta-line">None yet</span></div>
+            )}
+            {openClaims.map((claim) => (
+              <Link className="row" key={claim.claim_id} to={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
+                <span>{claim.formatted}</span>
+                <span className={`badge ${claim.status}`}>{claim.status}</span>
+              </Link>
+            ))}
+          </PropertyPicker>
+        </section>
+        {properties && (
+          <>
+            <VisibilityCard user={user} property={selected} onUser={refresh} onProperty={patchProperty} showToast={showToast} />
+            <ManageCard property={selected} onProperty={patchProperty} showToast={showToast} />
+          </>
+        )}
+        <div className="action-row account-signout">
+          <button className="btn secondary" onClick={() => signOut()} data-testid="account-signout">Sign out</button>
+        </div>
       </div>
+      {selected && (
+        <div className="manage-cta">
+          {selected.removed ? (
+            <button
+              type="button"
+              className="btn"
+              disabled
+              data-testid="go-to-property"
+              aria-label={`${shortAddress(selected)} is off Myplace`}
+            >
+              Go to property
+            </button>
+          ) : (
+            <Link
+              className="btn"
+              to={`/property/${selected.property_id}`}
+              data-testid="go-to-property"
+              aria-label={`Go to ${shortAddress(selected)}`}
+            >
+              Go to property
+            </Link>
+          )}
+        </div>
+      )}
       {toast && (
         <div className="page-toast" role="status" data-testid="account-toast">{toast}</div>
       )}

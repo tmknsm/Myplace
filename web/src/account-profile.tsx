@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
 import { formatHandle, ownerLabel, ownerPhoto, parseHandle } from "../../shared/profile";
 import { api, type MaintainedProperty, type User } from "./api";
 import { Spinner } from "./components";
@@ -118,16 +117,6 @@ export function PropertyPicker({
                 </span>
               )}
             </button>
-            {!property.removed && (
-              <Link
-                className="picker-open"
-                to={`/property/${property.property_id}`}
-                aria-label={`Open ${property.formatted ?? shortAddress(property)}`}
-                data-testid="picker-open"
-              >
-                <ChevronIcon />
-              </Link>
-            )}
           </div>
         );
       })}
@@ -449,14 +438,6 @@ function CameraIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 8.6h2.1l1.5-2.3h8.8l1.5 2.3H20a2 2 0 0 1 2 2v8.2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10.6a2 2 0 0 1 2-2Z" />
       <circle cx="12" cy="14.2" r="3.2" />
-    </svg>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9 6l6 6-6 6" />
     </svg>
   );
 }
