@@ -1521,10 +1521,12 @@ tr:last-child td { border-bottom: 0; }
   .section-scope,
   .scope-swap { animation: none; }
 }
-.account-page {
+.page.account-page {
   display: flex;
   flex-direction: column;
   min-height: calc(100dvh - var(--topbar-height, 84px));
+  /* Beat `.page`'s bottom padding (including the narrow-screen shorthand) so
+     the sticky Go bar is the last thing in the scroll and does not lift off. */
   padding-bottom: 0;
 }
 .account-body { flex: 1 0 auto; }
@@ -1534,7 +1536,7 @@ tr:last-child td { border-bottom: 0; }
   padding-top: 36px;
   padding-bottom: 28px;
 }
-.account-page.has-go .page-toast {
+.page.account-page.has-go .page-toast {
   bottom: calc(96px + env(safe-area-inset-bottom));
 }
 .page-toast {
@@ -2010,7 +2012,7 @@ tr:last-child td { border-bottom: 0; }
 /* ---- Owner tools pages (documents, maintainers, handoff; notifications) -- */
 /* A flex column so the call to action sits at the viewport bottom on a short
    page and sticks there while a long one scrolls. */
-.manage-page {
+.page.manage-page {
   display: flex;
   flex-direction: column;
   min-height: calc(100dvh - var(--topbar-height, 84px));
@@ -3677,6 +3679,8 @@ html.peek-gated body {
     --page-inline-end: max(var(--pad), env(safe-area-inset-right));
     padding: 20px var(--page-inline-end) 96px var(--page-inline-start);
   }
+  .page.account-page,
+  .page.manage-page { padding-bottom: 0; }
   .profile-hero-band { margin-bottom: 16px; }
   .property-page .profile-hero-band { margin-bottom: 24px; }
   .profile-head { gap: 14px; margin-bottom: 14px; align-items: flex-start; }
