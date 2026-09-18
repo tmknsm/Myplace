@@ -2620,6 +2620,24 @@ a.text-btn { text-decoration: none; }
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
+/* Header, photo, and tallies travel together when you flick the lightbox away. */
+.lightbox-motion {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  transform-origin: center center;
+}
+.lightbox.is-dragging .lightbox-track,
+.lightbox.is-dismissing .lightbox-track {
+  overflow: hidden;
+  scroll-snap-type: none;
+  pointer-events: none;
+}
+.lightbox.is-dragging .lightbox-round,
+.lightbox.is-dragging .lightbox-chip,
+.lightbox.is-dragging .lightbox-pill { transition: none; }
 /* Top bar: close on the left, owner tools (change / delete) on the right as
    chips in the same translucent finish as the tallies below. */
 .lightbox-head {
@@ -2704,6 +2722,7 @@ a.text-btn { text-decoration: none; }
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  touch-action: pan-x;
 }
 .lightbox-track::-webkit-scrollbar { display: none; }
 .lightbox-slide {
@@ -3068,6 +3087,8 @@ html.peek-gated body {
 .sheet-panel.is-wide { width: min(100%, 720px); }
 .sheet-panel.is-half { max-height: min(50dvh, 480px); }
 .sheet-panel.is-closing { animation: pop-out var(--sheet-out) ease-in forwards; }
+/* A drag already parked the panel off-screen; don't restart the close animation. */
+.sheet-panel.is-closing.is-drag-dismiss { animation: none; }
 @keyframes pop-out { to { opacity: 0; transform: translateY(8px) scale(0.98); } }
 .sheet-panel-head {
   display: flex;
@@ -3147,6 +3168,7 @@ html.peek-gated body {
 
 @media (prefers-reduced-motion: reduce) {
   .sheet-backdrop-v2, .sheet-panel, .sheet-panel-title, .sheet-panel-body { animation-duration: 1ms !important; }
+  .lightbox-motion { transition: none !important; }
 }
 
 /* ---- Property page: card system --------------------------------------- */
@@ -3631,6 +3653,7 @@ html.peek-gated body {
     max-height: none;
   }
   .sheet-panel.is-closing { animation: sheet-sink var(--sheet-out) var(--sheet-settle) forwards; }
+  .sheet-panel.is-closing.is-drag-dismiss { animation: none; }
   @keyframes sheet-rise { from { transform: translate3d(0, 100%, 0); } to { transform: none; } }
   @keyframes sheet-sink { to { transform: translate3d(0, 110%, 0); } }
   .sheet-panel-head { padding: 22px 16px 10px; }

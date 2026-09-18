@@ -9,6 +9,7 @@ import { useMeta } from "./meta";
 import { DisputesSection } from "./property-owner";
 import { snapshotPhotoFile } from "./optimize-photo";
 import { SectionNav } from "./section-nav";
+import { useLightboxDismiss } from "./dismiss-gesture";
 import { Sheet, useLockPageScroll, useSheet } from "./sheet";
 import {
   filledTopicFacts,
@@ -3382,8 +3383,8 @@ function PhotoLightbox({
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const trackRef = useRef<HTMLDivElement | null>(null);
   const thumbRef = useRef<HTMLSpanElement | null>(null);
+  const dismiss = useLightboxDismiss(!commentsOpen, onClose);
 
   // Swiping to another photo drops any pending delete confirmation.
   const settle = useCallback((next: number) => {
@@ -3391,21 +3392,21 @@ function PhotoLightbox({
     setConfirm(false);
   }, [onIndex]);
 
-  const goTo = useSnapTrack({ trackRef, thumbRef, count, current, onIndex: settle });
+  const goTo = useSnapTrack({ trackRef: dismiss.trackRef, thumbRef, count, current, onIndex: settle });
   const photoId = photo?.document_id ?? null;
   const engagement = usePhotoEngagement(photoId);
 
   useLockPageScroll(true);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (commentsOpen) return;
+      if (commentsOpen || dismiss.leaving) return;
       if (event.key === "Escape") onClose();
       if (event.key === "ArrowRight") goTo(current + 1);
       if (event.key === "ArrowLeft") goTo(current - 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [commentsOpen, current, goTo, onClose]);
+  }, [commentsOpen, current, dismiss.leaving, goTo, onClose]);
 
   if (!photo) return null;
   const missing = !hasFile(photo);
@@ -3474,7 +3475,21 @@ function PhotoLightbox({
   const counts = engagement.state;
 
   return (
-    <div className="modal-backdrop lightbox" role="dialog" aria-modal="true" aria-label="Photo">
+    <div
+      ref={dismiss.rootRef}
+      className={`modal-backdrop lightbox${dismiss.leaving ? " is-dismissing" : ""}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Photo"
+    >
+      <div
+        ref={dismiss.motionRef}
+        className="lightbox-motion"
+        onPointerDown={dismiss.onPointerDown}
+        onPointerMove={dismiss.onPointerMove}
+        onPointerUp={dismiss.onPointerUp}
+        onPointerCancel={dismiss.onPointerUp}
+      >
       <header className="lightbox-head">
         <button type="button" className="lightbox-round" aria-label="Close" onClick={onClose}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -3523,13 +3538,16 @@ function PhotoLightbox({
         )}
       </header>
       <div className="lightbox-stage">
-        <div ref={trackRef} className="lightbox-track" data-testid="lightbox-track">
+        <div ref={dismiss.trackRef} className="lightbox-track" data-testid="lightbox-track">
           {photos.map((doc, i) => (
             <div
               key={doc.document_id}
               className="lightbox-slide"
               aria-hidden={i !== current}
-              onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+              onClick={(event) => {
+                if (event.target !== event.currentTarget || dismiss.dragged.current || dismiss.leaving) return;
+                onClose();
+              }}
             >
               {hasFile(doc) ? (
                 <img
@@ -3595,6 +3613,7 @@ function PhotoLightbox({
             <span className="visually-hidden">{counts.shares === 1 ? " share" : " shares"}</span>
           </button>
         </div>
+      </div>
       </div>
       <PhotoComments
         photo={photo}
