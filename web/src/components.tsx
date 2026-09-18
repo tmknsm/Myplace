@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { api, type Fact, type SearchHit } from "./api";
+import { api, type Fact, type MaintainedProperty, type NeighborStatus, type SearchHit } from "./api";
+import { useAuth } from "./auth";
 import { useMeta } from "./meta";
+import { useToast } from "./property-shared";
+import { Sheet } from "./sheet";
 
 /** The same ring used in busy buttons, photo tiles, and full-page waits. */
 export function Spinner() {
@@ -67,6 +70,202 @@ export function ShareButton({ propertyId }: { propertyId: string }) {
       </svg>
       <span className="visually-hidden" role="status">{copied ? "Link copied" : ""}</span>
     </button>
+  );
+}
+
+function PeopleIcon() {
+  return (
+    <svg className="neighbor-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15.5 19v-1.1A3.4 3.4 0 0 0 12.1 14.5H7.9A3.4 3.4 0 0 0 4.5 17.9V19" />
+      <circle cx="10" cy="8.2" r="2.7" />
+      <path d="M19.5 19v-1.1a3.4 3.4 0 0 0-2.6-3.3" />
+      <path d="M16.2 5.6a2.7 2.7 0 0 1 0 5.2" />
+    </svg>
+  );
+}
+
+/** Grey house mark used when a neighbor row or tile has no hero photo yet. */
+export function NeighborHouseIcon({ className = "neighbor-tile-icon" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 11.2 12 4l8 7.2" />
+      <path d="M6.5 10.2V20h11V10.2" />
+      <path d="M10 20v-6h4v6" />
+    </svg>
+  );
+}
+
+/** Gear for the private vault and owner tools. Same mark as Share and Neighbor. */
+function SettingsIcon() {
+  return (
+    <svg className="settings-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+    </svg>
+  );
+}
+
+/**
+ * Settings / vault, immediately after Share. Only on houses you maintain —
+ * the complement of Neighbor, which hides on those same pages. Mounts with
+ * the route so the slot opens on page load, not after the property record.
+ */
+export function SettingsButton({ propertyId }: { propertyId: string }) {
+  const { user } = useAuth();
+  const [mine, setMine] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMine(null);
+    if (!user) {
+      setMine(false);
+      return;
+    }
+    api.myProperties().then((data) => {
+      if (!cancelled) setMine(data.properties.some((property) => property.property_id === propertyId));
+    }).catch(() => {
+      if (!cancelled) setMine(false);
+    });
+    return () => { cancelled = true; };
+  }, [propertyId, user?.user_id]);
+
+  if (!mine) return null;
+
+  return (
+    <div className="header-settings">
+      <Link
+        to={`/property/${propertyId}/manage`}
+        className="share-btn settings-btn"
+        aria-label="Settings"
+        title="Settings"
+        data-testid="settings-button"
+      >
+        <SettingsIcon />
+      </Link>
+    </div>
+  );
+}
+
+/** Neighbor the people on this claimed page. Hidden on your own houses, and when signed out. */
+export function NeighborButton({ propertyId }: { propertyId: string }) {
+  const { user } = useAuth();
+  const [status, setStatus] = useState<NeighborStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [homes, setHomes] = useState<MaintainedProperty[] | null>(null);
+  const lastHomes = useRef<MaintainedProperty[]>([]);
+  if (homes && homes.length > 1) lastHomes.current = homes;
+  const [toast, showToast] = useToast();
+  const picking = Boolean(homes && homes.length > 1);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatus(null);
+    setHomes(null);
+    if (!user) return;
+    api.neighborStatus(propertyId).then((data) => {
+      if (!cancelled) setStatus(data.neighbor.status);
+    }).catch(() => {
+      if (!cancelled) setStatus("hidden");
+    });
+    return () => { cancelled = true; };
+  }, [propertyId, user?.user_id]);
+
+  const send = async (fromPropertyId?: string) => {
+    setBusy(true);
+    setHomes(null);
+    try {
+      const result = await api.neighborProperty(propertyId, fromPropertyId);
+      setStatus(result.neighbor.status);
+      showToast(status === "incoming" ? "You're neighbors." : "Neighbor request sent.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Could not send that request.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!user || !status || status === "hidden") return null;
+
+  const label = status === "accepted"
+    ? "Neighbors"
+    : status === "pending"
+      ? "Request sent"
+      : status === "incoming"
+        ? "Approve neighbor"
+        : "Add as neighbor";
+
+  return (
+    <div className="header-neighbor">
+      <button
+        type="button"
+        className={`share-btn neighbor-btn${status === "pending" ? " is-pending" : ""}${status === "accepted" ? " is-accepted" : ""}`}
+        aria-label={label}
+        title={label}
+        disabled={busy}
+        data-testid="neighbor-button"
+        onClick={() => {
+          if (status === "pending") {
+            showToast("Waiting for them to approve.");
+            return;
+          }
+          if (status === "accepted") {
+            showToast("You're already neighbors.");
+            return;
+          }
+          if (homes) {
+            setHomes(null);
+            return;
+          }
+          void (async () => {
+            setBusy(true);
+            try {
+              const mine = await api.myProperties();
+              const choices = mine.properties.filter((property) => property.property_id !== propertyId);
+              if (choices.length === 0) {
+                showToast("Claim a house first so they know which address this is from.");
+                return;
+              }
+              if (choices.length === 1) {
+                await send(choices[0]!.property_id);
+                return;
+              }
+              setHomes(choices);
+            } catch (err) {
+              showToast(err instanceof Error ? err.message : "Could not send that request.");
+            } finally {
+              setBusy(false);
+            }
+          })();
+        }}
+      >
+        <PeopleIcon />
+        <svg className="share-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M5 12.5l4.5 4.5L19 7.5" />
+        </svg>
+      </button>
+      <Sheet
+        open={picking}
+        half
+        title="Add neighbor to"
+        onClose={() => setHomes(null)}
+        testId="neighbor-home-sheet"
+      >
+        <div className="neighbor-home-list">
+          {(homes ?? lastHomes.current).map((home) => (
+            <button
+              key={home.property_id}
+              type="button"
+              className="neighbor-home-option"
+              disabled={busy}
+              onClick={() => void send(home.property_id)}
+            >
+              {home.formatted ?? "Untitled parcel"}
+            </button>
+          ))}
+        </div>
+      </Sheet>
+      {toast && <div className="page-toast" role="status">{toast}</div>}
+    </div>
   );
 }
 

@@ -7,6 +7,7 @@
  */
 import { closeSql, getSql } from "../server/src/db.ts";
 import { insertAssertion } from "../server/src/services/assertions.ts";
+import { DEFAULT_AVATAR_URL } from "../shared/profile.ts";
 import { normalizeRoomDetails } from "../shared/rooms.ts";
 
 const PROPERTY_ID = "prop_76045741fc817ccf3afcfc4c40";
@@ -64,11 +65,19 @@ async function main() {
 
   const [owner] = await sql<{ user_id: string }[]>`
     SELECT user_id FROM property_maintainers
-    WHERE property_id = ${PROPERTY_ID} AND role IN ('owner', 'co_owner')
+    WHERE property_id = ${PROPERTY_ID} AND role IN ('owner', 'co_owner') AND revoked_at IS NULL
     ORDER BY verified_at ASC NULLS LAST
     LIMIT 1
   `;
   if (!owner) throw new Error(`No owner on ${PROPERTY_ID}`);
+
+  await sql`
+    UPDATE users
+    SET handle = COALESCE(handle, 'samellison'),
+        avatar_url = COALESCE(avatar_url, ${DEFAULT_AVATAR_URL})
+    WHERE user_id = ${owner.user_id}
+  `;
+  console.log("owner profile  handle + avatar");
 
   const existing = await sql<{ field_key: string }[]>`
     SELECT field_key FROM assertions

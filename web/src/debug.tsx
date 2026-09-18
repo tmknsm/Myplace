@@ -124,7 +124,7 @@ export function PinClaimModal({
         </div>
         <p className="modal-foot">
           Local development only. In production, this button opens ownership verification.{" "}
-          <Link to={user ? `/property/${propertyId}/claim` : `/signin?next=/property/${propertyId}/claim`} onClick={onClose}>
+          <Link to={user ? `/property/${propertyId}/claim` : `/signup?next=/property/${propertyId}/claim`} onClick={onClose}>
             Use the production claim flow
           </Link>
         </p>

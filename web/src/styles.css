@@ -222,6 +222,7 @@ img, svg { max-width: 100%; }
   border-radius: 50%;
   background: var(--surface-2);
   color: var(--ink);
+  text-decoration: none;
   -webkit-tap-highlight-color: transparent;
   transform-origin: 50% 50%;
   transition: background 160ms ease, box-shadow 160ms ease, transform 160ms var(--share-ease, ease);
@@ -250,9 +251,89 @@ img, svg { max-width: 100%; }
 }
 
 /*
- * Quick add, to the right of share. Same choreography as the share slot, but
- * reversible: the slot widens and the field contracts as the owner's add
- * buttons pass behind the header, and it all folds back when they return.
+ * Settings (your houses) and Neighbor (everyone else's) share the slot
+ * immediately after Share. Same slot-and-pop, a beat later so the pair
+ * lands as two beats instead of at the same instant. They never show
+ * together, so they can share the delay. The plus slot after them still
+ * has 8px when it opens.
+ */
+.header-neighbor,
+.header-settings {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--share-slot);
+  margin-left: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: neighbor-slot-open 320ms var(--share-ease) 70ms both;
+}
+.neighbor-home-list {
+  padding: 4px var(--sheet-inline) calc(16px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px));
+}
+.neighbor-home-option {
+  display: block;
+  width: calc(100% + 2 * var(--sheet-inline));
+  margin: 0 calc(-1 * var(--sheet-inline));
+  padding: 14px var(--sheet-inline);
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 520;
+  text-align: left;
+}
+.neighbor-home-option:last-child { border-bottom: 0; }
+.neighbor-home-option:hover { background: var(--surface-2); }
+.neighbor-home-option:active { background: var(--surface-2); }
+
+.neighbor-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--gutter, 6px);
+}
+.neighbor-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-2);
+  color: var(--muted);
+  text-decoration: none;
+}
+.neighbor-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.neighbor-tile-icon {
+  width: 36%;
+  height: 36%;
+}
+@keyframes neighbor-slot-open {
+  from { width: 0; margin-left: 0; }
+  to { width: var(--share-slot); margin-left: 8px; }
+}
+.header-neighbor .share-btn,
+.header-settings .share-btn {
+  animation-delay: 170ms;
+}
+.neighbor-btn.is-pending { color: var(--muted); }
+.neighbor-btn.is-accepted .neighbor-glyph { opacity: 0; transform: scale(0.6); }
+.neighbor-btn.is-accepted .share-check { opacity: 1; transform: none; }
+
+/*
+ * Quick add, last in the cluster after Share and settings/neighbor. Same
+ * choreography as the share slot, but reversible: the slot widens and the
+ * field contracts as the owner's add buttons pass behind the header, and
+ * it all folds back when they return.
  */
 .header-add-slot {
   flex: 0 0 auto;
@@ -260,7 +341,7 @@ img, svg { max-width: 100%; }
   align-items: center;
 }
 .header-add {
-  --add-gap: 10px;
+  --add-gap: 8px;
   position: relative;
   flex: 0 0 auto;
   width: 0;
@@ -597,6 +678,73 @@ img, svg { max-width: 100%; }
   text-decoration: none;
 }
 .row:hover { background: var(--surface-2); }
+.row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-avatars {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+.row-avatars img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-2);
+  border: 2px solid var(--surface);
+  margin-left: -8px;
+  position: relative;
+}
+.row-avatars img:first-child { margin-left: 0; z-index: 3; }
+.row-avatars img:nth-child(2) { z-index: 2; }
+.row-avatars img:nth-child(3) { z-index: 1; }
+.row:hover .row-avatars img { border-color: var(--surface-2); }
+.neighbor-row { justify-content: flex-start; align-items: flex-start; }
+.neighbor-row .neighbor-avatar { margin-top: 2px; }
+.neighbor-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-2);
+  flex: 0 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--muted);
+}
+.neighbor-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.neighbor-avatar-icon {
+  width: 56%;
+  height: 56%;
+}
+.neighbor-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-decoration: none;
+  color: inherit;
+}
+.neighbor-copy .owner-bylines { margin: 0; }
+.neighbor-copy .row-label { white-space: normal; }
+.neighbor-copy .inbox-actions {
+  margin-top: 6px;
+  justify-content: flex-start;
+}
+.neighbor-row .badge { margin-left: auto; flex-shrink: 0; align-self: center; }
 
 .timeline { list-style: none; padding: 4px 8px 8px 20px; margin: 0; }
 .timeline li {
@@ -1120,6 +1268,269 @@ tr:last-child td { border-bottom: 0; }
   margin-bottom: 18px;
 }
 .profile-title { min-width: 0; flex: 1 1 420px; }
+.owner-bylines {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.owner-byline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 3px 10px 3px 3px;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 520;
+  color: var(--ink);
+  background: var(--surface);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+.owner-byline img {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 16px;
+  background: var(--surface-2);
+}
+/* ---- Account: profile card ------------------------------------------- */
+.profile-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding-top: 8px;
+}
+.profile-card-avatar {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  box-shadow: var(--shadow);
+}
+.profile-card-avatar img {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-2);
+  display: block;
+}
+.profile-card-avatar-cam {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.profile-card-avatar-cam svg {
+  width: 36px;
+  height: 36px;
+  padding: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.profile-card-avatar:hover .profile-card-avatar-cam svg,
+.profile-card-avatar:focus-within .profile-card-avatar-cam svg {
+  background: rgba(255, 255, 255, 0.88);
+}
+.profile-card-avatar-busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  z-index: 1;
+}
+.profile-card-avatar-busy .spinner { width: 22px; height: 22px; color: var(--ink); }
+.profile-card-name {
+  margin: 14px 0 0;
+  overflow-wrap: anywhere;
+}
+.profile-card-sub { margin: 4px 0 0; }
+.profile-card-settings {
+  width: 100%;
+  text-align: left;
+}
+.profile-card-settings .row:hover { background: none; }
+.profile-card-settings strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.profile-card-settings .meta-line { font-size: 13px; }
+.profile-handle-row { display: block; }
+.profile-handle-label { display: block; }
+.profile-handle-label strong { display: block; }
+.profile-handle-accept {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: 0;
+  transition: grid-template-rows 320ms var(--share-ease), margin-top 320ms var(--share-ease);
+}
+.profile-handle-accept.is-on {
+  grid-template-rows: 1fr;
+  margin-top: 12px;
+}
+.profile-handle-accept-slot {
+  overflow: hidden;
+  min-height: 0;
+}
+.profile-handle-accept-btn {
+  width: 100%;
+  min-height: var(--tap);
+  opacity: 0;
+  transform: scale(0.5);
+  visibility: hidden;
+  pointer-events: none;
+  transform-origin: 50% 50%;
+  transition:
+    opacity 140ms ease,
+    transform 200ms var(--share-ease),
+    visibility 0s linear 200ms,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+.profile-handle-accept.is-on .profile-handle-accept-btn {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity 180ms ease 90ms,
+    transform 320ms var(--share-pop) 90ms,
+    visibility 0s,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+.profile-handle-accept.is-on:active .profile-handle-accept-btn {
+  transform: scale(0.94);
+  transition-duration: 80ms;
+}
+.profile-handle {
+  display: flex;
+  align-items: center;
+  margin: 8px 0 6px;
+  background: var(--surface-2);
+  border-radius: 12px;
+  padding-left: 12px;
+}
+.profile-handle-at {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-weight: 520;
+  flex: 0 0 auto;
+}
+.profile-handle .field {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  padding-left: 2px;
+}
+.profile-handle:focus-within {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.profile-handle.is-error,
+.profile-handle.is-error:focus-within {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--danger) 55%, transparent);
+}
+.profile-handle.is-ok,
+.profile-handle.is-ok:focus-within {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--ok) 55%, transparent);
+}
+.profile-handle .field:focus { background: transparent; box-shadow: none; }
+.profile-card-settings .meta-line.is-error { color: var(--danger); }
+.profile-card-settings .meta-line.is-ok { color: var(--ok); }
+.account-page {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--topbar-height, 84px));
+}
+.account-signout {
+  margin-top: auto;
+  justify-content: center;
+  padding-top: 36px;
+}
+.page-toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 40;
+  width: auto;
+  max-width: none;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  box-shadow: var(--shadow), 0 10px 28px rgba(40, 36, 30, 0.18);
+  pointer-events: none;
+  animation: page-toast-in 220ms ease-out;
+}
+@keyframes page-toast-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: transform 160ms ease;
+}
+.switch.on,
+.switch[aria-checked="true"] {
+  background: var(--ok);
+  box-shadow: none;
+}
+.switch.on::after,
+.switch[aria-checked="true"]::after {
+  transform: translateX(18px);
+}
+.switch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.switch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: 2px;
+}
 .profile-title .profile-chips {
   display: flex;
   flex-wrap: wrap;
@@ -1591,14 +2002,23 @@ tr:last-child td { border-bottom: 0; }
 }
 .inbox-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .inbox-row { align-items: flex-start; }
+.inbox-row-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
 .inbox-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   flex-shrink: 0;
 }
+.inbox-row-copy .inbox-actions { margin-top: 6px; }
 .inbox-actions .text-link { margin-left: 0; }
 .manage-cta {
   position: sticky;
@@ -2179,80 +2599,101 @@ a.text-btn { text-decoration: none; }
 .photo-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
 
 /* ---- Lightbox ---------------------------------------------------------- */
-/* Full-bleed viewer. A scroll-snap track (same mechanics as the hero) holds
-   one viewport-wide slide per photo; the photo spans the full width and sits
-   centered, letterboxed top and bottom when its aspect ratio calls for it. */
+/* Full-bleed viewer laid out as a column: a bar of round controls up top, the
+   photo stage in the middle, and a row of tallies (comments, likes, shares)
+   at the bottom. A scroll-snap track (same mechanics as the hero) holds one
+   stage-wide slide per photo; the photo is letterboxed within the stage. */
 /* Must beat `.modal-backdrop` (same file, later): that rule is a dim + blur
    scrim over the page. The lightbox is an opaque black stage instead. */
 .modal-backdrop.lightbox {
-  display: block;
+  --lb-chrome: rgba(255, 255, 255, 0.14);
+  --lb-chrome-hover: rgba(255, 255, 255, 0.22);
+  --lb-ink: #fff;
+  --lb-ink-soft: rgba(255, 255, 255, 0.72);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   padding: 0;
   background: #000;
+  color: var(--lb-ink);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-/* Top bar: owner tools as quiet text links on the left, close on the right.
-   Sits over the stage; the gradient keeps it legible on a bright photo. */
+/* Top bar: close on the left, owner tools (change / delete) on the right as
+   chips in the same translucent finish as the tallies below. */
 .lightbox-head {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  min-height: 56px;
-  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
-  color: #fff;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0));
-  pointer-events: none;
+  gap: 12px;
+  min-height: 64px;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
 }
-.lightbox-head > * { pointer-events: auto; }
-.lightbox-tools {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  min-width: 0;
-  font-size: 15px;
-}
-.lightbox-tools .text-link {
-  margin: 0;
-  min-height: 36px;
-  display: inline-flex;
-  align-items: center;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.lightbox-tools .text-link.danger { color: #ff7b72; }
-.lightbox-tools .text-link:disabled { opacity: 0.5; }
-.lightbox-confirm {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 15px;
-  white-space: nowrap;
-}
-.lightbox-close {
-  flex: 0 0 auto;
+.lightbox-round,
+.lightbox-chip,
+.lightbox-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
   border: 0;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.16);
-  color: #fff;
+  border-radius: 999px;
+  background: var(--lb-chrome);
+  color: var(--lb-ink);
+  font: inherit;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 160ms ease, transform 160ms ease, opacity 160ms ease;
 }
-.lightbox-close svg { width: 18px; height: 18px; display: block; }
-.lightbox-close:hover { background: rgba(255, 255, 255, 0.26); }
+.lightbox-round:hover, .lightbox-chip:hover, .lightbox-pill:hover { background: var(--lb-chrome-hover); }
+.lightbox-round:active, .lightbox-chip:active, .lightbox-pill:active { transform: scale(0.96); transition-duration: 80ms; }
+.lightbox-round:focus-visible, .lightbox-chip:focus-visible, .lightbox-pill:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.6);
+}
+.lightbox-round:disabled, .lightbox-chip:disabled, .lightbox-pill:disabled { opacity: 0.5; cursor: default; transform: none; }
+.lightbox-round {
+  flex: 0 0 auto;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+}
+.lightbox-round svg { width: 20px; height: 20px; display: block; }
+.lightbox-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.lightbox-chip {
+  position: relative;
+  gap: 7px;
+  height: 40px;
+  padding: 0 14px 0 12px;
+  font-size: 14px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+.lightbox-chip svg { width: 17px; height: 17px; flex: 0 0 auto; }
+.lightbox-chip.danger { color: #ff8a80; }
+.lightbox-chip.file-btn { overflow: hidden; }
+.lightbox-chip.file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.lightbox-chip.is-busy { opacity: 0.6; }
+.lightbox-confirm {
+  color: var(--lb-ink-soft);
+  font-size: 14px;
+  white-space: nowrap;
+  margin-right: 4px;
+}
+/* Stage: fills whatever the bars leave. */
+.lightbox-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .lightbox-track {
   position: absolute;
   inset: 0;
@@ -2276,50 +2717,151 @@ a.text-btn { text-decoration: none; }
   align-items: center;
   justify-content: center;
 }
+/* Both max constraints with auto sizing shrink the box to the drawn photo,
+   so its rect is the photo's rect and the dots can be measured against it. */
 .lightbox-slide img {
   display: block;
-  width: 100%;
+  width: auto;
+  height: auto;
+  max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: 0;
   -webkit-user-drag: none;
   user-select: none;
 }
+/* Bottom: the dots, then the three tallies, sitting as low as the safe area
+   allows. The hero dots flow here rather than pinning to a corner. */
 .lightbox-bar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  padding: 56px 16px max(16px, env(safe-area-inset-bottom));
-  color: #fff;
-  text-align: center;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
-  pointer-events: none;
+  gap: 16px;
+  padding: 14px 16px max(10px, env(safe-area-inset-bottom));
 }
-.lightbox-bar > * { pointer-events: auto; }
-/* Reuse the hero dots, but flow them in the bar rather than pinning to the hero. */
 .lightbox-dots {
   position: relative;
   left: auto;
   right: auto;
   bottom: auto;
+  justify-content: center;
   width: max-content;
   max-width: 100%;
 }
-.lightbox-caption {
-  margin: 0;
-  max-width: min(100%, 560px);
-  min-height: calc(14px * 1.4);
-  font-size: 14px;
-  line-height: 1.4;
-  color: rgba(255, 255, 255, 0.78);
-  text-wrap: balance;
+.lightbox-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 480px;
 }
+.lightbox-pill {
+  flex: 1 1 0;
+  gap: 8px;
+  height: 46px;
+  padding: 0 18px;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.lightbox-pill svg { width: 22px; height: 22px; flex: 0 0 auto; transition: transform 200ms var(--share-pop, ease); }
+.lightbox-pill.is-on { color: #ff7b72; }
+.lightbox-pill.is-on svg { animation: share-pop 260ms var(--share-pop, ease) both; }
+.lightbox-count { min-width: 1ch; }
+
+/* Comments sheet over the lightbox. */
+.comment-sheet {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 0 var(--sheet-inline);
+}
+.comment-list { display: flex; flex-direction: column; gap: 16px; flex: 1 1 auto; padding-bottom: 16px; }
+.comment-list .meta-line { margin: 4px 0; }
+.comment-empty { padding: 8px 0 16px; text-align: center; }
+/* The post itself: byline, caption, time, and the three tallies. */
+.comment-post {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+.comment-post-byline { display: flex; align-items: center; gap: 10px; }
+.comment-post-avatar { width: 40px; height: 40px; flex-basis: 40px; }
+.comment-post-who { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.comment-post-who strong { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+.comment-post-who span { font-size: 13px; color: var(--muted); }
+.comment-post-caption { margin: 0; font-size: 17px; line-height: 1.4; letter-spacing: -0.01em; overflow-wrap: anywhere; white-space: pre-line; }
+.comment-post-when { margin: 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.comment-post-tallies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.comment-post-tallies strong { color: var(--ink); font-weight: 650; }
+.comment-row { display: flex; gap: 10px; align-items: flex-start; }
+.comment-copy { min-width: 0; flex: 1 1 auto; }
+.comment-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; color: var(--muted); }
+.comment-meta strong { color: var(--ink); font-weight: 600; }
+.comment-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+a.comment-name:hover strong { text-decoration: underline; }
+a.neighbor-avatar { text-decoration: none; }
+.comment-meta .text-link { margin-left: auto; font-size: 12px; }
+.comment-copy p { margin: 2px 0 0; font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; white-space: pre-line; }
+.comment-like {
+  flex: 0 0 auto;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 32px;
+  margin: -2px -6px 0 0;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.comment-like svg { width: 18px; height: 18px; display: block; }
+.comment-like:hover { background: var(--surface-2); }
+.comment-like.is-on { color: var(--accent); }
+.comment-like.is-on svg { animation: share-pop 260ms var(--share-pop, ease) both; }
+.comment-compose {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: auto calc(-1 * var(--sheet-inline)) 0;
+  padding: 10px var(--sheet-inline) calc(12px + env(safe-area-inset-bottom) + var(--sheet-bleed, 0px));
+  border-top: 1px solid var(--hairline);
+  background: var(--chrome-fill);
+  backdrop-filter: var(--chrome-blur);
+  -webkit-backdrop-filter: var(--chrome-blur);
+}
+.comment-compose .field { flex: 1 1 auto; min-width: 0; border-radius: 999px; }
+.comment-compose .btn { flex: 0 0 auto; border-radius: 999px; }
 
 table small { display: block; }
 
@@ -2524,6 +3066,7 @@ html.peek-gated body {
   touch-action: pan-y;
 }
 .sheet-panel.is-wide { width: min(100%, 720px); }
+.sheet-panel.is-half { max-height: min(50dvh, 480px); }
 .sheet-panel.is-closing { animation: pop-out var(--sheet-out) ease-in forwards; }
 @keyframes pop-out { to { opacity: 0; transform: translateY(8px) scale(0.98); } }
 .sheet-panel-head {
@@ -2580,7 +3123,12 @@ html.peek-gated body {
 .sheet-form .inline-choice { margin-top: 14px; }
 /* Same idea as .manage-cta: the actions sit at the end of the form and stick
    to the bottom of the sheet while the fields scroll underneath. Extra
-   padding covers the phone sheet's off-screen bleed. */
+   padding covers the phone sheet's off-screen bleed. 24px sits outside the
+   bar so the last field doesn't crowd the sticky buttons. */
+.sheet-form > *:has(+ .action-row.sheet-actions),
+.improvement-form > *:has(+ .action-row.sheet-actions) {
+  margin-bottom: 24px;
+}
 .action-row.sheet-actions {
   position: sticky;
   bottom: 0;
@@ -2839,8 +3387,10 @@ html.peek-gated body {
 .property-page .photo-grid.is-catalog.is-public > .photo-card:first-child .photo-open {
   aspect-ratio: 16 / 10;
 }
-.photos-page .back-link { margin-bottom: 12px; }
-.photos-page .section-head h1 {
+.photos-page .back-link,
+.neighbors-page .back-link { margin-bottom: 12px; }
+.photos-page .section-head h1,
+.neighbors-page .section-head h1 {
   font-size: 28px;
   letter-spacing: -0.02em;
   font-weight: 650;
@@ -3074,6 +3624,11 @@ html.peek-gated body {
     border-radius: 24px 24px 0 0;
     box-shadow: 0 -12px 48px rgba(20, 18, 14, 0.3);
     animation: sheet-rise var(--sheet-in) var(--sheet-rise);
+  }
+  .sheet-panel.is-half,
+  .sheet-panel.is-wide.is-half {
+    height: calc(50dvh + var(--sheet-bleed));
+    max-height: none;
   }
   .sheet-panel.is-closing { animation: sheet-sink var(--sheet-out) var(--sheet-settle) forwards; }
   @keyframes sheet-rise { from { transform: translate3d(0, 100%, 0); } to { transform: none; } }
@@ -3764,7 +4319,7 @@ html.home-search-docked .topbar .home-handoff {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .header-share, .share-btn { animation: none; }
+  .header-share, .header-neighbor, .header-settings, .share-btn { animation: none; }
   .header-add, .header-add-btn { transition: none; }
   .home-hero-copy > * { animation: none; }
   .home-chapter,

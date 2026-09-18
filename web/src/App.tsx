@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary } from "./api";
+import { ProfileCard } from "./account-profile";
+import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty } from "./api";
 import { useAuth } from "./auth";
-import { eventLabel, PageSpinner, ParcelMap, SearchBox, ShareButton } from "./components";
+import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, SettingsButton, ShareButton } from "./components";
 import { DebugSheet } from "./debug";
 import { HomePage } from "./home";
 import { useMeta } from "./meta";
-import { PropertyPageView, PropertyPhotosPage } from "./property";
+import { PropertyNeighborsPage, PropertyPageView, PropertyPhotosPage } from "./property";
 import { NotificationsRedirect, PropertyInboxPage, PropertyManagePage } from "./property-manage";
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -22,16 +23,19 @@ function Layout({ children }: { children: React.ReactNode }) {
   const searchOnArrival = useRef(false);
   if (!onAuth) searchOnArrival.current = searchOnThisPage;
   const headerSearch = onAuth ? searchOnArrival.current : searchOnThisPage;
-  // The share button rides beside the search on the property page itself, in
-  // every state. Keyed on the id so the slot re-opens for each page load.
-  // The empty slot after it is where the property page mounts its quick-add
-  // button (a portal) once the owner's add buttons scroll behind the header.
+  // Share, then settings (your houses) or neighbor (everyone else's), ride
+  // beside the search on the property page itself. Keyed on the id so the
+  // slots re-open on page load, not after the record arrives. The empty slot
+  // after them is where the property page mounts its quick-add button once
+  // the owner's add buttons scroll away.
   const propertyId = location.pathname.match(/^\/property\/([^/]+)\/?$/)?.[1] ?? null;
   const share = propertyId ? (
     <>
-      <div className="header-share" key={propertyId}>
+      <div className="header-share" key={`share-${propertyId}`}>
         <ShareButton propertyId={propertyId} />
       </div>
+      <SettingsButton key={`settings-${propertyId}`} propertyId={propertyId} />
+      <NeighborButton key={`neighbor-${propertyId}`} propertyId={propertyId} />
       <div className="header-add-slot" />
     </>
   ) : null;
@@ -161,7 +165,7 @@ function ClaimPage() {
     });
   }, [id]);
 
-  if (!user) return <Navigate to={`/signin?next=/property/${id}/claim`} replace />;
+  if (!user) return <Navigate to={`/signup?next=/property/${id}/claim`} replace />;
 
   const submit = async () => {
     if (!id) return;
@@ -320,6 +324,7 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
   const navigate = useNavigate();
   const [firstName, setFirstName] = useState(params.get("first") ?? "");
   const [lastName, setLastName] = useState(params.get("last") ?? "");
+  const [handle, setHandle] = useState((params.get("handle") ?? "").replace(/^@+/, ""));
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
@@ -344,7 +349,7 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
     return search ? `${path}?${search}` : path;
   };
 
-  const readyToSend = Boolean(email.trim() && (!signup || firstName.trim()));
+  const readyToSend = Boolean(email.trim() && (!signup || (firstName.trim() && handle.trim())));
   const sendCode = async () => {
     if (!readyToSend || busy) return;
     setBusy(true);
@@ -364,9 +369,13 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
       setError("Enter your first name.");
       return;
     }
+    if (signup && !handle.trim()) {
+      setError("Choose a handle.");
+      return;
+    }
     setBusy(true);
     try {
-      await api.verify(email.trim(), code, signup ? { firstName: firstName.trim(), lastName: lastName.trim() } : undefined);
+      await api.verify(email.trim(), code, signup ? { firstName: firstName.trim(), lastName: lastName.trim(), handle: handle.trim() } : undefined);
       await refresh();
       navigate(next);
     } catch (err) {
@@ -445,6 +454,24 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
                     />
                   </label>
                 </div>
+              )}
+              {signup && (
+                <label className="stack">
+                  <span>Handle</span>
+                  <input
+                    className="field"
+                    type="text"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    required
+                    maxLength={24}
+                    value={handle}
+                    onChange={(e) => setHandle(e.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
+                    placeholder="@yourname"
+                  />
+                </label>
               )}
               <label className="stack">
                 <span>Email</span>
@@ -542,8 +569,8 @@ function EyeIcon() {
 }
 
 function AccountPage() {
-  const { user, signOut } = useAuth();
-  const [properties, setProperties] = useState<{ property_id: string; formatted: string | null }[]>([]);
+  const { user, signOut, refresh } = useAuth();
+  const [properties, setProperties] = useState<MaintainedProperty[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
   useEffect(() => {
     if (!user) return;
@@ -551,34 +578,42 @@ function AccountPage() {
     api.myClaims().then((d) => setClaims(d.claims));
   }, [user]);
   if (!user) return <Navigate to="/signin" replace />;
+  const ownedIds = new Set(properties.map((property) => property.property_id));
+  const openClaims = claims.filter((claim) => (
+    !ownedIds.has(claim.property_id) && claim.status !== "superseded" && claim.status !== "revoked"
+  ));
   return (
-    <div className="page">
-      <div className="kicker">Account</div>
-      <h1 className="display">{user.display_name || user.primary_email}</h1>
-      <p className="meta-line">{user.primary_email}</p>
-      <div className="action-row narrow-only">
-        <button className="btn secondary" onClick={() => signOut()}>Sign out</button>
-      </div>
+    <div className="page account-page">
+      <ProfileCard user={user} onUser={refresh} />
       <section className="section">
         <h2>Properties</h2>
         <div className="group">
-          {properties.length === 0 && <div className="row"><span className="meta-line">None yet</span></div>}
-          {properties.map((p) => (
-            <Link className="row" key={p.property_id} to={`/property/${p.property_id}/manage`} data-testid="owned-property">{p.formatted}</Link>
+          {properties.length === 0 && openClaims.length === 0 && (
+            <div className="row"><span className="meta-line">None yet</span></div>
+          )}
+          {properties.map((property) => (
+            <Link className="row" key={property.property_id} to={`/property/${property.property_id}`} data-testid="owned-property">
+              <span className="row-label">{property.formatted}</span>
+              {property.maintainers.length > 0 && (
+                <span className="row-avatars">
+                  {property.maintainers.map((person) => (
+                    <img key={person.user_id} src={person.photo_url} alt={person.label} />
+                  ))}
+                </span>
+              )}
+            </Link>
           ))}
-        </div>
-      </section>
-      <section className="section">
-        <h2>Claims</h2>
-        <div className="group">
-          {claims.map((claim) => (
-            <a className="row" key={claim.claim_id} href={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
+          {openClaims.map((claim) => (
+            <Link className="row" key={claim.claim_id} to={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
               <span>{claim.formatted}</span>
               <span className={`badge ${claim.status}`}>{claim.status}</span>
-            </a>
+            </Link>
           ))}
         </div>
       </section>
+      <div className="action-row account-signout">
+        <button className="btn secondary" onClick={() => signOut()} data-testid="account-signout">Sign out</button>
+      </div>
     </div>
   );
 }
@@ -711,6 +746,7 @@ export function App() {
         <Route path="/map" element={<MapPage />} />
         <Route path="/property/:id" element={<PropertyPageView />} />
         <Route path="/property/:id/photos" element={<PropertyPhotosPage />} />
+        <Route path="/property/:id/neighbors" element={<PropertyNeighborsPage />} />
         <Route path="/property/:id/claim" element={<ClaimPage />} />
         <Route path="/property/:id/claim/:claimId" element={<ClaimStatusPage />} />
         <Route path="/property/:id/manage" element={<PropertyManagePage />} />

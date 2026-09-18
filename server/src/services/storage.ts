@@ -21,6 +21,12 @@ export function documentKey(propertyId: string, documentId: string, filename: st
   return `property-documents/${propertyId}/${documentId}/${safe || "original"}`;
 }
 
+/** Profile photos live beside property documents; the stamp keeps old URLs from caching over a new upload. */
+export function avatarKey(userId: string, filename: string): string {
+  const safe = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+  return `user-avatars/${userId}/${Date.now().toString(36)}-${safe || "avatar"}`;
+}
+
 function missingFile(): Error {
   return Object.assign(new Error("Document file is missing"), { status: 404 });
 }

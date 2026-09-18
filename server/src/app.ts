@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import {
   AppEnv,
+  type AuthedUser,
   attachSessionCookie,
   authMiddleware,
   clearSessionCookie,
@@ -11,6 +12,7 @@ import {
   hashesMatch,
   isMaintainer,
   randomCode,
+  loadUser,
   requireAdmin,
   requireUser,
   upsertUser,
@@ -32,6 +34,7 @@ import {
   sendMail,
 } from "./services/mail.ts";
 import { COUNTY_PROFILES, DEFAULT_MAP, isGeometryQuality } from "./counties.ts";
+import { AVATAR_PRESETS, isAvatarPreset, parseHandle, type AvatarPreset } from "../../shared/profile.ts";
 import { isRoomKind, normalizeRoomDescription, normalizeRoomDetails } from "../../shared/rooms.ts";
 import { isTopicId } from "../../shared/topics.ts";
 import {
@@ -54,8 +57,21 @@ import {
   setCoverPhoto,
   TRANSFERABLE_TYPES,
 } from "./services/owner.ts";
+import { loadMyNeighbors, loadPropertyNeighbors, neighborState, requestNeighborsOnProperty, reviewNeighbor } from "./services/neighbors.ts";
+import {
+  addComment,
+  canSeeDocument,
+  loadComments,
+  loadEngagement,
+  loadPhotoPost,
+  recordShare,
+  removeComment,
+  toggleCommentLike,
+  toggleLike,
+} from "./services/engagement.ts";
 import { addCoMaintainer, grantOwnership, revokeOwnership } from "./services/ownership.ts";
 import {
+  loadMyProperties,
   loadPropertyCore,
   loadPropertyPage,
   parcelsInBbox,
@@ -65,8 +81,9 @@ import {
   TILE_MAX_ZOOM,
   TILE_MIN_ZOOM,
 } from "./services/properties.ts";
-import { storeUpload, type OptimizedPhoto } from "./services/photos.ts";
-import { getDocument } from "./services/storage.ts";
+import { optimizePhoto, storeUpload, type OptimizedPhoto } from "./services/photos.ts";
+import { avatarKey, deleteDocumentObject, getDocument, putDocument } from "./services/storage.ts";
+import { deferTask } from "./runtime.ts";
 import { FIELD_BY_KEY, FIELD_VOCAB, ownerWritable } from "./vocab.ts";
 
 export const app = new Hono<AppEnv>();
@@ -187,13 +204,20 @@ app.post("/api/auth/request-code", async (c) => {
 });
 
 app.post("/api/auth/verify", async (c) => {
-  const body = await c.req.json<{ email?: string; code?: string; firstName?: string; lastName?: string }>();
+  const body = await c.req.json<{ email?: string; code?: string; firstName?: string; lastName?: string; handle?: string }>();
   const email = body.email?.trim().toLowerCase() ?? "";
   const code = (body.code ?? "").replace(/\s/g, "");
   const firstName = body.firstName?.replace(/\s+/g, " ").trim() ?? "";
   const lastName = body.lastName?.replace(/\s+/g, " ").trim() ?? "";
   if (!email || !code) return c.json({ error: "Email and code are required." }, 400);
   if (firstName.length > 80 || lastName.length > 80) return c.json({ error: "That name is too long." }, 400);
+
+  let handle: string | null = null;
+  if (body.handle !== undefined && body.handle !== "") {
+    const parsed = parseHandle(body.handle);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    handle = parsed.handle;
+  }
 
   const sql = getSql();
   const debugBypass = isFixedSignin(email, code);
@@ -210,11 +234,129 @@ app.post("/api/auth/verify", async (c) => {
     }
     await sql`UPDATE auth_codes SET consumed_at = now() WHERE code_id = ${match.code_id}`;
   }
-  const user = await upsertUser(email, { firstName, lastName });
+  if (handle) {
+    const taken = await sql<{ user_id: string }[]>`
+      SELECT user_id FROM users WHERE lower(handle) = ${handle} AND primary_email <> ${email}
+    `;
+    if (taken[0]) return c.json({ error: "That handle is already taken." }, 409);
+  }
+  const user = await upsertUser(email, { firstName, lastName, handle });
   const sessionId = await createSession(user.user_id);
   attachSessionCookie(c, sessionId);
   return c.json({ user });
 });
+
+app.patch("/api/me", async (c) => {
+  const user = requireUser(c);
+  const body = await c.req.json<{ anonymize?: boolean; handle?: string; avatar?: string }>();
+  if (body.anonymize !== undefined && typeof body.anonymize !== "boolean") {
+    return c.json({ error: "Say whether to anonymize." }, 400);
+  }
+  if (body.avatar !== undefined && !isAvatarPreset(body.avatar)) {
+    return c.json({ error: "Unknown photo." }, 400);
+  }
+  if (body.anonymize === undefined && body.handle === undefined && body.avatar === undefined) {
+    return c.json({ error: "Say what to change." }, 400);
+  }
+
+  const sql = getSql();
+  let handle = user.handle;
+  if (body.handle !== undefined && body.handle !== "") {
+    const parsed = parseHandle(body.handle);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    const taken = await sql<{ user_id: string }[]>`
+      SELECT user_id FROM users WHERE lower(handle) = ${parsed.handle} AND user_id <> ${user.user_id}
+    `;
+    if (taken[0]) return c.json({ error: "That handle is already taken." }, 409);
+    handle = parsed.handle;
+  }
+  const anonymize = body.anonymize ?? user.anonymize;
+  if (anonymize && !handle) {
+    return c.json({ error: "Add a handle before you anonymize." }, 400);
+  }
+  await sql`
+    UPDATE users
+    SET anonymize = ${anonymize},
+        handle = ${handle}
+    WHERE user_id = ${user.user_id}
+  `;
+  if (body.avatar !== undefined) {
+    await setAvatar(user, AVATAR_PRESETS[body.avatar as AvatarPreset], null);
+  }
+  const next = await loadUser(user.user_id);
+  return c.json({ user: next });
+});
+
+/** Whether a handle is free. Your own current handle counts as available. */
+app.get("/api/handles/:handle", async (c) => {
+  const parsed = parseHandle(c.req.param("handle"));
+  if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+  const viewer = c.get("user");
+  const taken = await getSql()<{ user_id: string }[]>`
+    SELECT user_id FROM users WHERE lower(handle) = ${parsed.handle}
+  `;
+  const available = !taken[0] || taken[0].user_id === viewer?.user_id;
+  return c.json({ available, handle: parsed.handle });
+});
+
+/** Point the account at a new photo and drop the upload it replaces. */
+async function setAvatar(user: AuthedUser, avatarUrl: string, avatarKey: string | null): Promise<void> {
+  await getSql()`
+    UPDATE users SET avatar_url = ${avatarUrl}, avatar_key = ${avatarKey} WHERE user_id = ${user.user_id}
+  `;
+  if (user.avatar_key && user.avatar_key !== avatarKey) {
+    await deleteDocumentObject(user.avatar_key).catch(() => undefined);
+  }
+}
+
+app.post("/api/me/avatar", async (c) => {
+  const user = requireUser(c);
+  const form = await c.req.parseBody();
+  const file = form.file;
+  if (!(file instanceof File)) return c.json({ error: "Choose a photo." }, 400);
+  if (file.size === 0) return c.json({ error: "That photo was empty. Try choosing it again." }, 400);
+  if (file.size > 20 * 1024 * 1024) return c.json({ error: "Photos must be 20 MB or smaller." }, 400);
+  if (!file.type.startsWith("image/")) return c.json({ error: "Profile photos must be images." }, 400);
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  // Same encoder as property photos, but never the in-isolate WASM path while
+  // the response is pending: a profile picture is not worth an OOM.
+  const stored = await optimizePhoto(bytes, file.type, file.name || "avatar", { wasm: !deferTask() });
+  const key = avatarKey(user.user_id, stored.filename);
+  await putDocument(key, stored.bytes);
+  await setAvatar(user, `/api/users/${user.user_id}/avatar?v=${Date.now().toString(36)}`, key);
+  const next = await loadUser(user.user_id);
+  return c.json({ user: next }, 201);
+});
+
+/** The uploaded profile photo. Public: it sits on the property page byline. */
+app.get("/api/users/:id/avatar", async (c) => {
+  const rows = await getSql()<{ avatar_key: string | null }[]>`
+    SELECT avatar_key FROM users WHERE user_id = ${c.req.param("id")}
+  `;
+  const key = rows[0]?.avatar_key;
+  if (!key) return c.json({ error: "Not found" }, 404);
+  const bytes = await getDocument(key);
+  const body = bytes instanceof Uint8Array ? Uint8Array.from(bytes) : new Uint8Array(bytes);
+  return new Response(body as BodyInit, {
+    headers: {
+      "content-type": mimeFromKey(key),
+      "content-length": String(body.byteLength),
+      "cache-control": "public, max-age=31536000, immutable",
+    },
+  });
+});
+
+function mimeFromKey(key: string): string {
+  const ext = key.split(".").pop()?.toLowerCase();
+  if (ext === "webp") return "image/webp";
+  if (ext === "png") return "image/png";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "heic") return "image/heic";
+  if (ext === "avif") return "image/avif";
+  if (ext === "gif") return "image/gif";
+  return "application/octet-stream";
+}
 
 app.post("/api/auth/sign-out", async (c) => {
   clearSessionCookie(c);
@@ -336,7 +478,7 @@ app.get("/api/properties/:id", async (c) => {
     const dispute = disputes.find((item) => item.fieldKey === fact.fieldKey);
     return dispute ? { ...fact, dispute } : fact;
   });
-  const [improvements, rooms, documents, invitations, invitation, preferences, inbox] = await Promise.all([
+  const [improvements, rooms, documents, invitations, invitation, preferences, inbox, neighbors] = await Promise.all([
     loadImprovements(page.property_id, maintainer),
     loadRooms(page.property_id, maintainer),
     loadDocuments(page.property_id, maintainer),
@@ -344,9 +486,10 @@ app.get("/api/properties/:id", async (c) => {
     user && !maintainer ? pendingInvitationFor(page.property_id, user.primary_email) : Promise.resolve(null),
     maintainer && user ? loadPreferences(user.user_id, page.property_id) : Promise.resolve(null),
     maintainer ? loadInbox(page.property_id) : Promise.resolve([]),
+    loadPropertyNeighbors(page.property_id),
   ]);
   return c.json({
-    property: { ...page, facts, improvements, rooms, documents, invitations, disputes },
+    property: { ...page, facts, improvements, rooms, documents, invitations, disputes, neighbors },
     viewer: {
       maintainer,
       role: role?.role ?? null,
@@ -356,8 +499,77 @@ app.get("/api/properties/:id", async (c) => {
       preferences,
       openClaim,
       inboxCount: inbox.length,
+      neighbor: await neighborState(user?.user_id ?? null, page.property_id, page.maintainers.map((row) => row.user_id), maintainer),
     },
   });
+});
+
+app.get("/api/me/neighbors", async (c) => {
+  const user = requireUser(c);
+  return c.json(await loadMyNeighbors(user.user_id));
+});
+
+app.get("/api/properties/:id/neighbors", async (c) => {
+  const user = requireUser(c);
+  const propertyId = c.req.param("id");
+  const core = await loadPropertyCore(propertyId);
+  if (!core) return c.json({ error: "Property not found" }, 404);
+  if (!(await isMaintainer(user.user_id, propertyId))) {
+    return c.json({ error: "Only a current maintainer can do that." }, 403);
+  }
+  return c.json(await loadMyNeighbors(user.user_id, propertyId));
+});
+
+app.get("/api/properties/:id/neighbor", async (c) => {
+  const user = c.get("user");
+  const propertyId = c.req.param("id");
+  const core = await loadPropertyCore(propertyId);
+  if (!core) return c.json({ error: "Property not found" }, 404);
+  const sql = getSql();
+  const maintainers = await sql<{ user_id: string }[]>`
+    SELECT user_id FROM property_maintainers
+    WHERE property_id = ${propertyId} AND revoked_at IS NULL
+  `;
+  const mine = Boolean(user && maintainers.some((row) => row.user_id === user.user_id));
+  return c.json({
+    neighbor: await neighborState(user?.user_id ?? null, propertyId, maintainers.map((row) => row.user_id), mine),
+  });
+});
+
+app.post("/api/properties/:id/neighbor", async (c) => {
+  const user = requireUser(c);
+  const propertyId = c.req.param("id");
+  const page = await loadPropertyPage(propertyId);
+  if (!page) return c.json({ error: "Property not found" }, 404);
+  if (page.maintainers.length === 0) return c.json({ error: "This address hasn't been claimed yet." }, 400);
+  if (page.maintainers.some((row) => row.user_id === user.user_id)) {
+    return c.json({ error: "This is already your page." }, 400);
+  }
+  const body = await c.req.json<{ fromPropertyId?: string }>().catch(() => ({} as { fromPropertyId?: string }));
+  const result = await requestNeighborsOnProperty(
+    user.user_id,
+    propertyId,
+    page.maintainers.map((row) => row.user_id),
+    body.fromPropertyId,
+  );
+  if ("error" in result) {
+    return c.json(
+      { error: result.error, ...("properties" in result ? { properties: result.properties } : {}) },
+      result.status,
+    );
+  }
+  return c.json(result);
+});
+
+app.post("/api/neighbors/:id/review", async (c) => {
+  const user = requireUser(c);
+  const body = await c.req.json<{ decision?: string }>().catch(() => ({} as { decision?: string }));
+  if (body.decision !== "accepted" && body.decision !== "declined") {
+    return c.json({ error: "Say whether to accept or decline." }, 400);
+  }
+  const result = await reviewNeighbor(user.user_id, c.req.param("id"), body.decision);
+  if ("error" in result) return c.json({ error: result.error }, result.status);
+  return c.json(result);
 });
 
 async function addressOf(propertyId: string): Promise<string> {
@@ -487,16 +699,7 @@ app.get("/api/me/claims", async (c) => {
 
 app.get("/api/me/properties", async (c) => {
   const user = requireUser(c);
-  const sql = getSql();
-  const properties = await sql`
-    SELECT p.property_id, p.municipality, a.formatted, m.role, m.verified_at
-    FROM property_maintainers m
-    JOIN properties p ON p.property_id = m.property_id
-    LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
-    WHERE m.user_id = ${user.user_id} AND m.revoked_at IS NULL
-    ORDER BY a.formatted
-  `;
-  return c.json({ properties });
+  return c.json({ properties: await loadMyProperties(user.user_id) });
 });
 
 app.post("/api/properties/:id/documents", async (c) => {
@@ -649,6 +852,67 @@ app.delete("/api/documents/:id", async (c) => {
     payload: { document_id: doc.document_id, document_type: doc.document_type },
   });
   return c.json({ ok: true });
+});
+
+// ---- Photo engagement: likes, comments, shares -----------------------------
+// Anyone who can see the photo can read its tallies and comments. Liking and
+// commenting need a session; sharing is a plain tally so a visitor's share
+// counts too.
+async function visibleDocument(c: Parameters<typeof requireUser>[0], documentId: string) {
+  const user = c.get("user");
+  const doc = await canSeeDocument(documentId, user ? { user_id: user.user_id, is_admin: user.is_admin } : null);
+  if (!doc) throw Object.assign(new Error("Not found"), { status: 404 });
+  return { user, doc };
+}
+
+app.get("/api/documents/:id/engagement", async (c) => {
+  const documentId = c.req.param("id");
+  const { user } = await visibleDocument(c, documentId);
+  return c.json({ engagement: await loadEngagement(documentId, user?.user_id ?? null) });
+});
+
+app.post("/api/documents/:id/like", async (c) => {
+  const documentId = c.req.param("id");
+  const user = requireUser(c);
+  await visibleDocument(c, documentId);
+  return c.json(await toggleLike(documentId, user.user_id));
+});
+
+app.post("/api/documents/:id/share", async (c) => {
+  const documentId = c.req.param("id");
+  await visibleDocument(c, documentId);
+  return c.json(await recordShare(documentId));
+});
+
+app.get("/api/documents/:id/comments", async (c) => {
+  const documentId = c.req.param("id");
+  const { user } = await visibleDocument(c, documentId);
+  const [post, comments] = await Promise.all([loadPhotoPost(documentId), loadComments(documentId, user?.user_id ?? null)]);
+  return c.json({ post, comments });
+});
+
+app.post("/api/comments/:id/like", async (c) => {
+  const user = requireUser(c);
+  const result = await toggleCommentLike(c.req.param("id"), user.user_id);
+  if ("error" in result) return c.json({ error: result.error }, result.status);
+  return c.json(result);
+});
+
+app.post("/api/documents/:id/comments", async (c) => {
+  const documentId = c.req.param("id");
+  const user = requireUser(c);
+  await visibleDocument(c, documentId);
+  const body = await c.req.json<{ body?: string }>().catch(() => ({} as { body?: string }));
+  const result = await addComment(documentId, user.user_id, typeof body.body === "string" ? body.body : "");
+  if ("error" in result) return c.json({ error: result.error }, 400);
+  return c.json(result, 201);
+});
+
+app.delete("/api/comments/:id", async (c) => {
+  const user = requireUser(c);
+  const result = await removeComment(c.req.param("id"), user);
+  if ("error" in result) return c.json({ error: result.error }, result.status);
+  return c.json(result);
 });
 
 app.post("/api/documents/:id/file", async (c) => {

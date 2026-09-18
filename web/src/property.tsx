@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, type DebugClaimResult, type Doc, type Fact, type FieldVisibility, type Improvement, type PageRefresh, type PropertyPage, type Room, type Viewer } from "./api";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
+import { ApiError, api, type DebugClaimResult, type Doc, type Engagement, type Fact, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PhotoComment, type PhotoPerson, type PhotoPost, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
-import { actorLabel, eventLabel, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
+import { actorLabel, eventLabel, NeighborHouseIcon, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
 import { useMeta } from "./meta";
 import { DisputesSection } from "./property-owner";
@@ -22,6 +22,7 @@ import {
   type TopicField,
   type TopicFieldKind,
 } from "./property-topics";
+import { ownerLabel, ownerPhoto } from "../../shared/profile";
 import { fieldsForRoom, ROOM_KIND_LABEL, ROOM_KINDS, ROOM_PAID_KEY, ROOM_PAID_PUBLIC_KEY, roomPaidCents, roomPaidPublic, type RoomField } from "../../shared/rooms";
 import { isTopicId } from "../../shared/topics";
 import {
@@ -215,6 +216,10 @@ function applyClaimedOwner(data: PageData, result: DebugClaimResult): PageData {
             verified_at: now,
             display_name: result.user.display_name,
             primary_email: result.user.primary_email,
+            handle: result.user.handle,
+            anonymize: result.user.anonymize,
+            label: ownerLabel(result.user),
+            photo_url: ownerPhoto(result.user),
           },
         ],
     },
@@ -224,6 +229,7 @@ function applyClaimedOwner(data: PageData, result: DebugClaimResult): PageData {
       role: data.viewer.role ?? "owner",
       verifiedAt: data.viewer.verifiedAt ?? now,
       openClaim: null,
+      neighbor: { status: "hidden" },
     },
   };
 }
@@ -316,7 +322,17 @@ export function PropertyPageView() {
     await load();
   }, [load]);
 
-  useEffect(() => { setData(null); }, [id]);
+  useEffect(() => {
+    setData(null);
+    setLightbox(null);
+    setHeroIndex(0);
+    setSheet(null);
+    setImprovementFormOpen(false);
+    setRoomFormOpen(false);
+    setPinOpen(false);
+    setPhotoError(null);
+    window.scrollTo(0, 0);
+  }, [id]);
   useEffect(() => { void load({ allowDowngrade: !user }); }, [load, user?.user_id]);
   useOwnershipChanges(id, () => { void load({ allowDowngrade: true }); });
 
@@ -421,7 +437,7 @@ export function PropertyPageView() {
   }, [canQuickAdd]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!data || !id) return <PageSpinner label="Loading record" />;
+  if (!data || !id || !ready) return <PageSpinner label="Loading record" />;
 
   const { property, viewer } = data;
   const owner = Boolean(viewer.maintainer && !viewer.openClaim);
@@ -445,6 +461,10 @@ export function PropertyPageView() {
   const summary = property.facts.find((fact) => fact.fieldKey === SUMMARY_KEY) ?? null;
   const hasSummary = Boolean(summary?.display);
   const maintained = property.maintainers.length > 0;
+  const pagePeople = [...property.maintainers].sort((a, b) => {
+    if (a.role === b.role) return 0;
+    return a.role === "owner" ? -1 : 1;
+  });
   const historicDistrict = isOfficialHistoricDistrict(property.facts);
   // Visitors only see topics with something public in them; the owner sees every card.
   const topicHasPhotos = (topic: Topic) => property.documents.some((doc) => doc.topic_id === topic.id && isImage(doc) && hasFile(doc));
@@ -469,7 +489,7 @@ export function PropertyPageView() {
       setPinOpen(true);
       return;
     }
-    navigate(user ? `/property/${id}/claim` : `/signin?next=/property/${id}/claim`);
+    navigate(user ? `/property/${id}/claim` : `/signup?next=/property/${id}/claim`);
   };
   /** Where the preview's doors lead: into the claim flow, or to the claim already under review. */
   const goClaim = () => {
@@ -517,6 +537,7 @@ export function PropertyPageView() {
 
   const showAbout = owner || hasSummary;
   const showPhotos = owner || gallery.some(hasFile);
+  const showNeighbors = owner || (property.neighbors ?? []).length > 0;
   const showImprovements = owner || property.improvements.length > 0;
   const showSystems = systemsTopics.length > 0;
   const rooms = property.rooms ?? [];
@@ -535,6 +556,7 @@ export function PropertyPageView() {
   const nav: Array<{ id: string; label: string }> = [
     ...(showPhotos || previews("photos") ? [{ id: "photos", label: "Photos" }] : []),
     ...(showAbout ? [{ id: "about", label: "About" }] : []),
+    ...(showNeighbors ? [{ id: "neighbors", label: "Neighbors" }] : []),
     ...(showCharacter || previews("character") ? [{ id: "character", label: "Style" }] : []),
     ...(showRooms || previews("rooms") ? [{ id: "rooms", label: "Rooms" }] : []),
     ...(showImprovements || previews("improvements") ? [{ id: "improvements", label: "Improvements" }] : []),
@@ -603,6 +625,20 @@ export function PropertyPageView() {
 
       <header className="profile-head group">
         <div className="profile-title">
+          {user && pagePeople.length > 0 && (
+            <div className="owner-bylines">
+              {pagePeople.map((person) => (
+                <div
+                  key={person.maintainer_id}
+                  className="owner-byline"
+                  data-testid={person.role === "co_owner" ? "co-owner-byline" : "owner-byline"}
+                >
+                  <img src={person.photo_url} alt="" width={16} height={16} />
+                  <span>{person.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {((maintained && !owner) || historicDistrict) && (
             <div className="profile-chips">
               {maintained && !owner && (
@@ -773,6 +809,10 @@ export function PropertyPageView() {
               onEdit={() => openSheet({ kind: "about" })}
               onChange={refresh}
             />
+          )}
+
+          {showNeighbors && (
+            <NeighborsSection owner={owner} propertyId={id} neighbors={property.neighbors ?? []} />
           )}
 
           {showCharacter && (
@@ -1446,6 +1486,247 @@ function AboutSection({
         </div>
       )}
     </section>
+  );
+}
+
+const NEIGHBOR_PREVIEW_LIMIT = 8;
+
+function neighborTileLabel(neighbor: PropertyNeighbor): string {
+  const street = [neighbor.street_number, neighbor.street_name].filter(Boolean).join(" ");
+  return street || neighbor.formatted || "Neighbor";
+}
+
+
+function NeighborAvatar({ photoUrl }: { photoUrl: string | null }) {
+  return photoUrl ? (
+    <img className="neighbor-avatar" src={photoUrl} alt="" />
+  ) : (
+    <span className="neighbor-avatar" aria-hidden="true">
+      <NeighborHouseIcon className="neighbor-avatar-icon" />
+    </span>
+  );
+}
+
+function NeighborOwnerBadges({ owners }: { owners: NeighborPerson["owners"] }) {
+  if (owners.length === 0) return null;
+  return (
+    <div className="owner-bylines">
+      {owners.map((person) => (
+        <div key={person.user_id} className="owner-byline" data-testid="neighbor-owner-badge">
+          <img src={person.photo_url} alt="" width={16} height={16} />
+          <span>{person.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NeighborRowCopy({ person }: { person: NeighborPerson }) {
+  return (
+    <div className="neighbor-copy">
+      <NeighborOwnerBadges owners={person.owners} />
+      <span className="row-label">{person.label}</span>
+    </div>
+  );
+}
+
+function NeighborsGrid({ neighbors }: { neighbors: PropertyNeighbor[] }) {
+  return (
+    <div className="neighbor-grid" data-testid="neighbor-grid">
+      {neighbors.map((neighbor) => (
+        <Link
+          key={neighbor.property_id}
+          className="neighbor-tile"
+          to={`/property/${neighbor.property_id}`}
+          data-testid="neighbor-tile"
+          aria-label={neighbor.formatted || neighborTileLabel(neighbor)}
+        >
+          {neighbor.photo_url ? (
+            <img src={neighbor.photo_url} alt="" />
+          ) : (
+            <NeighborHouseIcon />
+          )}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function NeighborManageList({
+  incoming,
+  outgoing,
+  neighbors,
+  busy,
+  onReview,
+}: {
+  incoming: NeighborPerson[];
+  outgoing: NeighborPerson[];
+  neighbors: NeighborPerson[];
+  busy: string | null;
+  onReview: (requestId: string, decision: "accepted" | "declined") => void;
+}) {
+  if (incoming.length === 0 && outgoing.length === 0 && neighbors.length === 0) {
+    return (
+      <div className="group empty-card" data-testid="neighbors-empty">
+        None yet. Someone can ask from their page.
+      </div>
+    );
+  }
+  return (
+    <div className="group">
+      {incoming.map((person) => (
+        <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-incoming">
+          <NeighborAvatar photoUrl={person.photo_url} />
+          <div className="neighbor-copy">
+            <NeighborOwnerBadges owners={person.owners} />
+            <span className="row-label">{person.label}</span>
+            <span className="meta-line">Wants to be neighbors</span>
+            <div className="inbox-actions">
+              <button
+                type="button"
+                className="btn small"
+                disabled={busy !== null}
+                data-testid="neighbor-approve"
+                onClick={() => onReview(person.request_id, "accepted")}
+              >
+                {busy === `${person.request_id}:accepted` ? "Saving…" : "Approve"}
+              </button>
+              <button
+                type="button"
+                className="btn secondary small"
+                disabled={busy !== null}
+                data-testid="neighbor-decline"
+                onClick={() => onReview(person.request_id, "declined")}
+              >
+                {busy === `${person.request_id}:declined` ? "Saving…" : "Decline"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ))}
+      {outgoing.map((person) => (
+        <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-outgoing">
+          <NeighborAvatar photoUrl={person.photo_url} />
+          {person.property_id ? (
+            <Link className="neighbor-copy" to={`/property/${person.property_id}`}>
+              <NeighborOwnerBadges owners={person.owners} />
+              <span className="row-label">{person.label}</span>
+            </Link>
+          ) : (
+            <NeighborRowCopy person={person} />
+          )}
+          <span className={`badge ${person.status}`}>{person.status}</span>
+        </div>
+      ))}
+      {neighbors.map((person) => (
+        person.property_id ? (
+          <Link className="row neighbor-row" key={person.request_id} to={`/property/${person.property_id}`} data-testid="neighbor-row">
+            <NeighborAvatar photoUrl={person.photo_url} />
+            <NeighborRowCopy person={person} />
+          </Link>
+        ) : (
+          <div className="row neighbor-row" key={person.request_id} data-testid="neighbor-row">
+            <NeighborAvatar photoUrl={person.photo_url} />
+            <NeighborRowCopy person={person} />
+          </div>
+        )
+      ))}
+    </div>
+  );
+}
+
+function NeighborsSection({ owner, propertyId, neighbors }: { owner: boolean; propertyId: string; neighbors: PropertyNeighbor[] }) {
+  const allHref = `/property/${propertyId}/neighbors`;
+  return (
+    <section className="section" id="neighbors" data-testid="neighbors-section">
+      <div className="section-head">
+        <h2>Neighbors</h2>
+        {(owner || neighbors.length > NEIGHBOR_PREVIEW_LIMIT) && (
+          <div className="section-head-actions">
+            {neighbors.length > NEIGHBOR_PREVIEW_LIMIT && (
+              <Link className="text-btn accent" to={allHref} data-testid="neighbors-view-all">View all</Link>
+            )}
+            {owner && (
+              <Link className="text-btn accent" to={allHref} data-testid="neighbors-edit">Edit</Link>
+            )}
+          </div>
+        )}
+      </div>
+      {neighbors.length > 0 ? (
+        <NeighborsGrid neighbors={neighbors.slice(0, NEIGHBOR_PREVIEW_LIMIT)} />
+      ) : (
+        <div className="group empty-card">None yet. Someone can ask from their page.</div>
+      )}
+    </section>
+  );
+}
+
+export function PropertyNeighborsPage() {
+  const { id } = useParams();
+  const { user } = useAuth();
+  const [data, setData] = useState<PageData | null>(null);
+  const [list, setList] = useState<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!id) return;
+    try {
+      const page = await api.property(id);
+      setData(page);
+      const mine = Boolean(page.viewer.maintainer && !page.viewer.openClaim);
+      setList(mine ? await api.propertyNeighbors(id) : null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load property");
+    }
+  }, [id]);
+
+  useEffect(() => { setData(null); setList(null); }, [id]);
+  useEffect(() => { void load(); }, [load, user?.user_id]);
+
+  const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
+  const tiles = data?.property.neighbors ?? [];
+  const owner = Boolean(data?.viewer.maintainer && !data.viewer.openClaim);
+  useEffect(() => {
+    if (!data) return;
+    const previous = document.title;
+    document.title = `Neighbors · ${title} · Myplace`;
+    return () => { document.title = previous; };
+  }, [data, title]);
+
+  const review = async (requestId: string, decision: "accepted" | "declined") => {
+    setBusy(`${requestId}:${decision}`);
+    try {
+      await api.reviewNeighbor(requestId, decision);
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (error) return <div className="page"><p className="error">{error}</p></div>;
+  if (!data || !id || (owner && !list)) return <PageSpinner label="Loading record" />;
+  if (!owner && tiles.length === 0) return <Navigate to={`/property/${id}`} replace />;
+
+  return (
+    <div className="page property-page neighbors-page">
+      <Link className="back-link" to={`/property/${id}`}>‹ {title}</Link>
+      <div className="section-head">
+        <h1>Neighbors</h1>
+      </div>
+      {owner && list ? (
+        <NeighborManageList
+          incoming={list.incoming}
+          outgoing={list.outgoing}
+          neighbors={list.neighbors}
+          busy={busy}
+          onReview={(requestId, decision) => void review(requestId, decision)}
+        />
+      ) : (
+        <NeighborsGrid neighbors={tiles} />
+      )}
+    </div>
   );
 }
 
@@ -2385,10 +2666,7 @@ function TopicForm({
           </label>
         )}
       </div>
-      <div className="stack inline-choice vis-field">
-        <span>Visibility</span>
-        <VisibilityToggle value={visibility} onChange={setVisibility} />
-      </div>
+      <VisibilityChoice value={visibility} onChange={setVisibility} />
       {error && <p className="error">{error}</p>}
       <div className="action-row compact sheet-actions">
         <button type="submit" className="btn" disabled={busy} data-testid="topic-save">{busy ? "Saving…" : submitLabel}</button>
@@ -3099,8 +3377,11 @@ function PhotoLightbox({
   const count = photos.length;
   const current = Math.max(0, Math.min(index, count - 1));
   const photo = photos[current];
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const thumbRef = useRef<HTMLSpanElement | null>(null);
 
@@ -3111,20 +3392,58 @@ function PhotoLightbox({
   }, [onIndex]);
 
   const goTo = useSnapTrack({ trackRef, thumbRef, count, current, onIndex: settle });
+  const photoId = photo?.document_id ?? null;
+  const engagement = usePhotoEngagement(photoId);
 
   useLockPageScroll(true);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (commentsOpen) return;
       if (event.key === "Escape") onClose();
       if (event.key === "ArrowRight") goTo(current + 1);
       if (event.key === "ArrowLeft") goTo(current - 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [current, goTo, onClose]);
+  }, [commentsOpen, current, goTo, onClose]);
 
   if (!photo) return null;
   const missing = !hasFile(photo);
+
+  const signInFirst = () => {
+    const here = `${window.location.pathname}${window.location.search}`;
+    navigate(`/signin?next=${encodeURIComponent(here)}`);
+  };
+
+  const like = async () => {
+    if (!user) return signInFirst();
+    await engagement.like().catch((error) => {
+      toast(error instanceof Error ? error.message : "Couldn't save that.");
+    });
+  };
+
+  const share = async () => {
+    const url = window.location.href;
+    const title = photo.caption?.trim() || document.title;
+    let shared = false;
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title, url });
+        shared = true;
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+      }
+    }
+    if (!shared) {
+      try {
+        await navigator.clipboard.writeText(url);
+        toast("Link copied.");
+      } catch {
+        window.prompt("Copy this link", url);
+      }
+    }
+    void engagement.share().catch(() => {});
+  };
 
   const replace = async (file: File | undefined) => {
     if (!file) return;
@@ -3152,83 +3471,412 @@ function PhotoLightbox({
     }
   };
 
+  const counts = engagement.state;
+
   return (
     <div className="modal-backdrop lightbox" role="dialog" aria-modal="true" aria-label="Photo">
       <header className="lightbox-head">
-        <div className="lightbox-tools">
-          {owner && (confirm ? (
-            <span className="lightbox-confirm">
-              Delete this photo?
-              <button type="button" className="text-link danger" disabled={busy} onClick={() => void remove()}>{busy ? "Deleting…" : "Delete"}</button>
-              <button type="button" className="text-link" disabled={busy} onClick={() => setConfirm(false)}>Keep</button>
-            </span>
-          ) : (
-            <>
-              <label className={`text-link file-btn ${busy ? "is-busy" : ""}`}>
-                {busy ? "Saving…" : missing ? "Restore" : "Change"}
-                <input
-                  type="file"
-                  accept="image/*"
-                  disabled={busy}
-                  data-testid="photo-replace"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = "";
-                    void replace(file);
-                  }}
-                />
-              </label>
-              <button type="button" className="text-link danger" disabled={busy} data-testid="photo-delete" onClick={() => setConfirm(true)}>Delete</button>
-            </>
-          ))}
-        </div>
-        <button type="button" className="lightbox-close" aria-label="Close" onClick={onClose}>
+        <button type="button" className="lightbox-round" aria-label="Close" onClick={onClose}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
-      </header>
-      <div ref={trackRef} className="lightbox-track" data-testid="lightbox-track">
-        {photos.map((doc, i) => (
-          <div
-            key={doc.document_id}
-            className="lightbox-slide"
-            aria-hidden={i !== current}
-            onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
-          >
-            {hasFile(doc) ? (
-              <img
-                src={fileUrl(doc)}
-                alt={doc.caption ?? doc.original_filename}
-                loading={Math.abs(i - current) <= 1 ? "eager" : "lazy"}
-                draggable={false}
-              />
+        {owner && (
+          <div className="lightbox-tools">
+            {confirm ? (
+              <>
+                <span className="lightbox-confirm">Delete this photo?</span>
+                <button type="button" className="lightbox-chip danger" disabled={busy} onClick={() => void remove()}>
+                  {busy ? "Deleting…" : "Delete"}
+                </button>
+                <button type="button" className="lightbox-chip" disabled={busy} onClick={() => setConfirm(false)}>Keep</button>
+              </>
             ) : (
-              <RestorePhoto doc={doc} busy={busy && i === current} onPick={(file) => void replace(file)} />
+              <>
+                <label className={`lightbox-chip file-btn${busy ? " is-busy" : ""}`}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 7h3l2-2h6l2 2h3v12H4z" />
+                    <circle cx="12" cy="13" r="3.5" />
+                  </svg>
+                  {busy ? "Saving…" : missing ? "Restore" : "Change"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={busy}
+                    data-testid="photo-replace"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      void replace(file);
+                    }}
+                  />
+                </label>
+                <button type="button" className="lightbox-chip danger" disabled={busy} data-testid="photo-delete" onClick={() => setConfirm(true)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
+                  </svg>
+                  Delete
+                </button>
+              </>
             )}
           </div>
-        ))}
+        )}
+      </header>
+      <div className="lightbox-stage">
+        <div ref={trackRef} className="lightbox-track" data-testid="lightbox-track">
+          {photos.map((doc, i) => (
+            <div
+              key={doc.document_id}
+              className="lightbox-slide"
+              aria-hidden={i !== current}
+              onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+            >
+              {hasFile(doc) ? (
+                <img
+                  src={fileUrl(doc)}
+                  alt={doc.caption ?? doc.original_filename}
+                  loading={Math.abs(i - current) <= 1 ? "eager" : "lazy"}
+                  draggable={false}
+                />
+              ) : (
+                <RestorePhoto doc={doc} busy={busy && i === current} onPick={(file) => void replace(file)} />
+              )}
+            </div>
+          ))}
+        </div>
       </div>
       <div className="lightbox-bar">
-        <p className="lightbox-caption">{photo.caption ?? ""}</p>
         {count > 1 && (
           <div className="hero-dots lightbox-dots" role="tablist" aria-label="Photos">
-            <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
-            {photos.map((doc, i) => (
-              <button
-                key={doc.document_id}
-                type="button"
-                role="tab"
-                aria-selected={i === current}
-                aria-label={`Photo ${i + 1}`}
-                className={i === current ? "on" : ""}
-                onClick={() => goTo(i)}
-              />
-            ))}
+            <div className="hero-dots-inner">
+              <span ref={thumbRef} className="hero-dot-thumb" aria-hidden="true" />
+              {photos.map((doc, i) => (
+                <button
+                  key={doc.document_id}
+                  type="button"
+                  role="tab"
+                  aria-selected={i === current}
+                  aria-label={`Photo ${i + 1}`}
+                  className={i === current ? "on" : ""}
+                  onClick={() => goTo(i)}
+                />
+              ))}
+            </div>
           </div>
         )}
+        <div className="lightbox-actions" data-testid="lightbox-actions">
+          <button type="button" className="lightbox-pill" data-testid="photo-comments" onClick={() => setCommentsOpen(true)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1.1-3.9A8 8 0 1 1 20 12z" />
+            </svg>
+            <span className="lightbox-count">{compactCount(counts.comments)}</span>
+            <span className="visually-hidden">{counts.comments === 1 ? " comment" : " comments"}</span>
+          </button>
+          <button
+            type="button"
+            className={`lightbox-pill${counts.liked ? " is-on" : ""}`}
+            aria-pressed={counts.liked}
+            data-testid="photo-like"
+            onClick={() => void like()}
+          >
+            <svg viewBox="0 0 24 24" fill={counts.liked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 20.5s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 8a4.3 4.3 0 0 1 7.5 2.5c0 5.4-7.5 10-7.5 10z" />
+            </svg>
+            <span className="lightbox-count">{compactCount(counts.likes)}</span>
+            <span className="visually-hidden">{counts.likes === 1 ? " like" : " likes"}</span>
+          </button>
+          <button type="button" className="lightbox-pill" data-testid="photo-share" onClick={() => void share()}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="M8 7l4-4 4 4" />
+              <path d="M6 11H5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-1" />
+            </svg>
+            <span className="lightbox-count">{compactCount(counts.shares)}</span>
+            <span className="visually-hidden">{counts.shares === 1 ? " share" : " shares"}</span>
+          </button>
+        </div>
       </div>
+      <PhotoComments
+        photo={photo}
+        tallies={counts}
+        open={commentsOpen}
+        onClose={() => setCommentsOpen(false)}
+        onCount={engagement.setComments}
+        onSignIn={signInFirst}
+        toast={toast}
+      />
     </div>
+  );
+}
+
+/** 1400 → "1.4K", 16000 → "16K", 1_200_000 → "1.2M". Under a thousand stays exact. */
+function compactCount(value: number): string {
+  if (value < 1000) return String(value);
+  const units: Array<[number, string]> = [[1_000_000_000, "B"], [1_000_000, "M"], [1000, "K"]];
+  for (const [size, suffix] of units) {
+    if (value >= size) {
+      const scaled = value / size;
+      const text = scaled >= 10 ? Math.round(scaled).toString() : scaled.toFixed(1).replace(/\.0$/, "");
+      return `${text}${suffix}`;
+    }
+  }
+  return String(value);
+}
+
+/**
+ * Likes, comments and shares for the photo in view. Fetched per photo; likes
+ * flip optimistically and settle on the server's tally.
+ */
+function usePhotoEngagement(documentId: string | null) {
+  const empty = useMemo(() => ({ likes: 0, comments: 0, shares: 0, liked: false }), []);
+  const [state, setState] = useState<Engagement>(empty);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState(empty);
+    if (!documentId) return;
+    api.engagement(documentId).then((data) => {
+      if (!cancelled) setState(data.engagement);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [documentId, empty]);
+
+  const like = useCallback(async () => {
+    if (!documentId) return;
+    setState((prev) => ({ ...prev, liked: !prev.liked, likes: Math.max(0, prev.likes + (prev.liked ? -1 : 1)) }));
+    try {
+      const result = await api.likeDocument(documentId);
+      setState((prev) => ({ ...prev, liked: result.liked, likes: result.likes }));
+    } catch (error) {
+      setState((prev) => ({ ...prev, liked: !prev.liked, likes: Math.max(0, prev.likes + (prev.liked ? -1 : 1)) }));
+      throw error;
+    }
+  }, [documentId]);
+
+  const share = useCallback(async () => {
+    if (!documentId) return;
+    const result = await api.shareDocument(documentId);
+    setState((prev) => ({ ...prev, shares: result.shares }));
+  }, [documentId]);
+
+  const setComments = useCallback((comments: number) => {
+    setState((prev) => ({ ...prev, comments }));
+  }, []);
+
+  return { state, like, share, setComments };
+}
+
+/**
+ * Name and avatar of someone else who commented. Goes to the house they
+ * paired with this photo's property — not whichever address they own first.
+ * Your own comment, and anyone who isn't a neighbor here, stay unlinked.
+ */
+function CommentHouseLink({
+  person,
+  mine,
+  className,
+  children,
+}: {
+  person: PhotoPerson;
+  mine: boolean;
+  className: string;
+  children: ReactNode;
+}) {
+  if (mine || !person.property_id) return <span className={className}>{children}</span>;
+  return (
+    <Link
+      className={className}
+      to={`/property/${person.property_id}`}
+      aria-label={`${person.label}'s house`}
+      data-testid="comment-house"
+    >
+      {children}
+    </Link>
+  );
+}
+
+/**
+ * The photo as a post, in a sheet over the lightbox: who put it up, the
+ * caption, when, the three tallies, then the comments and a reply field.
+ */
+function PhotoComments({
+  photo,
+  tallies,
+  open,
+  onClose,
+  onCount,
+  onSignIn,
+  toast,
+}: {
+  photo: Doc;
+  tallies: Engagement;
+  open: boolean;
+  onClose: () => void;
+  onCount: (count: number) => void;
+  onSignIn: () => void;
+  toast: (message: string) => void;
+}) {
+  const { user } = useAuth();
+  const [post, setPost] = useState<PhotoPost | null>(null);
+  const [comments, setComments] = useState<PhotoComment[] | null>(null);
+  const [draft, setDraft] = useState("");
+  const [posting, setPosting] = useState(false);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setComments(null);
+    api.comments(photo.document_id).then((data) => {
+      if (cancelled) return;
+      setPost(data.post);
+      setComments(data.comments);
+    }).catch(() => {
+      if (!cancelled) setComments([]);
+    });
+    return () => { cancelled = true; };
+  }, [open, photo.document_id]);
+
+  const likeComment = async (comment: PhotoComment) => {
+    if (!user) return onSignIn();
+    const flip = (item: PhotoComment) => ({
+      ...item,
+      liked: !item.liked,
+      likes: Math.max(0, item.likes + (item.liked ? -1 : 1)),
+    });
+    setComments((prev) => (prev ?? []).map((item) => (item.comment_id === comment.comment_id ? flip(item) : item)));
+    try {
+      const result = await api.likeComment(comment.comment_id);
+      setComments((prev) => (prev ?? []).map((item) => (item.comment_id === comment.comment_id ? { ...item, ...result } : item)));
+    } catch (error) {
+      setComments((prev) => (prev ?? []).map((item) => (item.comment_id === comment.comment_id ? flip(item) : item)));
+      toast(error instanceof Error ? error.message : "Couldn't save that.");
+    }
+  };
+
+  // The lightbox tally follows whatever the sheet has loaded, posted or removed.
+  useEffect(() => {
+    if (comments) onCount(comments.length);
+  }, [comments, onCount]);
+
+  const submit = async () => {
+    const body = draft.trim();
+    if (!body || posting) return;
+    setPosting(true);
+    try {
+      const { comment } = await api.addComment(photo.document_id, body);
+      setDraft("");
+      setComments((prev) => [...(prev ?? []), comment]);
+      requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Couldn't post that.");
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const remove = async (commentId: string) => {
+    try {
+      await api.deleteComment(commentId);
+      setComments((prev) => (prev ?? []).filter((comment) => comment.comment_id !== commentId));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Couldn't remove that.");
+    }
+  };
+
+  const count = comments?.length ?? tallies.comments;
+  const caption = (post?.caption ?? photo.caption)?.trim();
+  const posted = post?.created_at ?? photo.created_at;
+  return (
+    <Sheet open={open} title="Comments" onClose={onClose} testId="photo-comments-sheet">
+      <div className="comment-sheet">
+        <div ref={listRef} className="comment-list">
+          <article className="comment-post" data-testid="photo-post">
+            {post?.author && (
+              <div className="comment-post-byline">
+                <span className="neighbor-avatar comment-post-avatar"><img src={post.author.photo_url} alt="" /></span>
+                <div className="comment-post-who">
+                  <strong>{post.author.label}</strong>
+                  {post.author.handle && <span>{post.author.handle}</span>}
+                </div>
+              </div>
+            )}
+            {caption && <p className="comment-post-caption">{caption}</p>}
+            <p className="comment-post-when">
+              {new Date(posted).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} · {dateLabel(posted, { month: "numeric", day: "numeric", year: "2-digit" })}
+            </p>
+            <div className="comment-post-tallies" aria-label="Activity">
+              <span><strong>{compactCount(count)}</strong> {count === 1 ? "comment" : "comments"}</span>
+              <span><strong>{compactCount(tallies.likes)}</strong> {tallies.likes === 1 ? "like" : "likes"}</span>
+              <span><strong>{compactCount(tallies.shares)}</strong> {tallies.shares === 1 ? "share" : "shares"}</span>
+            </div>
+          </article>
+          {comments === null ? (
+            <p className="meta-line">Loading…</p>
+          ) : comments.length === 0 ? (
+            <p className="meta-line comment-empty">No comments yet. Be the first.</p>
+          ) : (
+            comments.map((comment) => (
+              <div key={comment.comment_id} className="comment-row" data-testid="photo-comment">
+                <CommentHouseLink person={comment.author} mine={comment.mine} className="neighbor-avatar">
+                  <img src={comment.author.photo_url} alt="" />
+                </CommentHouseLink>
+                <div className="comment-copy">
+                  <div className="comment-meta">
+                    <CommentHouseLink person={comment.author} mine={comment.mine} className="comment-name">
+                      <strong>{comment.author.label}</strong>
+                      {comment.author.handle && <span className="comment-handle">{comment.author.handle}</span>}
+                    </CommentHouseLink>
+                    <span>· {dateLabel(comment.created_at, { month: "short", day: "numeric" })}</span>
+                    {comment.mine && (
+                      <button type="button" className="text-link danger" onClick={() => void remove(comment.comment_id)}>Remove</button>
+                    )}
+                  </div>
+                  <p>{comment.body}</p>
+                </div>
+                <button
+                  type="button"
+                  className={`comment-like${comment.liked ? " is-on" : ""}`}
+                  aria-pressed={comment.liked}
+                  aria-label={`${comment.liked ? "Unlike" : "Like"} comment by ${comment.author.label}`}
+                  data-testid="comment-like"
+                  onClick={() => void likeComment(comment)}
+                >
+                  <svg viewBox="0 0 24 24" fill={comment.liked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 20.5s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 8a4.3 4.3 0 0 1 7.5 2.5c0 5.4-7.5 10-7.5 10z" />
+                  </svg>
+                  <span>{comment.likes > 0 ? compactCount(comment.likes) : ""}</span>
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+        <form
+          className="comment-compose"
+          onSubmit={(event) => { event.preventDefault(); void submit(); }}
+        >
+          {user ? (
+            <>
+              <input
+                className="field"
+                type="text"
+                value={draft}
+                placeholder="Post your reply"
+                maxLength={600}
+                aria-label="Your comment"
+                data-testid="comment-input"
+                onChange={(event) => setDraft(event.target.value)}
+              />
+              <button type="submit" className="btn small" disabled={!draft.trim() || posting} data-testid="comment-post">
+                {posting ? "Posting…" : "Post"}
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn secondary small" onClick={onSignIn}>Sign in to comment</button>
+          )}
+        </form>
+      </div>
+    </Sheet>
   );
 }
 

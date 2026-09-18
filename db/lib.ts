@@ -124,6 +124,7 @@ export async function recordSnapshot(sql: Sql, snapshotId: string, sourceId: str
 export async function wipePropertyTables(sql: Sql): Promise<void> {
   assertSafeToWipe();
   await sql`DELETE FROM emails`;
+  await sql`DELETE FROM neighbor_requests`;
   await sql`DELETE FROM notification_preferences`;
   await sql`DELETE FROM handoff_invitations`;
   await sql`DELETE FROM contribution_assertions`;

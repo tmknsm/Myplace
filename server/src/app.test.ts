@@ -11,6 +11,7 @@ import { runWithRuntime } from "./runtime.ts";
 import { assembleFacts, type AssertionRow } from "./services/assertions.ts";
 import { memoryStore, type DocumentStore } from "./services/storage.ts";
 import { DEBUG_CLAIM_PIN, TEST_PROD_CODE, TEST_PROD_EMAIL } from "./debug.ts";
+import { ABSTRACT_AVATAR_URL } from "../../shared/profile.ts";
 
 const url = process.env.DATABASE_URL ?? "postgres://ubuntu:myplace@localhost:5432/myplace_test";
 if (isHostedDatabase(url) && !process.env.ALLOW_HOSTED_DB_TESTS) {
@@ -39,6 +40,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await sql`DELETE FROM emails`;
+  await sql`DELETE FROM neighbor_requests`;
   await sql`DELETE FROM notification_preferences`;
   await sql`DELETE FROM handoff_invitations`;
   await sql`DELETE FROM contribution_assertions`;
@@ -89,6 +91,31 @@ async function seedProperty() {
       ('ast_1', 'prop_test', 'assessment.total', '{"value":485000}', 'src_gov', 'government', 'accepted'),
       ('ast_2', 'prop_test', 'year_built', '{"value":1852}', 'src_gov', 'government', 'accepted'),
       ('ast_3', 'prop_test', 'year_built', '{"value":1904}', 'src_bldg', 'government', 'accepted')
+  `;
+}
+
+async function giveHome(userId: string, propertyId: string, formatted: string) {
+  const n = propertyId.replace(/\W/g, "").slice(-8);
+  await sql`INSERT INTO properties (property_id, state, county, municipality) VALUES (${propertyId}, 'NY', 'Columbia', 'Hudson')`;
+  await sql`
+    INSERT INTO property_addresses (address_id, property_id, formatted, street_number, street_name, city)
+    VALUES (${`adr_${n}`}, ${propertyId}, ${formatted}, '12', 'State Street', 'Hudson')
+  `;
+  await sql`
+    INSERT INTO property_maintainers (maintainer_id, property_id, user_id, role)
+    VALUES (${`mnt_${n}`}, ${propertyId}, ${userId}, 'owner')
+  `;
+}
+
+async function giveCover(propertyId: string, documentId: string) {
+  await sql`
+    INSERT INTO documents (
+      document_id, property_id, storage_key, original_filename,
+      mime_type, byte_size, document_type, visibility, is_cover
+    ) VALUES (
+      ${documentId}, ${propertyId}, ${`property-documents/${propertyId}/${documentId}/front.webp`},
+      'front.webp', 'image/webp', 12000, 'photo', 'public', true
+    )
   `;
 }
 
@@ -259,6 +286,9 @@ test("search, property page, and claim review", async () => {
   });
   const mineBody = await mine.json();
   expect(mineBody.properties[0].property_id).toBe("prop_test");
+  expect(mineBody.properties[0].maintainers).toEqual([
+    expect.objectContaining({ role: "owner", photo_url: expect.any(String) }),
+  ]);
 
   const update = await app.request("http://localhost/api/properties/prop_test/owner-fields", {
     method: "POST",
@@ -417,6 +447,141 @@ test("cover photo is served publicly while private photos stay behind sign-in", 
   const afterSwap = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
   const covers = afterSwap.property.documents.filter((d: { is_cover: boolean }) => d.is_cover);
   expect(covers.map((d: { document_id: string }) => d.document_id)).toEqual([privateId]);
+});
+
+test("photo likes, comments and shares tally per photo and respect visibility", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const visitorCookie = await signIn("visitor@example.com");
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const uploadPhoto = async (name: string, visibility: string) => {
+    const form = new FormData();
+    form.append("file", new File([png], name, { type: "image/png" }));
+    form.append("documentType", "photo");
+    form.append("visibility", visibility);
+    const res = await app.request("http://localhost/api/properties/prop_test/documents", {
+      method: "POST",
+      headers: { cookie: ownerCookie },
+      body: form,
+    });
+    expect(res.status).toBe(201);
+    return (await res.json()).documentId as string;
+  };
+  const publicId = await uploadPhoto("front.png", "public");
+  const privateId = await uploadPhoto("boiler.png", "private");
+  const json = { "content-type": "application/json" };
+
+  // Everyone can read a public photo's tallies; they start empty.
+  const fresh = await (await app.request(`http://localhost/api/documents/${publicId}/engagement`)).json();
+  expect(fresh.engagement).toEqual({ likes: 0, comments: 0, shares: 0, liked: false });
+
+  // A private photo stays private, even to a signed-in stranger.
+  expect((await app.request(`http://localhost/api/documents/${privateId}/engagement`)).status).toBe(404);
+  expect((await app.request(`http://localhost/api/documents/${privateId}/engagement`, { headers: { cookie: visitorCookie } })).status).toBe(404);
+  expect((await app.request(`http://localhost/api/documents/${privateId}/engagement`, { headers: { cookie: ownerCookie } })).status).toBe(200);
+
+  // Liking needs a session and toggles.
+  expect((await app.request(`http://localhost/api/documents/${publicId}/like`, { method: "POST" })).status).toBe(401);
+  const liked = await (await app.request(`http://localhost/api/documents/${publicId}/like`, { method: "POST", headers: { cookie: visitorCookie } })).json();
+  expect(liked).toEqual({ liked: true, likes: 1 });
+  await app.request(`http://localhost/api/documents/${publicId}/like`, { method: "POST", headers: { cookie: ownerCookie } });
+  const visitorView = await (await app.request(`http://localhost/api/documents/${publicId}/engagement`, { headers: { cookie: visitorCookie } })).json();
+  expect(visitorView.engagement.likes).toBe(2);
+  expect(visitorView.engagement.liked).toBe(true);
+  const unliked = await (await app.request(`http://localhost/api/documents/${publicId}/like`, { method: "POST", headers: { cookie: visitorCookie } })).json();
+  expect(unliked).toEqual({ liked: false, likes: 1 });
+
+  // Shares are a plain tally anyone can bump.
+  expect((await (await app.request(`http://localhost/api/documents/${publicId}/share`, { method: "POST" })).json()).shares).toBe(1);
+  expect((await (await app.request(`http://localhost/api/documents/${publicId}/share`, { method: "POST" })).json()).shares).toBe(2);
+
+  // Comments: sign in to post, empty bodies bounce, the author's name comes along.
+  expect((await app.request(`http://localhost/api/documents/${publicId}/comments`, { method: "POST", headers: json, body: JSON.stringify({ body: "hi" }) })).status).toBe(401);
+  const blank = await app.request(`http://localhost/api/documents/${publicId}/comments`, {
+    method: "POST",
+    headers: { ...json, cookie: visitorCookie },
+    body: JSON.stringify({ body: "   " }),
+  });
+  expect(blank.status).toBe(400);
+  const posted = await app.request(`http://localhost/api/documents/${publicId}/comments`, {
+    method: "POST",
+    headers: { ...json, cookie: visitorCookie },
+    body: JSON.stringify({ body: "  Love the  porch. " }),
+  });
+  expect(posted.status).toBe(201);
+  const { comment } = await posted.json();
+  expect(comment.body).toBe("Love the porch.");
+  expect(comment.mine).toBe(true);
+  expect(typeof comment.author.label).toBe("string");
+
+  const listed = await (await app.request(`http://localhost/api/documents/${publicId}/comments`)).json();
+  expect(listed.comments.map((c: { comment_id: string }) => c.comment_id)).toEqual([comment.comment_id]);
+  expect(listed.comments[0].mine).toBe(false);
+  expect(listed.comments[0].likes).toBe(0);
+  expect(listed.comments[0].author.property_id).toBeNull();
+  // The post header: the uploader is the author, with the caption and date.
+  expect(listed.post.document_id).toBe(publicId);
+  expect(listed.post.author.label).toBe("owner");
+  expect(listed.post.caption).toBeNull();
+  expect(typeof listed.post.created_at).toBe("string");
+
+  // Comment likes toggle too, and need a session.
+  expect((await app.request(`http://localhost/api/comments/${comment.comment_id}/like`, { method: "POST" })).status).toBe(401);
+  const commentLiked = await (await app.request(`http://localhost/api/comments/${comment.comment_id}/like`, { method: "POST", headers: { cookie: ownerCookie } })).json();
+  expect(commentLiked).toEqual({ liked: true, likes: 1 });
+  const ownerList = await (await app.request(`http://localhost/api/documents/${publicId}/comments`, { headers: { cookie: ownerCookie } })).json();
+  expect(ownerList.comments[0]).toMatchObject({ likes: 1, liked: true, mine: false });
+  const commentUnliked = await (await app.request(`http://localhost/api/comments/${comment.comment_id}/like`, { method: "POST", headers: { cookie: ownerCookie } })).json();
+  expect(commentUnliked).toEqual({ liked: false, likes: 0 });
+  expect((await app.request(`http://localhost/api/comments/cmt_missing/like`, { method: "POST", headers: { cookie: ownerCookie } })).status).toBe(404);
+  const tallied = await (await app.request(`http://localhost/api/documents/${publicId}/engagement`)).json();
+  expect(tallied.engagement).toEqual({ likes: 1, comments: 1, shares: 2, liked: false });
+
+  // Only the author or a maintainer can take a comment down.
+  const stranger = await signIn("stranger@example.com");
+  expect((await app.request(`http://localhost/api/comments/${comment.comment_id}`, { method: "DELETE", headers: { cookie: stranger } })).status).toBe(403);
+  expect((await app.request(`http://localhost/api/comments/${comment.comment_id}`, { method: "DELETE", headers: { cookie: ownerCookie } })).status).toBe(200);
+  const afterRemove = await (await app.request(`http://localhost/api/documents/${publicId}/engagement`)).json();
+  expect(afterRemove.engagement.comments).toBe(0);
+});
+
+test("a commenter's name opens the house they neighbored with, not their other one", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("bob@example.com");
+  const aliceCookie = await signIn("alice@example.com");
+  const [bob] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'bob@example.com'`;
+  const [alice] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'alice@example.com'`;
+  if (!bob || !alice) throw new Error("expected Bob and Alice");
+  await giveHome(alice.user_id, "prop_alice_a", "10 First Street, Hudson, NY 12534");
+  await giveHome(alice.user_id, "prop_alice_b", "20 Second Street, Hudson, NY 12534");
+  await sql`
+    INSERT INTO neighbor_requests (request_id, from_user_id, to_user_id, property_id, from_property_id, status, decided_at)
+    VALUES ('nbr_alice_a', ${alice.user_id}, ${bob.user_id}, 'prop_test', 'prop_alice_a', 'accepted', now())
+  `;
+
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const form = new FormData();
+  form.append("file", new File([png], "front.png", { type: "image/png" }));
+  form.append("documentType", "photo");
+  form.append("visibility", "public");
+  const uploaded = await app.request("http://localhost/api/properties/prop_test/documents", {
+    method: "POST",
+    headers: { cookie: ownerCookie },
+    body: form,
+  });
+  expect(uploaded.status).toBe(201);
+  const { documentId } = await uploaded.json();
+
+  const posted = await app.request(`http://localhost/api/documents/${documentId}/comments`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: aliceCookie },
+    body: JSON.stringify({ body: "Nice stoop." }),
+  });
+  expect(posted.status).toBe(201);
+  expect((await posted.json()).comment.author.property_id).toBe("prop_alice_a");
+
+  const listed = await (await app.request(`http://localhost/api/documents/${documentId}/comments`)).json();
+  expect(listed.comments[0].author.property_id).toBe("prop_alice_a");
 });
 
 test("former owner loses maintainer access after a handoff claim is verified", async () => {
@@ -750,17 +915,215 @@ test("sign-up stores first and last name", async () => {
   res = await app.request("http://localhost/api/auth/verify", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, code, firstName: "Ada", lastName: "Lovelace" }),
+    body: JSON.stringify({ email, code, firstName: "Ada", lastName: "Lovelace", handle: "adalovelace" }),
   });
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.user.first_name).toBe("Ada");
   expect(body.user.last_name).toBe("Lovelace");
   expect(body.user.display_name).toBe("Ada Lovelace");
-  const rows = await sql<{ first_name: string; last_name: string; display_name: string }[]>`
-    SELECT first_name, last_name, display_name FROM users WHERE primary_email = ${email}
+  expect(body.user.handle).toBe("adalovelace");
+  const rows = await sql<{ first_name: string; last_name: string; display_name: string; handle: string }[]>`
+    SELECT first_name, last_name, display_name, handle FROM users WHERE primary_email = ${email}
   `;
-  expect(rows[0]).toEqual({ first_name: "Ada", last_name: "Lovelace", display_name: "Ada Lovelace" });
+  expect(rows[0]).toEqual({ first_name: "Ada", last_name: "Lovelace", display_name: "Ada Lovelace", handle: "adalovelace" });
+});
+
+test("anonymize shows the handle on the public property page", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("owner@example.com");
+  await sql`UPDATE users SET handle = 'hudsonowner', first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
+
+  const named = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(named.property.maintainers[0].label).toBe("Sam Ellison");
+  expect(named.property.maintainers[0].anonymize).toBe(false);
+
+  const hide = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ anonymize: true }),
+  });
+  expect(hide.status).toBe(200);
+  expect((await hide.json()).user.anonymize).toBe(true);
+
+  const hidden = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(hidden.property.maintainers[0].label).toBe("@hudsonowner");
+  expect(hidden.property.maintainers[0].anonymize).toBe(true);
+  expect(hidden.property.maintainers[0].primary_email).toBeUndefined();
+  expect(hidden.property.maintainers[0].display_name).toBeUndefined();
+});
+
+test("owner badge never shows a street address", async () => {
+  await seedProperty();
+  await verifiedOwner("owner@example.com");
+  await sql`
+    UPDATE users
+    SET first_name = NULL, last_name = NULL, handle = 'priyashah',
+        display_name = '134 Warren Street, Hudson, NY'
+    WHERE primary_email = 'owner@example.com'
+  `;
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(page.property.maintainers[0].label).toBe("@priyashah");
+});
+
+test("anonymize swaps the name, never the photo; the photo is its own change", async () => {
+  const cloud = memoryStore();
+  await seedProperty();
+  const cookie = await withStore(cloud, () => verifiedOwner("owner@example.com"));
+  await sql`UPDATE users SET handle = 'hudsonowner', first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
+
+  const before = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  const facePhoto = before.property.maintainers[0].photo_url as string;
+  expect(facePhoto).toMatch(/^https:\/\/images\.unsplash\.com\//);
+
+  const hide = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ anonymize: true }),
+  });
+  expect(hide.status).toBe(200);
+  const hidden = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(hidden.property.maintainers[0].label).toBe("@hudsonowner");
+  expect(hidden.property.maintainers[0].photo_url).toBe(facePhoto);
+
+  const abstract = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ avatar: "abstract" }),
+  });
+  expect(abstract.status).toBe(200);
+  expect((await abstract.json()).user.avatar_url).toBe(ABSTRACT_AVATAR_URL);
+  const marked = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(marked.property.maintainers[0].photo_url).toBe(ABSTRACT_AVATAR_URL);
+
+  const bogus = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ avatar: "https://evil.example/x.png" }),
+  });
+  expect(bogus.status).toBe(400);
+
+  const form = new FormData();
+  form.append("file", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])], "me.jpeg", { type: "image/jpeg" }));
+  const upload = await withStore(cloud, () => app.request("http://localhost/api/me/avatar", {
+    method: "POST",
+    headers: { cookie },
+    body: form,
+  }));
+  expect(upload.status).toBe(201);
+  const uploaded = (await upload.json()).user as { user_id: string; avatar_url: string; avatar_key: string };
+  expect(uploaded.avatar_url).toMatch(new RegExp(`^/api/users/${uploaded.user_id}/avatar\\?v=`));
+  expect(uploaded.avatar_key).toMatch(/^user-avatars\//);
+
+  const file = await withStore(cloud, () => app.request(`http://localhost/api/users/${uploaded.user_id}/avatar`));
+  expect(file.status).toBe(200);
+  expect(file.headers.get("content-type")).toBe("image/jpeg");
+  expect(new Uint8Array(await file.arrayBuffer())).toEqual(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]));
+
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(page.property.maintainers[0].photo_url).toBe(uploaded.avatar_url);
+  expect(page.property.maintainers[0].label).toBe("@hudsonowner");
+
+  const notImage = new FormData();
+  notImage.append("file", new File([new Uint8Array([1, 2, 3])], "deed.pdf", { type: "application/pdf" }));
+  const rejected = await withStore(cloud, () => app.request("http://localhost/api/me/avatar", {
+    method: "POST",
+    headers: { cookie },
+    body: notImage,
+  }));
+  expect(rejected.status).toBe(400);
+
+  // Going back to a preset drops the upload from storage.
+  const reset = await withStore(cloud, () => app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ avatar: "default" }),
+  }));
+  expect(reset.status).toBe(200);
+  expect(await cloud.has(uploaded.avatar_key)).toBe(false);
+  const gone = await withStore(cloud, () => app.request(`http://localhost/api/users/${uploaded.user_id}/avatar`));
+  expect(gone.status).toBe(404);
+});
+
+test("handles are unique and the availability check knows your own", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  await sql`UPDATE users SET handle = 'hudsonowner' WHERE primary_email = 'owner@example.com'`;
+  const otherCookie = await signIn("kelsey@example.com");
+  await sql`UPDATE users SET handle = 'ktmkns' WHERE primary_email = 'kelsey@example.com'`;
+
+  const own = await app.request("http://localhost/api/handles/hudsonowner", { headers: { cookie: ownerCookie } });
+  expect(own.status).toBe(200);
+  expect((await own.json()).available).toBe(true);
+
+  const taken = await app.request("http://localhost/api/handles/ktmkns", { headers: { cookie: ownerCookie } });
+  expect(taken.status).toBe(200);
+  expect((await taken.json()).available).toBe(false);
+
+  const free = await app.request("http://localhost/api/handles/newhandle");
+  expect(free.status).toBe(200);
+  expect((await free.json()).available).toBe(true);
+
+  const junk = await app.request("http://localhost/api/handles/1bad");
+  expect(junk.status).toBe(400);
+
+  const steal = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ handle: "ktmkns" }),
+  });
+  expect(steal.status).toBe(409);
+
+  const rename = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: otherCookie },
+    body: JSON.stringify({ handle: "kelseyt" }),
+  });
+  expect(rename.status).toBe(200);
+  expect((await rename.json()).user.handle).toBe("kelseyt");
+});
+
+test("each maintainer anonymizes independently", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  await sql`UPDATE users SET handle = 'hudsonowner', first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
+
+  const coCookie = await signIn("kelsey@example.com");
+  await sql`UPDATE users SET handle = 'ktmkns', first_name = 'Kelsey', last_name = 'Tomkins', display_name = 'Kelsey Tomkins' WHERE primary_email = 'kelsey@example.com'`;
+  const [co] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'kelsey@example.com'`;
+  if (!co) throw new Error("expected kelsey@example.com");
+  await sql`
+    INSERT INTO property_maintainers (maintainer_id, property_id, user_id, role)
+    VALUES ('mnt_co', 'prop_test', ${co.user_id}, 'co_owner')
+  `;
+
+  const hideOwner = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ anonymize: true }),
+  });
+  expect(hideOwner.status).toBe(200);
+
+  const afterOwner = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  const people = afterOwner.property.maintainers as Array<{ role: string; label: string }>;
+  expect(people.find((row) => row.role === "owner")?.label).toBe("@hudsonowner");
+  expect(people.find((row) => row.role === "co_owner")?.label).toBe("Kelsey Tomkins");
+
+  const mine = await (await app.request("http://localhost/api/me/properties", { headers: { cookie: ownerCookie } })).json();
+  expect(mine.properties[0].maintainers.map((row: { role: string }) => row.role)).toEqual(["owner", "co_owner"]);
+  expect(mine.properties[0].maintainers.every((row: { photo_url: string }) => row.photo_url)).toBe(true);
+
+  const hideCo = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: coCookie },
+    body: JSON.stringify({ anonymize: true }),
+  });
+  expect(hideCo.status).toBe(200);
+
+  const afterBoth = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  const next = afterBoth.property.maintainers as Array<{ role: string; label: string }>;
+  expect(next.find((row) => row.role === "owner")?.label).toBe("@hudsonowner");
+  expect(next.find((row) => row.role === "co_owner")?.label).toBe("@ktmkns");
 });
 
 test("debug sign-in accepts the 000000 shortcut", async () => {
@@ -1160,3 +1523,233 @@ test("improvement amount paid stays private unless the owner toggles it public",
   expect(publicShown.property.improvements[0]?.cost_cents).toBe(1_800_000);
   expect(publicShown.property.improvements[0]?.cost_visibility).toBe("public");
 });
+
+test("neighbors: request from a claimed page, then approve on the profile", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const visitorCookie = await signIn("visitor@example.com");
+  await sql`UPDATE users SET first_name = 'Sam', last_name = 'Ellison', handle = 'hudsonowner' WHERE primary_email = 'owner@example.com'`;
+  await sql`UPDATE users SET first_name = 'Ada', last_name = 'Visitor', handle = 'ada' WHERE primary_email = 'visitor@example.com'`;
+  const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
+  if (!visitor) throw new Error("expected visitor");
+  await giveHome(visitor.user_id, "prop_home", "12 State Street, Hudson, NY 12534");
+  await giveCover("prop_test", "doc_test_cover");
+  await giveCover("prop_home", "doc_home_cover");
+
+  const ownerPage = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
+  expect(ownerPage.viewer.neighbor.status).toBe("hidden");
+  expect((await (await app.request("http://localhost/api/properties/prop_test/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("hidden");
+  expect((await (await app.request("http://localhost/api/properties/prop_test")).json()).viewer.neighbor.status).toBe("hidden");
+  expect((await (await app.request("http://localhost/api/properties/prop_test/neighbor")).json()).neighbor.status).toBe("hidden");
+
+  const before = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();
+  expect(before.viewer.neighbor.status).toBe("none");
+  expect(before.property.neighbors).toEqual([]);
+
+  const sent = await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { cookie: visitorCookie },
+  });
+  expect(sent.status).toBe(200);
+  expect((await sent.json()).neighbor.status).toBe("pending");
+  expect((await (await app.request("http://localhost/api/properties/prop_test")).json()).property.neighbors).toEqual([]);
+
+  const sentList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
+  expect(sentList.outgoing).toHaveLength(1);
+  expect(sentList.outgoing[0].label).toBe("441 Warren Street, Hudson, NY 12534");
+  expect(sentList.outgoing[0].status).toBe("pending");
+  expect(sentList.outgoing[0].photo_url).toBe("/api/documents/doc_test_cover/file?v=12000");
+  expect(sentList.outgoing[0].owners).toEqual([expect.objectContaining({ label: "Sam Ellison" })]);
+
+  const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect(inbox.incoming).toHaveLength(1);
+  expect(inbox.incoming[0].label).toBe("12 State Street, Hudson, NY 12534");
+  expect(inbox.incoming[0].photo_url).toBe("/api/documents/doc_home_cover/file?v=12000");
+  expect(inbox.incoming[0].owners).toEqual([expect.objectContaining({ label: "Ada Visitor" })]);
+  expect(inbox.neighbors).toHaveLength(0);
+
+  const ownerInbox = await (await app.request("http://localhost/api/properties/prop_test/inbox", { headers: { cookie: ownerCookie } })).json();
+  expect(ownerInbox.items).toEqual([expect.objectContaining({
+    kind: "neighbor_request",
+    title: "Neighbor request",
+    neighborRequestId: inbox.incoming[0].request_id,
+    fromPropertyId: "prop_home",
+    actions: ["accept", "decline", "view"],
+  })]);
+  expect(ownerInbox.items[0].body).toContain("Ada Visitor");
+  expect(ownerInbox.items[0].body).toContain("12 State Street");
+  const ownerWaiting = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json();
+  expect(ownerWaiting.viewer.inboxCount).toBe(1);
+
+  const fromHome = await (await app.request("http://localhost/api/properties/prop_home/neighbors", { headers: { cookie: visitorCookie } })).json();
+  expect(fromHome.outgoing).toHaveLength(1);
+  expect(fromHome.outgoing[0].label).toBe("441 Warren Street, Hudson, NY 12534");
+  const onTarget = await (await app.request("http://localhost/api/properties/prop_test/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect(onTarget.incoming).toHaveLength(1);
+  expect((await app.request("http://localhost/api/properties/prop_test/neighbors", { headers: { cookie: visitorCookie } })).status).toBe(403);
+
+  const review = await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ decision: "accepted" }),
+  });
+  expect(review.status).toBe(200);
+
+  const ownerList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect(ownerList.incoming).toHaveLength(0);
+  expect((await (await app.request("http://localhost/api/properties/prop_test/inbox", { headers: { cookie: ownerCookie } })).json()).items).toEqual([]);
+  expect((await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json()).viewer.inboxCount).toBe(0);
+  expect(ownerList.neighbors[0].label).toBe("12 State Street, Hudson, NY 12534");
+  expect(ownerList.neighbors[0].photo_url).toBe("/api/documents/doc_home_cover/file?v=12000");
+  expect(ownerList.neighbors[0].owners).toEqual([expect.objectContaining({ label: "Ada Visitor" })]);
+
+  const visitorList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
+  expect(visitorList.neighbors[0].label).toBe("441 Warren Street, Hudson, NY 12534");
+  expect(visitorList.neighbors[0].photo_url).toBe("/api/documents/doc_test_cover/file?v=12000");
+  expect(visitorList.neighbors[0].owners).toEqual([expect.objectContaining({ label: "Sam Ellison" })]);
+
+  const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();
+  expect(after.viewer.neighbor.status).toBe("accepted");
+  expect((await (await app.request("http://localhost/api/properties/prop_home/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("accepted");
+  expect(after.property.neighbors).toEqual([expect.objectContaining({
+    property_id: "prop_home",
+    formatted: "12 State Street, Hudson, NY 12534",
+  })]);
+  const publicPage = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(publicPage.property.neighbors).toHaveLength(1);
+  const homePage = await (await app.request("http://localhost/api/properties/prop_home")).json();
+  expect(homePage.property.neighbors).toEqual([expect.objectContaining({
+    property_id: "prop_test",
+    formatted: "441 Warren Street, Hudson, NY 12534",
+  })]);
+});
+
+test("neighbors: decline clears the request so they can ask again", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const visitorCookie = await signIn("visitor@example.com");
+  const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
+  if (!visitor) throw new Error("expected visitor");
+  await giveHome(visitor.user_id, "prop_home", "12 State Street, Hudson, NY 12534");
+
+  expect((await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { cookie: visitorCookie },
+  })).status).toBe(200);
+  const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect((await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ decision: "declined" }),
+  })).status).toBe(200);
+  expect((await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json()).incoming).toHaveLength(0);
+
+  const again = await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { cookie: visitorCookie },
+  });
+  expect(again.status).toBe(200);
+  expect((await again.json()).neighbor.status).toBe("pending");
+});
+
+test("neighbors: a connection is only for that address, not every house they own", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const visitorCookie = await signIn("visitor@example.com");
+  const [owner] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'owner@example.com'`;
+  const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
+  if (!owner || !visitor) throw new Error("expected both users");
+  await giveHome(visitor.user_id, "prop_home", "12 State Street, Hudson, NY 12534");
+
+  await sql`INSERT INTO properties (property_id, state, county, municipality) VALUES ('prop_other', 'FL', 'Miami-Dade', 'Miami')`;
+  await sql`
+    INSERT INTO property_addresses (address_id, property_id, formatted, street_number, street_name, city)
+    VALUES ('adr_other', 'prop_other', '200 Ocean Drive, Miami, FL 33139', '200', 'Ocean Drive', 'Miami')
+  `;
+  await sql`
+    INSERT INTO property_maintainers (maintainer_id, property_id, user_id, role)
+    VALUES ('mnt_other', 'prop_other', ${owner.user_id}, 'owner')
+  `;
+
+  expect((await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { cookie: visitorCookie },
+  })).status).toBe(200);
+  const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect((await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ decision: "accepted" }),
+  })).status).toBe(200);
+
+  expect((await (await app.request("http://localhost/api/properties/prop_test/neighbor", { headers: { cookie: visitorCookie } })).json()).neighbor.status).toBe("accepted");
+  expect((await (await app.request("http://localhost/api/properties/prop_other/neighbor", { headers: { cookie: visitorCookie } })).json()).neighbor.status).toBe("none");
+  expect((await (await app.request("http://localhost/api/properties/prop_home/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("accepted");
+  expect((await (await app.request("http://localhost/api/properties/prop_test")).json()).property.neighbors.map((row: { property_id: string }) => row.property_id)).toEqual(["prop_home"]);
+  expect((await (await app.request("http://localhost/api/properties/prop_other")).json()).property.neighbors).toEqual([]);
+  expect((await (await app.request("http://localhost/api/properties/prop_other/neighbors", { headers: { cookie: ownerCookie } })).json()).neighbors).toEqual([]);
+  expect((await (await app.request("http://localhost/api/properties/prop_test/neighbors", { headers: { cookie: ownerCookie } })).json()).neighbors).toHaveLength(1);
+});
+
+test("neighbors: requester with two houses must say which one the pair is from", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const visitorCookie = await signIn("visitor@example.com");
+  const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
+  if (!visitor) throw new Error("expected visitor");
+  await giveHome(visitor.user_id, "prop_home_a", "10 First Street, Hudson, NY 12534");
+  await giveHome(visitor.user_id, "prop_home_b", "20 Second Street, Hudson, NY 12534");
+
+  const missing = await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: visitorCookie },
+    body: JSON.stringify({}),
+  });
+  expect(missing.status).toBe(409);
+  expect((await missing.json()).properties).toHaveLength(2);
+
+  expect((await app.request("http://localhost/api/properties/prop_test/neighbor", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: visitorCookie },
+    body: JSON.stringify({ fromPropertyId: "prop_home_a" }),
+  })).status).toBe(200);
+  const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect(inbox.incoming[0].label).toBe("10 First Street, Hudson, NY 12534");
+  expect((await app.request(`http://localhost/api/neighbors/${inbox.incoming[0].request_id}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ decision: "accepted" }),
+  })).status).toBe(200);
+
+  expect((await (await app.request("http://localhost/api/properties/prop_home_a/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("accepted");
+  expect((await (await app.request("http://localhost/api/properties/prop_home_b/neighbor", { headers: { cookie: ownerCookie } })).json()).neighbor.status).toBe("none");
+  expect((await (await app.request("http://localhost/api/properties/prop_test")).json()).property.neighbors.map((row: { property_id: string }) => row.property_id)).toEqual(["prop_home_a"]);
+  expect((await (await app.request("http://localhost/api/properties/prop_home_b")).json()).property.neighbors).toEqual([]);
+  expect((await (await app.request("http://localhost/api/properties/prop_home_a/neighbors", { headers: { cookie: visitorCookie } })).json()).neighbors).toHaveLength(1);
+  expect((await (await app.request("http://localhost/api/properties/prop_home_b/neighbors", { headers: { cookie: visitorCookie } })).json()).neighbors).toEqual([]);
+});
+
+test("neighbors: a property page lists every confirmed house, including past eight", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const [owner] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'owner@example.com'`;
+  if (!owner) throw new Error("expected owner");
+
+  for (let i = 0; i < 9; i += 1) {
+    const email = `n${i}@example.com`;
+    await signIn(email);
+    const [person] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = ${email}`;
+    if (!person) throw new Error("expected neighbor");
+    const homeId = `prop_n${i}`;
+    await giveHome(person.user_id, homeId, `${10 + i} Neighbor Street, Hudson, NY 12534`);
+    await sql`
+      INSERT INTO neighbor_requests (request_id, from_user_id, to_user_id, property_id, from_property_id, status, decided_at)
+      VALUES (${`nbr_n${i}`}, ${person.user_id}, ${owner.user_id}, 'prop_test', ${homeId}, 'accepted', now())
+    `;
+  }
+
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(page.property.neighbors).toHaveLength(9);
+  expect(page.property.neighbors[0].formatted).toMatch(/Neighbor Street/);
+});
+

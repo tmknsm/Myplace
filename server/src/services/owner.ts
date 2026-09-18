@@ -1,3 +1,4 @@
+import { ownerLabel } from "../../../shared/profile.ts";
 import { getSql } from "../db.ts";
 import { id } from "../ids.ts";
 import { FIELD_BY_KEY, formatFieldValue, ownerWritable } from "../vocab.ts";
@@ -241,7 +242,7 @@ export async function loadOpenDisputes(propertyId: string): Promise<DisputeView[
 }
 
 export type InboxAction = "accept" | "decline" | "withdraw" | "view";
-export type InboxKind = "contribution_request" | "dispute" | "notice";
+export type InboxKind = "contribution_request" | "dispute" | "notice" | "neighbor_request";
 
 export interface InboxItem {
   id: string;
@@ -254,6 +255,8 @@ export interface InboxItem {
   proposedValue: unknown;
   note: string | null;
   contributionId: string | null;
+  neighborRequestId: string | null;
+  fromPropertyId: string | null;
   actions: InboxAction[];
 }
 
@@ -265,9 +268,9 @@ function formatProposed(fieldKey: string, value: unknown): string | null {
 }
 
 /**
- * Messages a maintainer may need to act on: third-party change requests they
- * can accept or decline, their own disputes waiting on the records desk, and
- * official-record notices.
+ * Messages a maintainer may need to act on: neighbor requests, third-party
+ * change requests they can accept or decline, their own disputes waiting on
+ * the records desk, and official-record notices.
  */
 export async function loadInbox(propertyId: string): Promise<InboxItem[]> {
   const sql = getSql();
@@ -317,6 +320,8 @@ export async function loadInbox(propertyId: string): Promise<InboxItem[]> {
       proposedValue: proposed,
       note,
       contributionId: row.contribution_id,
+      neighborRequestId: null,
+      fromPropertyId: null,
       actions: ownerDispute ? ["withdraw", "view"] : ["accept", "decline", "view"],
     };
   });
@@ -351,7 +356,48 @@ export async function loadInbox(propertyId: string): Promise<InboxItem[]> {
       proposedValue: null,
       note: null,
       contributionId: null,
+      neighborRequestId: null,
+      fromPropertyId: null,
       actions: ["view"],
+    });
+  }
+
+  const neighborRequests = await sql<{
+    request_id: string;
+    created_at: string;
+    from_property_id: string | null;
+    formatted: string | null;
+    display_name: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    handle: string | null;
+    anonymize: boolean;
+  }[]>`
+    SELECT r.request_id, r.created_at, r.from_property_id, a.formatted,
+           u.display_name, u.first_name, u.last_name, u.handle, u.anonymize
+    FROM neighbor_requests r
+    JOIN users u ON u.user_id = r.from_user_id
+    LEFT JOIN property_addresses a ON a.property_id = r.from_property_id AND a.is_current
+    WHERE r.property_id = ${propertyId} AND r.status = 'pending'
+    ORDER BY r.created_at DESC
+  `;
+  for (const row of neighborRequests) {
+    const who = ownerLabel(row);
+    const where = row.formatted;
+    items.push({
+      id: `nbr:${row.request_id}`,
+      kind: "neighbor_request",
+      title: "Neighbor request",
+      body: where ? `${who} at ${where} wants to be neighbors.` : `${who} wants to be neighbors.`,
+      createdAt: row.created_at,
+      fieldKey: null,
+      fieldLabel: null,
+      proposedValue: null,
+      note: null,
+      contributionId: null,
+      neighborRequestId: row.request_id,
+      fromPropertyId: row.from_property_id,
+      actions: row.from_property_id ? ["accept", "decline", "view"] : ["accept", "decline"],
     });
   }
 

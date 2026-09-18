@@ -50,9 +50,20 @@ export const api = {
   me: () => request<{ user: User | null }>("/api/auth/me"),
   requestCode: (email: string) =>
     request<{ ok: boolean }>("/api/auth/request-code", { method: "POST", body: JSON.stringify({ email }) }),
-  verify: (email: string, code: string, names?: { firstName?: string; lastName?: string }) =>
+  verify: (email: string, code: string, names?: { firstName?: string; lastName?: string; handle?: string }) =>
     request<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ email, code, ...names }) }),
   signOut: () => request<{ ok: boolean }>("/api/auth/sign-out", { method: "POST" }),
+  updateMe: (body: { anonymize?: boolean; handle?: string; avatar?: "abstract" | "default" }) =>
+    request<{ user: User }>("/api/me", { method: "PATCH", body: JSON.stringify(body) }),
+  handleAvailable: (handle: string) =>
+    request<{ available: boolean; handle: string }>(`/api/handles/${encodeURIComponent(handle)}`),
+  uploadAvatar: async (file: File) => {
+    const { optimizePhotoFile } = await import("./optimize-photo");
+    const photo = await optimizePhotoFile(file);
+    const form = new FormData();
+    form.append("file", photo);
+    return request<{ user: User }>("/api/me/avatar", { method: "POST", body: form });
+  },
   search: (q: string) => request<{ results: SearchHit[] }>(`/api/search?q=${encodeURIComponent(q)}`),
   parcels: (bbox: string) => request<ParcelCollection>(`/api/parcels?bbox=${bbox}`),
   property: (id: string) => request<{ property: PropertyPage; viewer: Viewer }>(`/api/properties/${id}`),
@@ -64,6 +75,19 @@ export const api = {
   claim: (id: string) => request<{ claim: Claim; documents: Doc[] }>(`/api/claims/${id}`),
   myClaims: () => request<{ claims: Claim[] }>("/api/me/claims"),
   myProperties: () => request<{ properties: MaintainedProperty[] }>("/api/me/properties"),
+  myNeighbors: () => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>("/api/me/neighbors"),
+  propertyNeighbors: (id: string) => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>(`/api/properties/${id}/neighbors`),
+  neighborStatus: (id: string) => request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`),
+  neighborProperty: (id: string, fromPropertyId?: string) =>
+    request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`, {
+      method: "POST",
+      body: JSON.stringify(fromPropertyId ? { fromPropertyId } : {}),
+    }),
+  reviewNeighbor: (id: string, decision: "accepted" | "declined") =>
+    request<{ ok: boolean; decision: string }>(`/api/neighbors/${id}/review`, {
+      method: "POST",
+      body: JSON.stringify({ decision }),
+    }),
   upload: async (propertyId: string, file: File, fields: Record<string, string>) => {
     const { optimizePhotoFile } = await import("./optimize-photo");
     const photo = await optimizePhotoFile(file);
@@ -83,6 +107,14 @@ export const api = {
     return request<{ ok: boolean }>(`/api/documents/${id}/file`, { method: "POST", body: form });
   },
   deleteDocument: (id: string) => request<{ ok: boolean }>(`/api/documents/${id}`, { method: "DELETE" }),
+  engagement: (id: string) => request<{ engagement: Engagement }>(`/api/documents/${id}/engagement`),
+  likeDocument: (id: string) => request<{ liked: boolean; likes: number }>(`/api/documents/${id}/like`, { method: "POST" }),
+  shareDocument: (id: string) => request<{ shares: number }>(`/api/documents/${id}/share`, { method: "POST" }),
+  comments: (id: string) => request<{ post: PhotoPost | null; comments: PhotoComment[] }>(`/api/documents/${id}/comments`),
+  likeComment: (id: string) => request<{ liked: boolean; likes: number }>(`/api/comments/${id}/like`, { method: "POST" }),
+  addComment: (id: string, body: string) =>
+    request<{ comment: PhotoComment }>(`/api/documents/${id}/comments`, { method: "POST", body: JSON.stringify({ body }) }),
+  deleteComment: (id: string) => request<{ ok: boolean }>(`/api/comments/${id}`, { method: "DELETE" }),
   saveOwnerFields: (id: string, fields: Record<string, unknown>, visibility?: FieldVisibility) =>
     request<{ contributionId: string | null; updated: number; removed: number }>(`/api/properties/${id}/owner-fields`, {
       method: "POST",
@@ -183,7 +215,27 @@ export interface User {
   display_name: string | null;
   first_name: string | null;
   last_name: string | null;
+  handle: string | null;
+  anonymize: boolean;
+  avatar_url: string | null;
+  avatar_key: string | null;
   is_admin: boolean;
+}
+
+export interface Maintainer {
+  maintainer_id: string;
+  user_id: string;
+  role: string;
+  verified_at: string;
+  handle: string | null;
+  anonymize: boolean;
+  label: string;
+  photo_url: string;
+  display_name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  primary_email?: string;
+  avatar_url?: string | null;
 }
 
 export interface SearchHit {
@@ -204,10 +256,42 @@ export interface Viewer {
   preferences: Record<string, string> | null;
   openClaim: { claim_id: string; status: string } | null;
   inboxCount?: number;
+  neighbor?: NeighborState;
+}
+
+export type NeighborStatus = "hidden" | "none" | "pending" | "incoming" | "accepted";
+
+export interface NeighborState {
+  status: NeighborStatus;
+}
+
+export interface NeighborOwner {
+  user_id: string;
+  label: string;
+  photo_url: string;
+}
+
+export interface NeighborPerson {
+  request_id: string;
+  user_id: string;
+  label: string;
+  photo_url: string | null;
+  owners: NeighborOwner[];
+  status: string;
+  created_at: string;
+  property_id: string | null;
+}
+
+export interface PropertyNeighbor {
+  property_id: string;
+  formatted: string | null;
+  street_number: string | null;
+  street_name: string | null;
+  photo_url: string | null;
 }
 
 export type InboxAction = "accept" | "decline" | "withdraw" | "view";
-export type InboxKind = "contribution_request" | "dispute" | "notice";
+export type InboxKind = "contribution_request" | "dispute" | "notice" | "neighbor_request";
 
 export interface InboxItem {
   id: string;
@@ -220,6 +304,8 @@ export interface InboxItem {
   proposedValue: unknown;
   note: string | null;
   contributionId: string | null;
+  neighborRequestId: string | null;
+  fromPropertyId: string | null;
   actions: InboxAction[];
 }
 
@@ -361,7 +447,7 @@ export interface PropertyPage {
     effective_at: string | null;
     created_at: string;
   }>;
-  maintainers: Array<{ maintainer_id: string; user_id: string; role: string; verified_at: string; display_name: string | null; primary_email: string }>;
+  maintainers: Maintainer[];
   coverage: Record<string, string>;
   historyNote: string;
   improvements: Improvement[];
@@ -369,6 +455,7 @@ export interface PropertyPage {
   documents: Doc[];
   invitations: Invitation[];
   disputes: Dispute[];
+  neighbors: PropertyNeighbor[];
 }
 
 export interface Claim {
@@ -403,6 +490,38 @@ export interface Doc {
   created_at: string;
 }
 
+export interface Engagement {
+  likes: number;
+  comments: number;
+  shares: number;
+  liked: boolean;
+}
+
+export interface PhotoPerson {
+  user_id: string;
+  label: string;
+  handle: string | null;
+  photo_url: string;
+  property_id: string | null;
+}
+
+export interface PhotoComment {
+  comment_id: string;
+  body: string;
+  created_at: string;
+  mine: boolean;
+  likes: number;
+  liked: boolean;
+  author: PhotoPerson;
+}
+
+export interface PhotoPost {
+  document_id: string;
+  caption: string | null;
+  created_at: string;
+  author: PhotoPerson | null;
+}
+
 export type PageRefresh = (patch?: (property: PropertyPage) => PropertyPage) => Promise<void> | void;
 
 export interface MaintainedProperty {
@@ -410,6 +529,7 @@ export interface MaintainedProperty {
   formatted: string | null;
   municipality: string | null;
   role: string;
+  maintainers: Maintainer[];
 }
 
 export interface MailSummary {
