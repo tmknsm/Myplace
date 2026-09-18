@@ -1664,7 +1664,7 @@ test("room photos stay with the room and follow its visibility", async () => {
   expect(gone.property.documents.map((doc) => doc.document_id)).not.toContain(documentId);
 });
 
-test("posts: an owner's photos and caption show on the page, newest first, and stay in Photos after the post is gone", async () => {
+test("posts: an owner's photos and caption show on the page, newest first, and come off together", async () => {
   await seedProperty();
   const cookie = await verifiedOwner("poster@example.com", "poster-desk@example.com");
   await sql`UPDATE users SET first_name = 'Sam', last_name = 'Ellison', handle = 'samwrites' WHERE primary_email = 'poster@example.com'`;
@@ -1756,13 +1756,14 @@ test("posts: an owner's photos and caption show on the page, newest first, and s
   const hidden = await (await app.request("http://localhost/api/properties/prop_test/posts")).json() as { posts: PostView[] };
   expect(hidden.posts[1]?.author?.label).toBe("@samwrites");
 
-  // Only a maintainer removes a post. Its photos stay in the library.
+  // Only a maintainer removes a post, and its photos leave with it.
   expect((await app.request(`http://localhost/api/posts/${post.post_id}`, { method: "DELETE", headers: { cookie: strangerCookie } })).status).toBe(403);
   expect((await app.request(`http://localhost/api/posts/${post.post_id}`, { method: "DELETE", headers: { cookie } })).status).toBe(200);
   expect((await app.request(`http://localhost/api/posts/${post.post_id}`, { method: "DELETE", headers: { cookie } })).status).toBe(404);
   const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).json() as Page;
   expect(after.property.posts.map((row) => row.post_id)).toEqual([latest.post_id]);
-  expect(after.property.documents.map((doc) => doc.document_id)).toEqual(expect.arrayContaining([docA, docB]));
+  expect(after.property.documents.map((doc) => doc.document_id)).not.toContain(docA);
+  expect(after.property.documents.map((doc) => doc.document_id)).not.toContain(docB);
 });
 
 test("owner can attach a photo to a topic card", async () => {

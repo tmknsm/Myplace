@@ -9,6 +9,7 @@ import { useMeta } from "./meta";
 import { DisputesSection } from "./property-owner";
 import { snapshotPhotoFile } from "./optimize-photo";
 import { SectionNav } from "./section-nav";
+import { ConfirmDialog } from "./confirm-dialog";
 import { useLightboxDismiss } from "./dismiss-gesture";
 import { Sheet, useLockPageScroll, useSheet } from "./sheet";
 import {
@@ -2196,6 +2197,7 @@ function RoomCard({
               await onChange((page) => ({
                 ...page,
                 rooms: (page.rooms ?? []).filter((row) => row.room_id !== room.room_id),
+                documents: page.documents.filter((doc) => doc.room_id !== room.room_id),
               }));
             }}
           />
@@ -2405,30 +2407,34 @@ function RoomForm({
       {error && <p className="error">{error}</p>}
       {editing && item && onDeleted && (
         <div className="form-danger">
-          {confirmDelete ? (
-            <span className="confirm-inline">
-              Delete this room and its photos?
-              <button
-                type="button"
-                className="text-link danger"
-                disabled={busy}
-                onClick={async () => {
-                  setBusy(true);
-                  setError(null);
-                  try {
-                    await api.deleteRoom(item.room_id);
-                    await onDeleted();
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : "Could not delete room");
-                    setBusy(false);
-                  }
-                }}
-              >Delete</button>
-              <button type="button" className="text-link" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep</button>
-            </span>
-          ) : (
-            <button type="button" className="text-link danger" disabled={busy} data-testid="room-delete" onClick={() => setConfirmDelete(true)}>Delete room</button>
-          )}
+          <button
+            type="button"
+            className="text-link danger"
+            disabled={busy}
+            data-testid="room-delete"
+            onClick={() => { setError(null); setConfirmDelete(true); }}
+          >Delete room</button>
+          <ConfirmDialog
+            open={confirmDelete}
+            title="Delete this room?"
+            lede="Its photos leave with it."
+            confirmLabel="Delete"
+            busy={busy}
+            error={error}
+            onConfirm={async () => {
+              setBusy(true);
+              setError(null);
+              try {
+                await api.deleteRoom(item.room_id);
+                setConfirmDelete(false);
+                await onDeleted();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Could not delete room");
+                setBusy(false);
+              }
+            }}
+            onClose={() => { if (!busy) setConfirmDelete(false); }}
+          />
         </div>
       )}
       <div className="action-row compact sheet-actions">
@@ -3172,30 +3178,34 @@ function ImprovementForm({
       {error && <p className="error">{error}</p>}
       {editing && item && onDeleted && (
         <div className="form-danger">
-          {confirmDelete ? (
-            <span className="confirm-inline">
-              Delete this improvement and its attachments?
-              <button
-                type="button"
-                className="text-link danger"
-                disabled={busy}
-                onClick={async () => {
-                  setBusy(true);
-                  setError(null);
-                  try {
-                    await api.deleteImprovement(item.improvement_id);
-                    await onDeleted();
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : "Could not delete improvement");
-                    setBusy(false);
-                  }
-                }}
-              >Delete</button>
-              <button type="button" className="text-link" disabled={busy} onClick={() => setConfirmDelete(false)}>Keep</button>
-            </span>
-          ) : (
-            <button type="button" className="text-link danger" disabled={busy} data-testid="improvement-delete" onClick={() => setConfirmDelete(true)}>Delete improvement</button>
-          )}
+          <button
+            type="button"
+            className="text-link danger"
+            disabled={busy}
+            data-testid="improvement-delete"
+            onClick={() => { setError(null); setConfirmDelete(true); }}
+          >Delete improvement</button>
+          <ConfirmDialog
+            open={confirmDelete}
+            title="Delete this improvement?"
+            lede="Photos and receipts leave with it."
+            confirmLabel="Delete"
+            busy={busy}
+            error={error}
+            onConfirm={async () => {
+              setBusy(true);
+              setError(null);
+              try {
+                await api.deleteImprovement(item.improvement_id);
+                setConfirmDelete(false);
+                await onDeleted();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Could not delete improvement");
+                setBusy(false);
+              }
+            }}
+            onClose={() => { if (!busy) setConfirmDelete(false); }}
+          />
         </div>
       )}
       <div className="action-row compact sheet-actions">
@@ -3267,7 +3277,11 @@ function ImprovementCard({
             onDeleted={async () => {
               editor.hide();
               toast("Improvement removed.");
-              await onChange();
+              await onChange((page) => ({
+                ...page,
+                improvements: page.improvements.filter((row) => row.improvement_id !== item.improvement_id),
+                documents: page.documents.filter((doc) => doc.improvement_id !== item.improvement_id),
+              }));
             }}
           />
         </Sheet>
@@ -4498,16 +4512,21 @@ function PostCard({
   const [open, setOpen] = useState<number | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const remove = async () => {
     setBusy(true);
+    setError(null);
     try {
       await api.deletePost(post.post_id);
       toast("Post removed.");
-      await onChange((page) => ({ ...page, posts: (page.posts ?? []).filter((row) => row.post_id !== post.post_id) }));
+      await onChange((page) => ({
+        ...page,
+        posts: (page.posts ?? []).filter((row) => row.post_id !== post.post_id),
+        documents: page.documents.filter((doc) => doc.post_id !== post.post_id),
+      }));
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not remove the post.");
+      setError(err instanceof Error ? err.message : "Could not remove the post.");
       setBusy(false);
-      setConfirm(false);
     }
   };
   return (
@@ -4515,15 +4534,19 @@ function PostCard({
       <header className="post-head">
         <PostByline post={post} />
         {owner && (
-          confirm ? (
-            <span className="confirm-inline">
-              Remove this post?
-              <button type="button" className="text-link danger" disabled={busy} data-testid="post-remove-confirm" onClick={() => void remove()}>Remove</button>
-              <button type="button" className="text-link" disabled={busy} onClick={() => setConfirm(false)}>Keep</button>
-            </span>
-          ) : (
-            <button type="button" className="text-link danger" data-testid="post-remove" onClick={() => setConfirm(true)}>Remove</button>
-          )
+          <>
+            <button type="button" className="text-link danger" data-testid="post-remove" onClick={() => { setError(null); setConfirm(true); }}>Remove</button>
+            <ConfirmDialog
+              open={confirm}
+              title="Remove this post?"
+              lede={photos.length > 0 ? (photos.length === 1 ? "The photo leaves with it." : `The ${photos.length} photos leave with it.`) : undefined}
+              confirmLabel="Remove"
+              busy={busy}
+              error={error}
+              onConfirm={remove}
+              onClose={() => { if (!busy) setConfirm(false); }}
+            />
+          </>
         )}
       </header>
       {photos.length > 0 && (

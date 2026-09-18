@@ -3024,6 +3024,20 @@ table small { display: block; }
 }
 .modal-foot { font-size: 12px; color: var(--muted); margin: 18px 0 0; }
 .modal-foot a { color: var(--ink-soft); }
+
+/* Confirm sits above sheets (z-index 70) so Keep / Remove can ask over an editor. */
+.confirm-backdrop { z-index: 80; }
+.confirm-backdrop.is-closing,
+.confirm-dialog.is-closing { animation: fade-out var(--confirm-out, 160ms) ease-in forwards; }
+.confirm-dialog {
+  width: min(100%, 340px);
+  padding: 28px 24px 20px;
+}
+.confirm-dialog h2 { font-size: 22px; margin-top: 2px; }
+.confirm-dialog .meta-line { margin: 8px 0 0; }
+.confirm-dialog .error { margin-top: 10px; }
+.confirm-dialog .action-row { margin-top: 22px; }
+.confirm-dialog .action-row .btn { flex: 1 1 120px; }
 .pin-cells {
   position: relative;
   display: grid;
@@ -3275,6 +3289,7 @@ html.peek-gated body {
 @media (prefers-reduced-motion: reduce) {
   .sheet-backdrop-v2, .sheet-panel, .sheet-panel-title, .sheet-panel-body { animation-duration: 1ms !important; }
   .lightbox-motion { transition: none !important; }
+  .confirm-backdrop, .confirm-dialog { animation-duration: 1ms !important; }
 }
 
 /* ---- Property page: card system --------------------------------------- */

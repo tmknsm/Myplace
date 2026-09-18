@@ -214,22 +214,31 @@ export function Sheet({
   );
 }
 
+let scrollLockCount = 0;
+let scrollLockY = 0;
+
 /**
- * Freeze the page while a sheet is up. html is the viewport scroller, so body
- * is pinned at the current offset and restored on close.
+ * Freeze the page while a sheet or confirm is up. Counted so a confirm over a
+ * sheet does not unlock the page when it closes first. html is the viewport
+ * scroller, so body is pinned at the current offset and restored on the last close.
  */
 export function useLockPageScroll(active: boolean) {
   useEffect(() => {
     if (!active) return;
     const html = document.documentElement;
     const body = document.body;
-    const scrollY = window.scrollY;
-    html.classList.add("dialog-open");
-    body.style.top = `-${scrollY}px`;
+    if (scrollLockCount === 0) {
+      scrollLockY = window.scrollY;
+      html.classList.add("dialog-open");
+      body.style.top = `-${scrollLockY}px`;
+    }
+    scrollLockCount += 1;
     return () => {
+      scrollLockCount -= 1;
+      if (scrollLockCount > 0) return;
       html.classList.remove("dialog-open");
       body.style.top = "";
-      window.scrollTo(0, scrollY);
+      window.scrollTo(0, scrollLockY);
     };
   }, [active]);
 }
