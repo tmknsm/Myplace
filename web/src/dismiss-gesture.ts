@@ -10,6 +10,8 @@ export const DISMISS_VELOCITY = 0.36; // px per ms — a short flick, not a slam
 export const DISMISS_FLICK_MIN = 18;
 
 export type DismissAxis = "down" | "vertical";
+export type AxisLock = "pending" | "x" | "y";
+export type SheetDragMode = "pending" | "sheet" | "scroll";
 
 export function dismissIntent(
   offset: number,
@@ -47,12 +49,46 @@ export function sampleVelocity(
   return { velocity: (y - lastY) / dt, lastY: y, lastT: now };
 }
 
+/** Lock the lightbox to paging (x) or dismiss (y) once the finger has chosen. */
+export function lockFromTravel(dx: number, dy: number, threshold = AXIS_LOCK): AxisLock {
+  if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return "pending";
+  return Math.abs(dy) > Math.abs(dx) * 1.15 ? "y" : "x";
+}
+
+/** Pulling down on a sheet (or its scrolled-to-top body) owns the gesture. */
+export function sheetModeFromTravel(
+  dy: number,
+  canDismiss: boolean,
+  threshold = AXIS_LOCK,
+): SheetDragMode {
+  if (Math.abs(dy) < threshold) return "pending";
+  return dy > 0 && canDismiss ? "sheet" : "scroll";
+}
+
+/** True when every overflow ancestor between the press and the sheet is at top. */
+export function scrollChainAtTop(target: EventTarget | null, root: HTMLElement | null): boolean {
+  let node = target instanceof Element ? target : null;
+  while (node && node !== root) {
+    const style = typeof getComputedStyle === "function" ? getComputedStyle(node) : undefined;
+    const overflowY = style?.overflowY ?? "";
+    if (
+      (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay")
+      && node.scrollHeight > node.clientHeight + 1
+    ) {
+      return node.scrollTop <= 0;
+    }
+    node = node.parentElement;
+  }
+  return (root?.scrollTop ?? 0) <= 0;
+}
+
 type Point = { x: number; y: number };
 
 /**
- * Pointer + touch on the same node. Chrome's device-mode touch path often
- * skips pointermove, so touchmove itself has to drive the drag (and must
- * be non-passive so we can preventDefault).
+ * Press-drag that survives Chrome device-mode and automation gaps.
+ * Pointer events cover mouse and most fingers. Window-level move/end
+ * listeners (plus touchmove, non-passive) keep the surface under the
+ * finger when the node itself never sees pointermove.
  */
 export function bindPressDrag(
   node: HTMLElement,
@@ -62,71 +98,99 @@ export function bindPressDrag(
     onEnd: (point: Point) => void;
   },
 ): () => void {
-  let active: "pointer" | "touch" | null = null;
+  let armed = false;
   let pointerId: number | null = null;
+  const windowListeners: Array<() => void> = [];
+
+  const detachWindow = () => {
+    while (windowListeners.length) windowListeners.pop()?.();
+  };
+
+  const onWin = <K extends keyof WindowEventMap>(
+    type: K,
+    fn: (event: WindowEventMap[K]) => void,
+    options?: AddEventListenerOptions,
+  ) => {
+    window.addEventListener(type, fn, options);
+    windowListeners.push(() => window.removeEventListener(type, fn, options));
+  };
+
+  const finish = (point: Point) => {
+    if (!armed) return;
+    armed = false;
+    pointerId = null;
+    detachWindow();
+    handlers.onEnd(point);
+  };
+
+  const attachWindow = () => {
+    detachWindow();
+    onWin("pointermove", (event) => {
+      if (!armed) return;
+      if (pointerId != null && event.pointerId !== pointerId) return;
+      handlers.onMove({ x: event.clientX, y: event.clientY }, event);
+    }, { capture: true });
+    onWin("mousemove", (event) => {
+      if (!armed || event.buttons === 0) return;
+      handlers.onMove({ x: event.clientX, y: event.clientY }, event);
+    }, { capture: true });
+    const onTouchMove = (event: TouchEvent) => {
+      if (!armed) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      handlers.onMove({ x: touch.clientX, y: touch.clientY }, event);
+    };
+    window.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+    windowListeners.push(() => {
+      window.removeEventListener("touchmove", onTouchMove, { capture: true } as EventListenerOptions);
+    });
+    onWin("pointerup", (event) => {
+      if (pointerId != null && event.pointerId !== pointerId) return;
+      finish({ x: event.clientX, y: event.clientY });
+    }, { capture: true });
+    onWin("pointercancel", (event) => {
+      if (pointerId != null && event.pointerId !== pointerId) return;
+      finish({ x: event.clientX, y: event.clientY });
+    }, { capture: true });
+    onWin("mouseup", (event) => finish({ x: event.clientX, y: event.clientY }), { capture: true });
+    onWin("touchend", (event) => {
+      const touch = event.changedTouches[0];
+      finish({ x: touch?.clientX ?? 0, y: touch?.clientY ?? 0 });
+    }, { capture: true });
+    onWin("touchcancel", (event) => {
+      const touch = event.changedTouches[0];
+      finish({ x: touch?.clientX ?? 0, y: touch?.clientY ?? 0 });
+    }, { capture: true });
+  };
 
   const onPointerDown = (event: PointerEvent) => {
-    if (active) return;
+    if (armed) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
-    if (event.pointerType === "touch") return; // touch* handlers own fingers
     if (!handlers.onStart({ x: event.clientX, y: event.clientY }, event.target)) return;
-    active = "pointer";
+    armed = true;
     pointerId = event.pointerId;
-    node.setPointerCapture?.(event.pointerId);
-  };
-  const onPointerMove = (event: PointerEvent) => {
-    if (active !== "pointer" || event.pointerId !== pointerId) return;
-    handlers.onMove({ x: event.clientX, y: event.clientY }, event);
-  };
-  const onPointerUp = (event: PointerEvent) => {
-    if (active !== "pointer" || event.pointerId !== pointerId) return;
-    active = null;
-    pointerId = null;
-    node.releasePointerCapture?.(event.pointerId);
-    handlers.onEnd({ x: event.clientX, y: event.clientY });
+    try { node.setPointerCapture(event.pointerId); } catch { /* pointer already gone */ }
+    attachWindow();
   };
 
   const onTouchStart = (event: TouchEvent) => {
-    if (active) return;
+    if (armed) return;
     const touch = event.touches[0];
     if (!touch) return;
     if (!handlers.onStart({ x: touch.clientX, y: touch.clientY }, event.target)) return;
-    active = "touch";
-  };
-  const onTouchMove = (event: TouchEvent) => {
-    if (active !== "touch") return;
-    const touch = event.touches[0];
-    if (!touch) return;
-    handlers.onMove({ x: touch.clientX, y: touch.clientY }, event);
-  };
-  const onTouchEnd = (event: TouchEvent) => {
-    if (active !== "touch") return;
-    active = null;
-    const touch = event.changedTouches[0];
-    handlers.onEnd({ x: touch?.clientX ?? 0, y: touch?.clientY ?? 0 });
+    armed = true;
+    attachWindow();
   };
 
   node.addEventListener("pointerdown", onPointerDown);
-  node.addEventListener("pointermove", onPointerMove);
-  node.addEventListener("pointerup", onPointerUp);
-  node.addEventListener("pointercancel", onPointerUp);
   node.addEventListener("touchstart", onTouchStart, { passive: true });
-  node.addEventListener("touchmove", onTouchMove, { passive: false });
-  node.addEventListener("touchend", onTouchEnd);
-  node.addEventListener("touchcancel", onTouchEnd);
   return () => {
+    armed = false;
+    detachWindow();
     node.removeEventListener("pointerdown", onPointerDown);
-    node.removeEventListener("pointermove", onPointerMove);
-    node.removeEventListener("pointerup", onPointerUp);
-    node.removeEventListener("pointercancel", onPointerUp);
     node.removeEventListener("touchstart", onTouchStart);
-    node.removeEventListener("touchmove", onTouchMove);
-    node.removeEventListener("touchend", onTouchEnd);
-    node.removeEventListener("touchcancel", onTouchEnd);
   };
 }
-
-type AxisLock = "pending" | "x" | "y";
 
 /**
  * Vertical flick-to-dismiss for the photo lightbox. Horizontal travel pages
@@ -247,8 +311,9 @@ export function useLightboxDismiss(
         const dy = point.y - startY;
 
         if (lock === "pending") {
-          if (Math.abs(dx) < AXIS_LOCK && Math.abs(dy) < AXIS_LOCK) return;
-          if (Math.abs(dy) > Math.abs(dx) * 1.15) beginY();
+          const next = lockFromTravel(dx, dy);
+          if (next === "pending") return;
+          if (next === "y") beginY();
           else lock = "x";
         }
 
@@ -263,6 +328,14 @@ export function useLightboxDismiss(
         apply(dy);
       },
       onEnd: (point) => {
+        const dx = point.x - startX;
+        const dy = point.y - startY;
+        if (Math.abs(dx) >= 6 || Math.abs(dy) >= 6) dragged.current = true;
+        if (lock === "pending") {
+          const inferred = lockFromTravel(dx, dy);
+          if (inferred === "y") beginY();
+          else if (inferred === "x") lock = "x";
+        }
         if (lock === "x") {
           const track = trackRef.current;
           if (track) {
@@ -273,7 +346,6 @@ export function useLightboxDismiss(
           return;
         }
         if (lock !== "y" || leavingRef.current) return;
-        const dy = point.y - startY;
         const height = rootRef.current?.offsetHeight || window.innerHeight;
         if (dismissIntent(dy, velocity, height, "vertical")) {
           flyAway(dy, velocity);

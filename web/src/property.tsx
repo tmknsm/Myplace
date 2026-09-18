@@ -3482,7 +3482,7 @@ function PhotoLightbox({
       aria-modal="true"
       aria-label="Photo"
     >
-      <div ref={dismiss.motionRef} className="lightbox-motion">
+      <div ref={dismiss.motionRef} className="lightbox-motion" data-testid="lightbox-motion">
       <header className="lightbox-head">
         <button type="button" className="lightbox-round" aria-label="Close" onClick={onClose}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">

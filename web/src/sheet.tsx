@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
-  AXIS_LOCK,
   DISMISS_EASE,
   DISMISS_MS,
   bindPressDrag,
   dismissIntent,
   isInteractiveTarget,
   sampleVelocity,
+  scrollChainAtTop,
+  sheetModeFromTravel,
 } from "./dismiss-gesture";
 
 type Phase = "closed" | "open" | "closing";
@@ -87,8 +88,11 @@ export function Sheet({
     let velocity = 0;
     let mode: DragMode = "pending";
     let fromHandle = false;
+    let startTarget: EventTarget | null = null;
 
-    const bodyAtTop = () => (bodyRef.current?.scrollTop ?? 0) <= 0;
+    const canPullFrom = (target: EventTarget | null) => (
+      fromHandle || scrollChainAtTop(target, bodyRef.current)
+    );
 
     const beginSheetDrag = () => {
       mode = "sheet";
@@ -100,10 +104,10 @@ export function Sheet({
     };
 
     const applySheetDrag = (dy: number) => {
-      const offset = Math.max(0, dy);
+      const offset = dy > 0 ? dy : dy * 0.16;
       panel.style.transform = `translate3d(0, ${offset}px, 0)`;
       if (backdropRef.current) {
-        const fade = Math.max(0.28, 1 - offset / (panel.offsetHeight || 640));
+        const fade = Math.max(0.28, 1 - Math.max(0, offset) / (panel.offsetHeight || 640));
         backdropRef.current.style.setProperty("--sheet-dim", String(fade));
       }
     };
@@ -112,6 +116,7 @@ export function Sheet({
       onStart: (point, target) => {
         if (isInteractiveTarget(target)) return false;
         fromHandle = Boolean((target as Element | null)?.closest?.(".sheet-panel-head"));
+        startTarget = target;
         startY = point.y;
         lastY = point.y;
         lastT = performance.now();
@@ -128,8 +133,9 @@ export function Sheet({
         const dy = point.y - startY;
 
         if (mode === "pending") {
-          if (Math.abs(dy) < AXIS_LOCK) return;
-          if (dy > 0 && (fromHandle || bodyAtTop())) beginSheetDrag();
+          const next = sheetModeFromTravel(dy, canPullFrom(startTarget));
+          if (next === "pending") return;
+          if (next === "sheet") beginSheetDrag();
           else {
             mode = "scroll";
             return;
@@ -142,12 +148,16 @@ export function Sheet({
       onEnd: (point) => {
         panel.classList.remove("is-dragging");
         if (bodyRef.current) bodyRef.current.style.overflow = "";
+        const dy = point.y - startY;
+        if (mode === "pending") {
+          mode = sheetModeFromTravel(dy, canPullFrom(startTarget));
+        }
         if (mode !== "sheet") return;
-        const dy = Math.max(0, point.y - startY);
+        const traveled = Math.max(0, dy);
         const height = panel.offsetHeight || 640;
         panel.style.transition = `transform ${DISMISS_MS}ms ${DISMISS_EASE}`;
         if (backdropRef.current) backdropRef.current.style.transition = "";
-        if (dismissIntent(dy, velocity, height, "down")) {
+        if (dismissIntent(traveled, velocity, height, "down")) {
           dragDismiss.current = true;
           panel.style.transform = "translate3d(0, 110%, 0)";
           onCloseRef.current();
