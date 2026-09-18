@@ -83,19 +83,23 @@ export function scrollChainAtTop(target: EventTarget | null, root: HTMLElement |
 }
 
 type Point = { x: number; y: number };
+export type DragInput = "mouse" | "touch" | "pen";
 
 /**
  * Press-drag that survives Chrome device-mode and automation gaps.
  * Pointer events cover mouse and most fingers. Window-level move/end
  * listeners (plus touchmove, non-passive) keep the surface under the
- * finger when the node itself never sees pointermove.
+ * finger when the node itself never sees pointermove. When the browser
+ * claims the gesture for native scrolling (pointercancel) the drag is
+ * cancelled rather than finished.
  */
 export function bindPressDrag(
   node: HTMLElement,
   handlers: {
-    onStart: (point: Point, target: EventTarget | null) => boolean;
+    onStart: (point: Point, target: EventTarget | null, input: DragInput) => boolean;
     onMove: (point: Point, event: Event) => void;
     onEnd: (point: Point) => void;
+    onCancel?: () => void;
   },
 ): () => void {
   let armed = false;
@@ -121,6 +125,14 @@ export function bindPressDrag(
     pointerId = null;
     detachWindow();
     handlers.onEnd(point);
+  };
+
+  const cancel = () => {
+    if (!armed) return;
+    armed = false;
+    pointerId = null;
+    detachWindow();
+    handlers.onCancel?.();
   };
 
   const attachWindow = () => {
@@ -150,26 +162,26 @@ export function bindPressDrag(
     }, { capture: true });
     onWin("pointercancel", (event) => {
       if (pointerId != null && event.pointerId !== pointerId) return;
-      finish({ x: event.clientX, y: event.clientY });
+      cancel();
     }, { capture: true });
     onWin("mouseup", (event) => finish({ x: event.clientX, y: event.clientY }), { capture: true });
     onWin("touchend", (event) => {
       const touch = event.changedTouches[0];
       finish({ x: touch?.clientX ?? 0, y: touch?.clientY ?? 0 });
     }, { capture: true });
-    onWin("touchcancel", (event) => {
-      const touch = event.changedTouches[0];
-      finish({ x: touch?.clientX ?? 0, y: touch?.clientY ?? 0 });
-    }, { capture: true });
+    onWin("touchcancel", () => cancel(), { capture: true });
   };
 
   const onPointerDown = (event: PointerEvent) => {
     if (armed) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
-    if (!handlers.onStart({ x: event.clientX, y: event.clientY }, event.target)) return;
+    const input: DragInput = event.pointerType === "pen" ? "pen" : event.pointerType === "touch" ? "touch" : "mouse";
+    if (!handlers.onStart({ x: event.clientX, y: event.clientY }, event.target, input)) return;
     armed = true;
     pointerId = event.pointerId;
-    try { node.setPointerCapture(event.pointerId); } catch { /* pointer already gone */ }
+    if (input === "mouse") {
+      try { node.setPointerCapture(event.pointerId); } catch { /* pointer already gone */ }
+    }
     attachWindow();
   };
 
@@ -177,7 +189,7 @@ export function bindPressDrag(
     if (armed) return;
     const touch = event.touches[0];
     if (!touch) return;
-    if (!handlers.onStart({ x: touch.clientX, y: touch.clientY }, event.target)) return;
+    if (!handlers.onStart({ x: touch.clientX, y: touch.clientY }, event.target, "touch")) return;
     armed = true;
     attachWindow();
   };
@@ -278,6 +290,7 @@ export function useLightboxDismiss(
     let velocity = 0;
     let lock: AxisLock = "pending";
     let startScroll = 0;
+    let input: DragInput = "mouse";
 
     const beginY = () => {
       lock = "y";
@@ -288,11 +301,46 @@ export function useLightboxDismiss(
       if (rootRef.current) rootRef.current.style.transition = "none";
     };
 
+    // Fingers page the snap track natively (touch-action: pan-x). Only a
+    // mouse needs us to move the track by hand.
+    const beginX = () => {
+      lock = "x";
+      dragged.current = true;
+      if (input === "mouse") rootRef.current?.classList.add("is-paging");
+    };
+
+    const settleTrack = () => {
+      const track = trackRef.current;
+      const root = rootRef.current;
+      if (!track || input !== "mouse") return;
+      const width = track.clientWidth || 1;
+      const next = Math.round(track.scrollLeft / width);
+      track.scrollTo({ left: next * width, behavior: "smooth" });
+      window.setTimeout(() => root?.classList.remove("is-paging"), DISMISS_MS + 120);
+    };
+
+    const springBack = () => {
+      const motion = motionRef.current;
+      const root = rootRef.current;
+      if (motion) {
+        motion.style.transition = `transform ${DISMISS_MS}ms ${DISMISS_EASE}, opacity ${DISMISS_MS}ms ease`;
+        motion.style.transform = "";
+        motion.style.opacity = "";
+      }
+      if (root) {
+        root.style.transition = `background ${DISMISS_MS}ms ease`;
+        root.style.background = "";
+      }
+      root?.classList.remove("is-dragging");
+      window.setTimeout(clearInline, DISMISS_MS);
+    };
+
     const unbind = bindPressDrag(node, {
-      onStart: (point, target) => {
+      onStart: (point, target, kind) => {
         if (leavingRef.current) return false;
         if (isInteractiveTarget(target)) return false;
         dragged.current = false;
+        input = kind;
         startX = point.x;
         startY = point.y;
         lastY = point.y;
@@ -314,12 +362,12 @@ export function useLightboxDismiss(
           const next = lockFromTravel(dx, dy);
           if (next === "pending") return;
           if (next === "y") beginY();
-          else lock = "x";
+          else beginX();
         }
 
         if (lock === "x") {
           const track = trackRef.current;
-          if (track) track.scrollLeft = startScroll - dx;
+          if (track && input === "mouse") track.scrollLeft = startScroll - dx;
           return;
         }
 
@@ -334,15 +382,10 @@ export function useLightboxDismiss(
         if (lock === "pending") {
           const inferred = lockFromTravel(dx, dy);
           if (inferred === "y") beginY();
-          else if (inferred === "x") lock = "x";
+          else if (inferred === "x") beginX();
         }
         if (lock === "x") {
-          const track = trackRef.current;
-          if (track) {
-            const width = track.clientWidth || 1;
-            const next = Math.round(track.scrollLeft / width);
-            track.scrollTo({ left: next * width, behavior: "smooth" });
-          }
+          settleTrack();
           return;
         }
         if (lock !== "y" || leavingRef.current) return;
@@ -351,19 +394,13 @@ export function useLightboxDismiss(
           flyAway(dy, velocity);
           return;
         }
-        const motion = motionRef.current;
-        const root = rootRef.current;
-        if (motion) {
-          motion.style.transition = `transform ${DISMISS_MS}ms ${DISMISS_EASE}, opacity ${DISMISS_MS}ms ease`;
-          motion.style.transform = "";
-          motion.style.opacity = "";
-        }
-        if (root) {
-          root.style.transition = `background ${DISMISS_MS}ms ease`;
-          root.style.background = "";
-        }
-        root?.classList.remove("is-dragging");
-        window.setTimeout(clearInline, DISMISS_MS);
+        springBack();
+      },
+      onCancel: () => {
+        // The browser took the gesture for a native swipe between photos.
+        if (lock === "y") springBack();
+        else rootRef.current?.classList.remove("is-paging");
+        dragged.current = lock !== "pending";
       },
     });
 

@@ -168,6 +168,17 @@ export function Sheet({
         backdropRef.current?.style.removeProperty("--sheet-dim");
         window.setTimeout(() => { panel.style.transition = ""; }, DISMISS_MS);
       },
+      onCancel: () => {
+        panel.classList.remove("is-dragging");
+        if (bodyRef.current) bodyRef.current.style.overflow = "";
+        if (mode !== "sheet") return;
+        panel.style.transition = `transform ${DISMISS_MS}ms ${DISMISS_EASE}`;
+        panel.style.transform = "";
+        panel.style.animation = "";
+        if (backdropRef.current) backdropRef.current.style.transition = "";
+        backdropRef.current?.style.removeProperty("--sheet-dim");
+        window.setTimeout(() => { panel.style.transition = ""; }, DISMISS_MS);
+      },
     });
   }, [phase]);
 

@@ -2628,11 +2628,15 @@ a.text-btn { text-decoration: none; }
   min-height: 0;
   width: 100%;
   transform-origin: center center;
-  touch-action: none;
+  /* pan-x leaves horizontal swipes to the native snap track; vertical
+     travel reaches the dismiss gesture instead. */
+  touch-action: pan-x;
   user-select: none;
   -webkit-user-select: none;
 }
 .lightbox.is-dragging { cursor: grabbing; }
+/* Mouse paging: snap would yank the track back mid-drag, so hold it off. */
+.lightbox.is-paging .lightbox-track { scroll-snap-type: none; }
 .lightbox.is-dragging .lightbox-motion,
 .lightbox.is-dismissing .lightbox-motion {
   will-change: transform, opacity;
@@ -2730,7 +2734,7 @@ a.text-btn { text-decoration: none; }
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  touch-action: none;
+  touch-action: pan-x;
 }
 .lightbox-track::-webkit-scrollbar { display: none; }
 .lightbox-slide {
