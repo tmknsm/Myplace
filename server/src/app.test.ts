@@ -997,7 +997,7 @@ test("private works before a handle; visitors see Owner", async () => {
   expect(hidden.property.maintainers[0].display_name).toBeUndefined();
 });
 
-test("hiding the street redacts it for visitors and keeps it for the owner", async () => {
+test("hiding the street redacts it for visitors and the owner", async () => {
   await seedProperty();
   const cookie = await verifiedOwner("owner@example.com");
   await sql`UPDATE users SET anonymize = true, handle = 'hudsonowner' WHERE primary_email = 'owner@example.com'`;
@@ -1016,7 +1016,9 @@ test("hiding the street redacts it for visitors and keeps it for the owner", asy
   expect(visitor.property.formatted).not.toMatch(/441/);
 
   const owner = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).json();
-  expect(owner.property.formatted).toBe("441 Warren Street, Hudson, NY 12534");
+  expect(owner.property.hide_street).toBe(true);
+  expect(owner.property.formatted).toBe("Hudson, NY 12534");
+  expect(owner.property.formatted).not.toMatch(/441/);
 
   const off = await app.request("http://localhost/api/me", {
     method: "PATCH",

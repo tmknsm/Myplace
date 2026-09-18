@@ -103,9 +103,9 @@ export function ownerLabel(input: {
 }
 
 /**
- * What a visitor sees as the property's address. When the owner hides the
- * street, drop everything before the first comma so "51 State Route 9H,
- * Claverack, NY" becomes "Claverack, NY".
+ * Address on the property page. When the street is hidden, drop everything
+ * before the first comma so "51 State Route 9H, Claverack, NY" becomes
+ * "Claverack, NY" — including on the owner's own view.
  */
 export function publicAddress(input: {
   formatted: string | null;
@@ -123,13 +123,11 @@ export function publicAddress(input: {
   return bits.length ? bits.join(", ") : input.county || null;
 }
 
-/** Heading and locality line for the property page. */
+/** Heading and locality line for the property page. Same for owner and visitor so a hidden street stays hidden. */
 export function propertyHeading(
   property: { formatted: string | null; municipality: string | null; hide_street?: boolean },
-  viewerOwns: boolean,
 ): { title: string; locality: string | null } {
-  const hide = Boolean(property.hide_street) && !viewerOwns;
-  if (hide) {
+  if (property.hide_street) {
     return { title: property.municipality || "Home", locality: null };
   }
   const formatted = property.formatted;

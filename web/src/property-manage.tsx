@@ -46,8 +46,7 @@ function useOwnerRecord(id: string | undefined) {
 }
 
 function useOwnerTitle(data: PageData | null, suffix: string) {
-  const owns = Boolean(data?.viewer.maintainer && !data.viewer.openClaim);
-  const { title } = propertyHeading(data?.property ?? { formatted: null, municipality: null }, owns);
+  const { title } = propertyHeading(data?.property ?? { formatted: null, municipality: null });
   useEffect(() => {
     if (!data) return;
     const previous = document.title;

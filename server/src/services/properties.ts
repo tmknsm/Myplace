@@ -123,15 +123,15 @@ export async function loadPropertyPage(propertyId: string, options: { viewerIsMa
 
   return {
     ...core,
-    formatted: options.viewerIsMaintainer || !hideStreet
-      ? core.formatted
-      : publicAddress({
+    formatted: hideStreet
+      ? publicAddress({
         formatted: core.formatted,
         municipality: core.municipality,
         county: core.county,
         state: core.state,
         hideStreet: true,
-      }),
+      })
+      : core.formatted,
     hide_street: hideStreet,
     facts,
     events,

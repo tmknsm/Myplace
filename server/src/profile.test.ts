@@ -73,10 +73,10 @@ test("publicAddress drops the street when asked", () => {
   })).toBe("Claverack, NY");
 });
 
-test("propertyHeading uses the town when the street is hidden from a visitor", () => {
+test("propertyHeading uses the town when the street is hidden, including for the owner", () => {
   const property = { formatted: "51 State Route 9H, Claverack, NY", municipality: "Claverack", hide_street: true };
-  expect(propertyHeading(property, false)).toEqual({ title: "Claverack", locality: null });
-  expect(propertyHeading(property, true)).toEqual({
+  expect(propertyHeading(property)).toEqual({ title: "Claverack", locality: null });
+  expect(propertyHeading({ ...property, hide_street: false })).toEqual({
     title: "51 State Route 9H",
     locality: "Claverack, NY",
   });

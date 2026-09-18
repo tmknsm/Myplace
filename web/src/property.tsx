@@ -394,7 +394,6 @@ export function PropertyPageView() {
   const ownsPage = Boolean(data?.viewer.maintainer && !data.viewer.openClaim);
   const { title, locality: headingLocality } = propertyHeading(
     data?.property ?? { formatted: null, municipality: null },
-    ownsPage,
   );
   useEffect(() => {
     if (!data) return;
@@ -447,7 +446,7 @@ export function PropertyPageView() {
   const { property, viewer } = data;
   const owner = Boolean(viewer.maintainer && !viewer.openClaim);
   const locality = headingLocality;
-  const address = property.hide_street && !owner
+  const address = property.hide_street
     ? (property.municipality || "this property")
     : (property.formatted ?? "this property");
   const photos = property.documents.filter(isImage);
@@ -1692,7 +1691,7 @@ export function PropertyNeighborsPage() {
 
   const tiles = data?.property.neighbors ?? [];
   const owner = Boolean(data?.viewer.maintainer && !data.viewer.openClaim);
-  const { title } = propertyHeading(data?.property ?? { formatted: null, municipality: null }, owner);
+  const { title } = propertyHeading(data?.property ?? { formatted: null, municipality: null });
   useEffect(() => {
     if (!data) return;
     const previous = document.title;
@@ -4324,7 +4323,7 @@ export function PropertyPhotosPage() {
   useEffect(() => { void load(); }, [load, user?.user_id]);
 
   const ownsPhotos = Boolean(data?.viewer.maintainer && !data.viewer.openClaim);
-  const { title } = propertyHeading(data?.property ?? { formatted: null, municipality: null }, ownsPhotos);
+  const { title } = propertyHeading(data?.property ?? { formatted: null, municipality: null });
   useEffect(() => {
     if (!data) return;
     const previous = document.title;
