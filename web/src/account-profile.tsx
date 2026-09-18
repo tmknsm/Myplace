@@ -6,11 +6,19 @@ import { Spinner } from "./components";
 import { snapshotPhotoFile } from "./optimize-photo";
 import { useToast } from "./property-shared";
 
-/** Street half of an address, for the compact scope label under a section title. */
+/** Street half of an address, for the picker row and the scope label under a section title. */
 export function shortAddress(property: Pick<MaintainedProperty, "formatted" | "municipality">): string {
   const formatted = property.formatted?.trim();
   if (formatted) return formatted.split(",")[0]!.trim() || formatted;
   return property.municipality || "This property";
+}
+
+/** Everything after the street: "Claverack, NY". */
+function localityOf(property: Pick<MaintainedProperty, "formatted" | "municipality">): string | null {
+  const formatted = property.formatted?.trim();
+  if (!formatted) return null;
+  const comma = formatted.indexOf(",");
+  return comma >= 0 ? formatted.slice(comma + 1).trim() || null : null;
 }
 
 /** Photo and the name on the account. What each property page shows is set per house below. */
@@ -101,7 +109,10 @@ export function PropertyPicker({
               onClick={() => onSelect(property.property_id)}
               data-testid="picker-choice"
             >
-              <span className="row-label">{property.formatted}</span>
+              <span className="picker-addr">
+                <span className="row-label">{shortAddress(property)}</span>
+                {localityOf(property) && <span className="meta-line">{localityOf(property)}</span>}
+              </span>
               {property.removed && <span className="badge">Removed</span>}
               {property.maintainers.length > 0 && !property.removed && (
                 <span className="row-avatars">
