@@ -1,4 +1,4 @@
-import { ownerLabel, ownerPhoto } from "../../../shared/profile.ts";
+import { ownerLabel, ownerPhoto, publicAddress } from "../../../shared/profile.ts";
 import { geometryNotice, isGeometryQuality, QUALITY_LABEL } from "../counties.ts";
 import { getSql } from "../db.ts";
 import { assembleFacts, loadAssertionRows } from "./assertions.ts";
@@ -13,6 +13,7 @@ interface MaintainerRow {
   last_name: string | null;
   handle: string | null;
   anonymize: boolean;
+  hide_street: boolean;
   avatar_url: string | null;
   primary_email: string;
 }
@@ -93,12 +94,13 @@ export async function loadPropertyPage(propertyId: string, options: { viewerIsMa
   const maintainerRows = await sql<MaintainerRow[]>`
     SELECT m.maintainer_id, m.user_id, m.role, m.verified_at,
            u.display_name, u.first_name, u.last_name, u.handle, u.anonymize,
-           u.avatar_url, u.primary_email
+           u.hide_street, u.avatar_url, u.primary_email
     FROM property_maintainers m
     JOIN users u ON u.user_id = m.user_id
     WHERE m.property_id = ${propertyId} AND m.revoked_at IS NULL
     ORDER BY m.verified_at ASC
   `;
+  const hideStreet = maintainerRows.some((row) => row.hide_street);
   const maintainers = maintainerRows.map((row) => presentMaintainer(row, options.viewerIsMaintainer ?? false));
   const coverage = {
     assessments: facts.some((f) => f.fieldKey.startsWith("assessment.") && f.status !== "unknown")
@@ -121,6 +123,16 @@ export async function loadPropertyPage(propertyId: string, options: { viewerIsMa
 
   return {
     ...core,
+    formatted: options.viewerIsMaintainer || !hideStreet
+      ? core.formatted
+      : publicAddress({
+        formatted: core.formatted,
+        municipality: core.municipality,
+        county: core.county,
+        state: core.state,
+        hideStreet: true,
+      }),
+    hide_street: hideStreet,
     facts,
     events,
     maintainers,
@@ -162,7 +174,7 @@ export async function loadMyProperties(userId: string) {
   const people = await sql<(MaintainerRow & { property_id: string })[]>`
     SELECT m.property_id, m.maintainer_id, m.user_id, m.role, m.verified_at,
            u.display_name, u.first_name, u.last_name, u.handle, u.anonymize,
-           u.avatar_url, u.primary_email
+           u.hide_street, u.avatar_url, u.primary_email
     FROM property_maintainers mine
     JOIN property_maintainers m ON m.property_id = mine.property_id AND m.revoked_at IS NULL
     JOIN users u ON u.user_id = m.user_id

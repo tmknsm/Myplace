@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { defaultAvatarFor, ownerLabel, ownerPhoto, parseHandle, DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
+import { defaultAvatarFor, ownerLabel, ownerPhoto, parseHandle, propertyHeading, publicAddress, DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
 
 test("parseHandle strips @ and rejects junk", () => {
   expect(parseHandle("@Sam_Ellison")).toEqual({ handle: "sam_ellison" });
@@ -44,6 +44,42 @@ test("ownerLabel never uses a street address as the badge", () => {
     last_name: "Shah",
     display_name: address,
   })).toBe("Priya Shah");
+});
+
+test("ownerLabel hides the real name as soon as they go private, even before a handle", () => {
+  expect(ownerLabel({
+    anonymize: true,
+    handle: null,
+    first_name: "Sam",
+    last_name: "Ellison",
+    display_name: "Sam Ellison",
+  })).toBe("Owner");
+});
+
+test("publicAddress drops the street when asked", () => {
+  expect(publicAddress({
+    formatted: "51 State Route 9H, Claverack, NY",
+    municipality: "Claverack",
+    county: "Columbia",
+    state: "NY",
+    hideStreet: false,
+  })).toBe("51 State Route 9H, Claverack, NY");
+  expect(publicAddress({
+    formatted: "51 State Route 9H, Claverack, NY",
+    municipality: "Claverack",
+    county: "Columbia",
+    state: "NY",
+    hideStreet: true,
+  })).toBe("Claverack, NY");
+});
+
+test("propertyHeading uses the town when the street is hidden from a visitor", () => {
+  const property = { formatted: "51 State Route 9H, Claverack, NY", municipality: "Claverack", hide_street: true };
+  expect(propertyHeading(property, false)).toEqual({ title: "Claverack", locality: null });
+  expect(propertyHeading(property, true)).toEqual({
+    title: "51 State Route 9H",
+    locality: "Claverack, NY",
+  });
 });
 
 test("ownerPhoto picks a stable face per person when they have not set one", () => {

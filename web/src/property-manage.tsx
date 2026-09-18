@@ -5,6 +5,7 @@ import { useAuth } from "./auth";
 import { PageSpinner, Spinner } from "./components";
 import { useMeta } from "./meta";
 import { DocumentsSection, HandoffSection, MaintainersSection, NotificationsSection } from "./property-owner";
+import { propertyHeading } from "../../shared/profile";
 import { DOCUMENT_TYPE_LABEL, dateLabel, useToast, type Toast } from "./property-shared";
 
 /**
@@ -45,7 +46,8 @@ function useOwnerRecord(id: string | undefined) {
 }
 
 function useOwnerTitle(data: PageData | null, suffix: string) {
-  const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
+  const owns = Boolean(data?.viewer.maintainer && !data.viewer.openClaim);
+  const { title } = propertyHeading(data?.property ?? { formatted: null, municipality: null }, owns);
   useEffect(() => {
     if (!data) return;
     const previous = document.title;
