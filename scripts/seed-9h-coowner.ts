@@ -1,6 +1,6 @@
 /**
  * Demo data for 51 State Route 9H: Michael's @mtmkns handle, plus Kelsey
- * Tomkins as a co-owner with her own photo and anonymize setting.
+ * Tomkins as a co-owner with her own photo.
  *
  *   DATABASE_URL=… npx tsx scripts/seed-9h-coowner.ts
  */
@@ -46,8 +46,7 @@ async function main() {
   });
   await sql`
     UPDATE users
-    SET avatar_url = ${KELSEY_AVATAR_URL},
-        anonymize = COALESCE(anonymize, false)
+    SET avatar_url = ${KELSEY_AVATAR_URL}
     WHERE user_id = ${kelsey.user_id}
   `;
   console.log("kelsey   @ktmkns");

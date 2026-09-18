@@ -53,7 +53,7 @@ export const api = {
   verify: (email: string, code: string, names?: { firstName?: string; lastName?: string }) =>
     request<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ email, code, ...names }) }),
   signOut: () => request<{ ok: boolean }>("/api/auth/sign-out", { method: "POST" }),
-  updateMe: (body: { anonymize?: boolean; handle?: string; hide_street?: boolean; avatar?: "abstract" | "default" }) =>
+  updateMe: (body: { handle?: string; avatar?: "abstract" | "default" }) =>
     request<{ user: User }>("/api/me", { method: "PATCH", body: JSON.stringify(body) }),
   handleAvailable: (handle: string) =>
     request<{ available: boolean; handle: string }>(`/api/handles/${encodeURIComponent(handle)}`),
@@ -79,6 +79,11 @@ export const api = {
     request<{ property: { property_id: string; removed: boolean } }>(`/api/properties/${id}/removed`, {
       method: "PATCH",
       body: JSON.stringify({ removed }),
+    }),
+  setPropertyVisibility: (id: string, body: { anonymize?: boolean; hide_street?: boolean }) =>
+    request<{ property: { property_id: string; anonymize: boolean; hide_street: boolean } }>(`/api/properties/${id}/visibility`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
     }),
   myNeighbors: () => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>("/api/me/neighbors"),
   propertyNeighbors: (id: string) => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>(`/api/properties/${id}/neighbors`),
@@ -221,8 +226,6 @@ export interface User {
   first_name: string | null;
   last_name: string | null;
   handle: string | null;
-  anonymize: boolean;
-  hide_street: boolean;
   avatar_url: string | null;
   avatar_key: string | null;
   is_admin: boolean;
@@ -537,6 +540,9 @@ export interface MaintainedProperty {
   municipality: string | null;
   role: string;
   removed: boolean;
+  /** This viewer's own choices for this house. */
+  anonymize: boolean;
+  hide_street: boolean;
   maintainers: Maintainer[];
 }
 

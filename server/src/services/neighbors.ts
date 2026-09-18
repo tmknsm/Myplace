@@ -60,13 +60,59 @@ function presentOwner(row: NeighborUserRow): NeighborOwner {
   };
 }
 
+/**
+ * Whether each person's name is hidden when they show up on `propertyId`.
+ * Their own row on that house decides if they maintain it. Otherwise the
+ * house they are neighbors with it through. Otherwise the strictest of their
+ * houses, so a gap in context never shows a name they hid somewhere.
+ */
+export async function anonymizedOn(
+  propertyId: string,
+  userIds: string[],
+  houses?: Map<string, string>,
+): Promise<Map<string, boolean>> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const map = new Map<string, boolean>();
+  if (ids.length === 0) return map;
+  const sql = getSql();
+  const rows = await sql<{ user_id: string; property_id: string; anonymize: boolean }[]>`
+    SELECT user_id, property_id, anonymize
+    FROM property_maintainers
+    WHERE revoked_at IS NULL AND user_id IN ${sql(ids)}
+  `;
+  const byUser = new Map<string, Map<string, boolean>>();
+  for (const row of rows) {
+    const mine = byUser.get(row.user_id) ?? new Map<string, boolean>();
+    mine.set(row.property_id, Boolean(row.anonymize));
+    byUser.set(row.user_id, mine);
+  }
+  const visiting = ids.filter((userId) => !byUser.get(userId)?.has(propertyId));
+  const through = houses ?? (visiting.length ? await neighborHouseForPeople(propertyId, visiting) : new Map<string, string>());
+  for (const userId of ids) {
+    const mine = byUser.get(userId);
+    if (!mine) {
+      map.set(userId, false);
+      continue;
+    }
+    const here = mine.get(propertyId);
+    if (here !== undefined) {
+      map.set(userId, here);
+      continue;
+    }
+    const house = through.get(userId);
+    const there = house ? mine.get(house) : undefined;
+    map.set(userId, there !== undefined ? there : [...mine.values()].some(Boolean));
+  }
+  return map;
+}
+
 async function ownersOf(propertyIds: Array<string | null | undefined>): Promise<Map<string, NeighborOwner[]>> {
   const ids = [...new Set(propertyIds.filter((value): value is string => Boolean(value)))];
   const map = new Map<string, NeighborOwner[]>();
   if (ids.length === 0) return map;
   const sql = getSql();
   const rows = await sql<(NeighborUserRow & { property_id: string })[]>`
-    SELECT m.property_id, u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url
+    SELECT m.property_id, u.user_id, u.display_name, u.first_name, u.last_name, u.handle, m.anonymize, u.avatar_url
     FROM property_maintainers m
     JOIN users u ON u.user_id = m.user_id
     WHERE m.revoked_at IS NULL AND m.property_id IN ${sql(ids)}
@@ -234,12 +280,20 @@ export async function loadMyNeighbors(userId: string, propertyId?: string): Prom
     SELECT
       r.request_id, r.status, r.created_at, r.from_user_id,
       CASE WHEN r.from_user_id = ${userId} THEN r.property_id ELSE r.from_property_id END AS property_id,
-      u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url,
+      u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.avatar_url,
+      COALESCE(
+        pm.anonymize,
+        EXISTS (SELECT 1 FROM property_maintainers x WHERE x.user_id = u.user_id AND x.revoked_at IS NULL AND x.anonymize)
+      ) AS anonymize,
       a.formatted,
       d.document_id,
       d.byte_size
     FROM neighbor_requests r
     JOIN users u ON u.user_id = CASE WHEN r.from_user_id = ${userId} THEN r.to_user_id ELSE r.from_user_id END
+    LEFT JOIN property_maintainers pm
+      ON pm.user_id = u.user_id
+      AND pm.revoked_at IS NULL
+      AND pm.property_id = CASE WHEN r.from_user_id = ${userId} THEN r.property_id ELSE r.from_property_id END
     LEFT JOIN property_addresses a ON a.property_id = CASE WHEN r.from_user_id = ${userId} THEN r.property_id ELSE r.from_property_id END AND a.is_current
     LEFT JOIN LATERAL (
       SELECT document_id, byte_size

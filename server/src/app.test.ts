@@ -317,6 +317,14 @@ test("search, property page, and claim review", async () => {
   expect(afterBody.property.events.some((e: { event_type: string }) => e.event_type === "owner_assertion.added")).toBe(true);
 });
 
+function setVisibility(cookie: string, propertyId: string, body: { anonymize?: boolean; hide_street?: boolean }) {
+  return app.request(`http://localhost/api/properties/${propertyId}/visibility`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify(body),
+  });
+}
+
 async function verifiedOwner(email: string, adminEmail = "desk@example.com") {
   const cookie = await signIn(email);
   const claim = await app.request("http://localhost/api/properties/prop_test/claims", {
@@ -582,6 +590,113 @@ test("a commenter's name opens the house they neighbored with, not their other o
 
   const listed = await (await app.request(`http://localhost/api/documents/${documentId}/comments`)).json();
   expect(listed.comments[0].author.property_id).toBe("prop_alice_a");
+});
+
+test("visibility is per house: name and street settings on one address leave the other alone", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("bob@example.com");
+  const aliceCookie = await signIn("alice@example.com");
+  await sql`UPDATE users SET handle = 'alice_h', first_name = 'Alice', last_name = 'Park', display_name = 'Alice Park' WHERE primary_email = 'alice@example.com'`;
+  const [bob] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'bob@example.com'`;
+  const [alice] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'alice@example.com'`;
+  if (!bob || !alice) throw new Error("expected Bob and Alice");
+  await giveHome(alice.user_id, "prop_alice_a", "10 First Street, Hudson, NY 12534");
+  await giveHome(alice.user_id, "prop_alice_b", "20 Second Street, Hudson, NY 12534");
+
+  // Hide Alice's name and street on First Street only.
+  const hideName = await setVisibility(aliceCookie, "prop_alice_a", { anonymize: true, hide_street: true });
+  expect(hideName.status).toBe(200);
+  expect(await hideName.json()).toEqual({ property: { property_id: "prop_alice_a", anonymize: true, hide_street: true } });
+
+  const mine = await (await app.request("http://localhost/api/me/properties", { headers: { cookie: aliceCookie } })).json();
+  const byId = new Map((mine.properties as Array<{ property_id: string; anonymize: boolean; hide_street: boolean }>).map((row) => [row.property_id, row]));
+  expect(byId.get("prop_alice_a")).toMatchObject({ anonymize: true, hide_street: true });
+  expect(byId.get("prop_alice_b")).toMatchObject({ anonymize: false, hide_street: false });
+
+  const first = await (await app.request("http://localhost/api/properties/prop_alice_a")).json();
+  expect(first.property.hide_street).toBe(true);
+  expect(first.property.formatted).toBe("Hudson, NY 12534");
+  expect(first.property.maintainers[0].label).toBe("@alice_h");
+
+  const second = await (await app.request("http://localhost/api/properties/prop_alice_b")).json();
+  expect(second.property.hide_street).toBe(false);
+  expect(second.property.formatted).toBe("20 Second Street, Hudson, NY 12534");
+  expect(second.property.maintainers[0].label).toBe("Alice Park");
+
+  // The account no longer carries these flags; only the alias lives there.
+  const me = await (await app.request("http://localhost/api/auth/me", { headers: { cookie: aliceCookie } })).json();
+  expect(me.user.handle).toBe("alice_h");
+  expect(me.user.anonymize).toBeUndefined();
+  expect(me.user.hide_street).toBeUndefined();
+
+  // Someone who is not on the page cannot set how it shows them.
+  expect((await setVisibility(ownerCookie, "prop_alice_a", { anonymize: false })).status).toBe(403);
+
+  // Neighbor network follows the house the pairing is through. Alice pairs
+  // with Bob from First Street (hidden name), so Bob sees her alias.
+  await sql`
+    INSERT INTO neighbor_requests (request_id, from_user_id, to_user_id, property_id, from_property_id, status, decided_at)
+    VALUES ('nbr_alice_a', ${alice.user_id}, ${bob.user_id}, 'prop_test', 'prop_alice_a', 'accepted', now())
+  `;
+  const bobsNeighbors = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect(bobsNeighbors.neighbors[0].owners[0].label).toBe("@alice_h");
+
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const form = new FormData();
+  form.append("file", new File([png], "front.png", { type: "image/png" }));
+  form.append("documentType", "photo");
+  form.append("visibility", "public");
+  const uploaded = await app.request("http://localhost/api/properties/prop_test/documents", {
+    method: "POST",
+    headers: { cookie: ownerCookie },
+    body: form,
+  });
+  expect(uploaded.status).toBe(201);
+  const { documentId } = await uploaded.json();
+  const posted = await app.request(`http://localhost/api/documents/${documentId}/comments`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: aliceCookie },
+    body: JSON.stringify({ body: "Nice stoop." }),
+  });
+  expect(posted.status).toBe(201);
+  const comment = (await posted.json()).comment;
+  expect(comment.author.property_id).toBe("prop_alice_a");
+  expect(comment.author.label).toBe("@alice_h");
+
+  // Re-pair from Second Street (real name) and the same comment reads as Alice.
+  await sql`UPDATE neighbor_requests SET from_property_id = 'prop_alice_b' WHERE request_id = 'nbr_alice_a'`;
+  const listed = await (await app.request(`http://localhost/api/documents/${documentId}/comments`)).json();
+  expect(listed.comments[0].author.property_id).toBe("prop_alice_b");
+  expect(listed.comments[0].author.label).toBe("Alice Park");
+  const again = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
+  expect(again.neighbors[0].owners[0].label).toBe("Alice Park");
+
+  // With no house context at all, the stricter setting wins.
+  await sql`DELETE FROM neighbor_requests WHERE request_id = 'nbr_alice_a'`;
+  const cold = await (await app.request(`http://localhost/api/documents/${documentId}/comments`)).json();
+  expect(cold.comments[0].author.property_id).toBeNull();
+  expect(cold.comments[0].author.label).toBe("@alice_h");
+
+  // Turning it back off on First Street restores the name everywhere.
+  expect((await setVisibility(aliceCookie, "prop_alice_a", { anonymize: false })).status).toBe(200);
+  const warm = await (await app.request(`http://localhost/api/documents/${documentId}/comments`)).json();
+  expect(warm.comments[0].author.label).toBe("Alice Park");
+});
+
+test("visibility stays editable while a house is off Myplace", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("owner@example.com");
+  const off = await app.request("http://localhost/api/properties/prop_test/removed", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ removed: true }),
+  });
+  expect(off.status).toBe(200);
+  const hide = await setVisibility(cookie, "prop_test", { hide_street: true });
+  expect(hide.status).toBe(200);
+  expect((await hide.json()).property.hide_street).toBe(true);
+  const mine = await (await app.request("http://localhost/api/me/properties", { headers: { cookie } })).json();
+  expect(mine.properties[0]).toMatchObject({ removed: true, hide_street: true, anonymize: false });
 });
 
 test("former owner loses maintainer access after a handoff claim is verified", async () => {
@@ -921,8 +1036,6 @@ test("sign-up stores first and last name without a handle", async () => {
   const body = await res.json();
   expect(body.user.first_name).toBe("Ada");
   expect(body.user.handle).toBeNull();
-  expect(body.user.anonymize).toBe(false);
-  expect(body.user.hide_street).toBe(false);
 });
 
 test("sign-up stores first and last name", async () => {
@@ -964,13 +1077,9 @@ test("anonymize shows the handle on the public property page", async () => {
   expect(named.property.maintainers[0].label).toBe("Sam Ellison");
   expect(named.property.maintainers[0].anonymize).toBe(false);
 
-  const hide = await app.request("http://localhost/api/me", {
-    method: "PATCH",
-    headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ anonymize: true }),
-  });
+  const hide = await setVisibility(cookie, "prop_test", { anonymize: true });
   expect(hide.status).toBe(200);
-  expect((await hide.json()).user.anonymize).toBe(true);
+  expect((await hide.json()).property.anonymize).toBe(true);
 
   const hidden = await (await app.request("http://localhost/api/properties/prop_test")).json();
   expect(hidden.property.maintainers[0].label).toBe("@hudsonowner");
@@ -984,13 +1093,9 @@ test("private works before a handle; visitors see Owner", async () => {
   const cookie = await verifiedOwner("owner@example.com");
   await sql`UPDATE users SET handle = NULL, first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
 
-  const hide = await app.request("http://localhost/api/me", {
-    method: "PATCH",
-    headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ anonymize: true }),
-  });
+  const hide = await setVisibility(cookie, "prop_test", { anonymize: true });
   expect(hide.status).toBe(200);
-  expect((await hide.json()).user.anonymize).toBe(true);
+  expect((await hide.json()).property.anonymize).toBe(true);
 
   const hidden = await (await app.request("http://localhost/api/properties/prop_test")).json();
   expect(hidden.property.maintainers[0].label).toBe("Owner");
@@ -1000,17 +1105,13 @@ test("private works before a handle; visitors see Owner", async () => {
 test("hiding the street does not require hiding the name", async () => {
   await seedProperty();
   const cookie = await verifiedOwner("owner@example.com");
-  await sql`UPDATE users SET anonymize = false, handle = 'hudsonowner', first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
+  await sql`UPDATE users SET handle = 'hudsonowner', first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
 
-  const hide = await app.request("http://localhost/api/me", {
-    method: "PATCH",
-    headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ hide_street: true }),
-  });
+  const hide = await setVisibility(cookie, "prop_test", { hide_street: true });
   expect(hide.status).toBe(200);
   const saved = await hide.json();
-  expect(saved.user.hide_street).toBe(true);
-  expect(saved.user.anonymize).toBe(false);
+  expect(saved.property.hide_street).toBe(true);
+  expect(saved.property.anonymize).toBe(false);
 
   const page = await (await app.request("http://localhost/api/properties/prop_test")).json();
   expect(page.property.hide_street).toBe(true);
@@ -1021,15 +1122,12 @@ test("hiding the street does not require hiding the name", async () => {
 test("hiding the street redacts it for visitors and the owner", async () => {
   await seedProperty();
   const cookie = await verifiedOwner("owner@example.com");
-  await sql`UPDATE users SET anonymize = true, handle = 'hudsonowner' WHERE primary_email = 'owner@example.com'`;
+  await sql`UPDATE users SET handle = 'hudsonowner' WHERE primary_email = 'owner@example.com'`;
+  await sql`UPDATE property_maintainers SET anonymize = true WHERE property_id = 'prop_test'`;
 
-  const hide = await app.request("http://localhost/api/me", {
-    method: "PATCH",
-    headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ hide_street: true }),
-  });
+  const hide = await setVisibility(cookie, "prop_test", { hide_street: true });
   expect(hide.status).toBe(200);
-  expect((await hide.json()).user.hide_street).toBe(true);
+  expect((await hide.json()).property.hide_street).toBe(true);
 
   const visitor = await (await app.request("http://localhost/api/properties/prop_test")).json();
   expect(visitor.property.hide_street).toBe(true);
@@ -1041,22 +1139,14 @@ test("hiding the street redacts it for visitors and the owner", async () => {
   expect(owner.property.formatted).toBe("Hudson, NY 12534");
   expect(owner.property.formatted).not.toMatch(/441/);
 
-  const nameOff = await app.request("http://localhost/api/me", {
-    method: "PATCH",
-    headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ anonymize: false }),
-  });
-  expect((await nameOff.json()).user.hide_street).toBe(true);
+  const nameOff = await setVisibility(cookie, "prop_test", { anonymize: false });
+  expect((await nameOff.json()).property.hide_street).toBe(true);
   const stillHidden = await (await app.request("http://localhost/api/properties/prop_test")).json();
   expect(stillHidden.property.hide_street).toBe(true);
   expect(stillHidden.property.formatted).toBe("Hudson, NY 12534");
 
-  const streetOff = await app.request("http://localhost/api/me", {
-    method: "PATCH",
-    headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ hide_street: false }),
-  });
-  expect((await streetOff.json()).user.hide_street).toBe(false);
+  const streetOff = await setVisibility(cookie, "prop_test", { hide_street: false });
+  expect((await streetOff.json()).property.hide_street).toBe(false);
   const shown = await (await app.request("http://localhost/api/properties/prop_test")).json();
   expect(shown.property.hide_street).toBe(false);
   expect(shown.property.formatted).toBe("441 Warren Street, Hudson, NY 12534");
@@ -1143,11 +1233,7 @@ test("anonymize swaps the name, never the photo; the photo is its own change", a
   const facePhoto = before.property.maintainers[0].photo_url as string;
   expect(facePhoto).toMatch(/^https:\/\/images\.unsplash\.com\//);
 
-  const hide = await app.request("http://localhost/api/me", {
-    method: "PATCH",
-    headers: { "content-type": "application/json", cookie },
-    body: JSON.stringify({ anonymize: true }),
-  });
+  const hide = await setVisibility(cookie, "prop_test", { anonymize: true });
   expect(hide.status).toBe(200);
   const hidden = await (await app.request("http://localhost/api/properties/prop_test")).json();
   expect(hidden.property.maintainers[0].label).toBe("@hudsonowner");
@@ -1264,11 +1350,7 @@ test("each maintainer anonymizes independently", async () => {
     VALUES ('mnt_co', 'prop_test', ${co.user_id}, 'co_owner')
   `;
 
-  const hideOwner = await app.request("http://localhost/api/me", {
-    method: "PATCH",
-    headers: { "content-type": "application/json", cookie: ownerCookie },
-    body: JSON.stringify({ anonymize: true }),
-  });
+  const hideOwner = await setVisibility(ownerCookie, "prop_test", { anonymize: true });
   expect(hideOwner.status).toBe(200);
 
   const afterOwner = await (await app.request("http://localhost/api/properties/prop_test")).json();
@@ -1280,11 +1362,7 @@ test("each maintainer anonymizes independently", async () => {
   expect(mine.properties[0].maintainers.map((row: { role: string }) => row.role)).toEqual(["owner", "co_owner"]);
   expect(mine.properties[0].maintainers.every((row: { photo_url: string }) => row.photo_url)).toBe(true);
 
-  const hideCo = await app.request("http://localhost/api/me", {
-    method: "PATCH",
-    headers: { "content-type": "application/json", cookie: coCookie },
-    body: JSON.stringify({ anonymize: true }),
-  });
+  const hideCo = await setVisibility(coCookie, "prop_test", { anonymize: true });
   expect(hideCo.status).toBe(200);
 
   const afterBoth = await (await app.request("http://localhost/api/properties/prop_test")).json();

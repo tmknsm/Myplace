@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ManageCard, ProfileCard, VisibilityCard } from "./account-profile";
+import { ManageCard, ProfileCard, PropertyPicker, VisibilityCard } from "./account-profile";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty } from "./api";
 import { useAuth } from "./auth";
 import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, SettingsButton, ShareButton } from "./components";
@@ -547,8 +547,9 @@ function EyeIcon() {
 
 function AccountPage() {
   const { user, signOut, refresh } = useAuth();
-  const [properties, setProperties] = useState<MaintainedProperty[]>([]);
+  const [properties, setProperties] = useState<MaintainedProperty[] | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const loadHomes = async () => {
     const [homes, mine] = await Promise.all([api.myProperties(), api.myClaims()]);
     setProperties(homes.properties);
@@ -559,7 +560,15 @@ function AccountPage() {
     void loadHomes();
   }, [user]);
   if (!user) return <Navigate to="/signin" replace />;
-  const ownedIds = new Set(properties.map((property) => property.property_id));
+  const homes = properties ?? [];
+  // The first house is selected until they pick another; a stale pick falls back.
+  const selected = homes.find((property) => property.property_id === selectedId) ?? homes[0] ?? null;
+  const patchProperty = (patch: Pick<MaintainedProperty, "property_id"> & Partial<MaintainedProperty>) => {
+    setProperties((current) => current?.map((property) => (
+      property.property_id === patch.property_id ? { ...property, ...patch } : property
+    )) ?? current);
+  };
+  const ownedIds = new Set(homes.map((property) => property.property_id));
   const openClaims = claims.filter((claim) => (
     !ownedIds.has(claim.property_id) && claim.status !== "superseded" && claim.status !== "revoked"
   ));
@@ -568,44 +577,24 @@ function AccountPage() {
       <ProfileCard user={user} onUser={refresh} />
       <section className="section" data-testid="properties-section">
         <h2>Properties</h2>
-        <div className="group">
-          {properties.length === 0 && openClaims.length === 0 && (
+        <PropertyPicker properties={homes} selectedId={selected?.property_id ?? null} onSelect={setSelectedId}>
+          {properties && homes.length === 0 && openClaims.length === 0 && (
             <div className="row"><span className="meta-line">None yet</span></div>
           )}
-          {properties.map((property) => {
-            const row = (
-              <>
-                <span className="row-label">{property.formatted}</span>
-                {property.removed && <span className="badge">Removed</span>}
-                {property.maintainers.length > 0 && !property.removed && (
-                  <span className="row-avatars">
-                    {property.maintainers.map((person) => (
-                      <img key={person.user_id} src={person.photo_url} alt={person.label} />
-                    ))}
-                  </span>
-                )}
-              </>
-            );
-            return property.removed ? (
-              <div className="row" key={property.property_id} data-testid="owned-property">
-                {row}
-              </div>
-            ) : (
-              <Link className="row" key={property.property_id} to={`/property/${property.property_id}`} data-testid="owned-property">
-                {row}
-              </Link>
-            );
-          })}
           {openClaims.map((claim) => (
             <Link className="row" key={claim.claim_id} to={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
               <span>{claim.formatted}</span>
               <span className={`badge ${claim.status}`}>{claim.status}</span>
             </Link>
           ))}
-        </div>
+        </PropertyPicker>
       </section>
-      <VisibilityCard user={user} onUser={refresh} />
-      <ManageCard properties={properties} onChange={loadHomes} />
+      {properties && (
+        <>
+          <VisibilityCard user={user} property={selected} onUser={refresh} onProperty={patchProperty} />
+          <ManageCard property={selected} onProperty={patchProperty} />
+        </>
+      )}
       <div className="action-row account-signout">
         <button className="btn secondary" onClick={() => signOut()} data-testid="account-signout">Sign out</button>
       </div>

@@ -91,10 +91,10 @@ async function main() {
       await sql`
         INSERT INTO users (
           user_id, primary_email, email_verified_at, display_name, first_name, last_name,
-          handle, anonymize, avatar_url
+          handle, avatar_url
         ) VALUES (
           ${userId}, ${neighbor.email}, now(), ${`${neighbor.first} ${neighbor.last}`},
-          ${neighbor.first}, ${neighbor.last}, ${neighbor.handle}, false, ${neighbor.avatar}
+          ${neighbor.first}, ${neighbor.last}, ${neighbor.handle}, ${neighbor.avatar}
         )
       `;
       await sql`
@@ -109,8 +109,7 @@ async function main() {
             last_name = ${neighbor.last},
             display_name = ${`${neighbor.first} ${neighbor.last}`},
             handle = COALESCE(handle, ${neighbor.handle}),
-            avatar_url = ${neighbor.avatar},
-            anonymize = false
+            avatar_url = ${neighbor.avatar}
         WHERE user_id = ${userId}
       `;
       console.log("user update", neighbor.handle, userId);

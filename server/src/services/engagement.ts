@@ -3,7 +3,7 @@ import { formatHandle, ownerLabel, ownerPhoto } from "../../../shared/profile.ts
 import { getSql } from "../db.ts";
 import { id } from "../ids.ts";
 import { isMaintainer } from "../auth.ts";
-import { neighborHouseForPeople } from "./neighbors.ts";
+import { anonymizedOn, neighborHouseForPeople } from "./neighbors.ts";
 
 export const COMMENT_MAX = 600;
 
@@ -47,7 +47,6 @@ interface PersonRow {
   first_name: string | null;
   last_name: string | null;
   handle: string | null;
-  anonymize: boolean;
   avatar_url: string | null;
 }
 
@@ -59,8 +58,7 @@ interface CommentRow extends PersonRow {
   liked: boolean;
 }
 
-function presentPerson(row: PersonRow): PhotoPerson {
-  const anonymize = Boolean(row.anonymize);
+function presentPerson(row: PersonRow, anonymize: boolean): PhotoPerson {
   const label = ownerLabel({ ...row, anonymize });
   const handle = formatHandle(row.handle);
   return {
@@ -73,16 +71,22 @@ function presentPerson(row: PersonRow): PhotoPerson {
   };
 }
 
-async function withNeighborHouses(documentId: string, comments: PhotoComment[]): Promise<PhotoComment[]> {
+/**
+ * Comments as people. Each author is named the way the photo's house knows
+ * them: their own setting there, or the setting on the house they neighbor
+ * it through.
+ */
+async function presentComments(documentId: string, rows: CommentRow[], viewerId: string | null): Promise<PhotoComment[]> {
   const sql = getSql();
   const [doc] = await sql<{ property_id: string }[]>`
     SELECT property_id FROM documents WHERE document_id = ${documentId} AND removed_at IS NULL
   `;
-  if (!doc) return comments;
-  const houses = await neighborHouseForPeople(doc.property_id, comments.map((comment) => comment.author.user_id));
-  if (houses.size === 0) return comments;
-  return comments.map((comment) => {
-    const propertyId = houses.get(comment.author.user_id);
+  const ids = rows.map((row) => row.user_id);
+  const houses = doc ? await neighborHouseForPeople(doc.property_id, ids) : new Map<string, string>();
+  const hidden = doc ? await anonymizedOn(doc.property_id, ids, houses) : new Map<string, boolean>();
+  return rows.map((row) => {
+    const comment = presentComment(row, viewerId, hidden.get(row.user_id) ?? false);
+    const propertyId = houses.get(row.user_id);
     return propertyId ? { ...comment, author: { ...comment.author, property_id: propertyId } } : comment;
   });
 }
@@ -149,7 +153,7 @@ export async function recordShare(documentId: string): Promise<{ shares: number 
   return { shares: Number(row?.share_count ?? 0) };
 }
 
-function presentComment(row: CommentRow, viewerId: string | null): PhotoComment {
+function presentComment(row: CommentRow, viewerId: string | null, anonymize: boolean): PhotoComment {
   return {
     comment_id: row.comment_id,
     body: row.body,
@@ -157,7 +161,7 @@ function presentComment(row: CommentRow, viewerId: string | null): PhotoComment 
     mine: row.user_id === viewerId,
     likes: Number(row.likes ?? 0),
     liked: Boolean(row.liked),
-    author: presentPerson(row),
+    author: presentPerson(row, anonymize),
   };
 }
 
@@ -165,7 +169,7 @@ function commentRows(where: postgres.Fragment, viewerId: string | null) {
   const sql = getSql();
   return sql<CommentRow[]>`
     SELECT c.comment_id, c.body, c.created_at, u.user_id,
-           u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url,
+           u.display_name, u.first_name, u.last_name, u.handle, u.avatar_url,
            (SELECT count(*) FROM document_comment_likes l WHERE l.comment_id = c.comment_id) AS likes,
            ${viewerId
              ? sql`EXISTS (SELECT 1 FROM document_comment_likes l WHERE l.comment_id = c.comment_id AND l.user_id = ${viewerId})`
@@ -180,7 +184,7 @@ function commentRows(where: postgres.Fragment, viewerId: string | null) {
 export async function loadComments(documentId: string, viewerId: string | null): Promise<PhotoComment[]> {
   const sql = getSql();
   const rows = await commentRows(sql`c.document_id = ${documentId}`, viewerId);
-  return withNeighborHouses(documentId, rows.map((row) => presentComment(row, viewerId)));
+  return presentComments(documentId, rows, viewerId);
 }
 
 /**
@@ -189,9 +193,9 @@ export async function loadComments(documentId: string, viewerId: string | null):
  */
 export async function loadPhotoPost(documentId: string): Promise<PhotoPost | null> {
   const sql = getSql();
-  const rows = await sql<(Partial<PersonRow> & { document_id: string; caption: string | null; created_at: string })[]>`
-    SELECT d.document_id, d.caption, d.created_at,
-           u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.anonymize, u.avatar_url
+  const rows = await sql<(Partial<PersonRow> & { document_id: string; property_id: string; caption: string | null; created_at: string })[]>`
+    SELECT d.document_id, d.property_id, d.caption, d.created_at,
+           u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.avatar_url
     FROM documents d
     LEFT JOIN users u ON u.user_id = COALESCE(
       d.uploaded_by,
@@ -203,6 +207,7 @@ export async function loadPhotoPost(documentId: string): Promise<PhotoPost | nul
   `;
   const row = rows[0];
   if (!row) return null;
+  const hidden = row.user_id ? await anonymizedOn(row.property_id, [row.user_id]) : new Map<string, boolean>();
   return {
     document_id: row.document_id,
     caption: row.caption,
@@ -214,9 +219,8 @@ export async function loadPhotoPost(documentId: string): Promise<PhotoPost | nul
         first_name: row.first_name ?? null,
         last_name: row.last_name ?? null,
         handle: row.handle ?? null,
-        anonymize: Boolean(row.anonymize),
         avatar_url: row.avatar_url ?? null,
-      })
+      }, hidden.get(row.user_id) ?? false)
       : null,
   };
 }
@@ -255,8 +259,8 @@ export async function addComment(
   const rows = await commentRows(sql`c.comment_id = ${commentId}`, userId);
   const row = rows[0];
   if (!row) return { error: "Couldn't save that comment." };
-  const [comment] = await withNeighborHouses(documentId, [presentComment(row, userId)]);
-  return { comment: comment ?? presentComment(row, userId) };
+  const [comment] = await presentComments(documentId, [row], userId);
+  return { comment: comment ?? presentComment(row, userId, false) };
 }
 
 /** The author or a maintainer of the property can take a comment down. */

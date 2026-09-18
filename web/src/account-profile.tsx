@@ -1,11 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { formatHandle, ownerLabel, ownerPhoto, parseHandle } from "../../shared/profile";
 import { api, type MaintainedProperty, type User } from "./api";
 import { Spinner } from "./components";
 import { snapshotPhotoFile } from "./optimize-photo";
 import { useToast } from "./property-shared";
 
-/** Photo and the name property pages show. */
+/** Street half of an address, for the compact scope label under a section title. */
+export function shortAddress(property: Pick<MaintainedProperty, "formatted" | "municipality">): string {
+  const formatted = property.formatted?.trim();
+  if (formatted) return formatted.split(",")[0]!.trim() || formatted;
+  return property.municipality || "This property";
+}
+
+/** Photo and the name on the account. What each property page shows is set per house below. */
 export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [toast, showToast] = useToast();
@@ -22,7 +30,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
       setBusy(false);
     }
   };
-  const label = ownerLabel(user);
+  const label = ownerLabel({ ...user, anonymize: false });
   return (
     <>
       <section className="profile-card" data-testid="profile-card">
@@ -47,9 +55,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
           />
         </label>
         <h1 className="display profile-card-name" data-testid="profile-name">{label}</h1>
-        <p className="meta-line profile-card-sub" data-testid="profile-sub">
-          {user.anonymize ? "Real name is never displayed." : user.primary_email}
-        </p>
+        <p className="meta-line profile-card-sub" data-testid="profile-sub">{user.primary_email}</p>
       </section>
       {toast && (
         <div className="page-toast" role="status" data-testid="profile-toast">{toast}</div>
@@ -59,10 +65,100 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
 }
 
 /**
- * Hide my address is its own switch. Hide my name is off until they create
- * an alias; turning it on reveals the alias field.
+ * The houses on the account. Choosing one scopes Visibility and Manage below
+ * to it. With a single house there is nothing to choose, so it reads as a
+ * plain list.
  */
-export function VisibilityCard({ user, onUser }: { user: User; onUser: () => Promise<void> }) {
+export function PropertyPicker({
+  properties,
+  selectedId,
+  onSelect,
+  children,
+}: {
+  properties: MaintainedProperty[];
+  selectedId: string | null;
+  onSelect: (propertyId: string) => void;
+  children?: ReactNode;
+}) {
+  const selectable = properties.length > 1;
+  return (
+    <div className="group property-picker" role={selectable ? "radiogroup" : undefined} aria-label={selectable ? "Properties" : undefined}>
+      {properties.map((property) => {
+        const selected = selectable && property.property_id === selectedId;
+        return (
+          <div
+            className={`row picker-row${selected ? " is-selected" : ""}${selectable ? " is-selectable" : ""}`}
+            key={property.property_id}
+            data-testid="owned-property"
+            data-selected={selected || undefined}
+          >
+            <button
+              type="button"
+              className="picker-choice"
+              role={selectable ? "radio" : undefined}
+              aria-checked={selectable ? selected : undefined}
+              aria-label={selectable ? `Settings for ${property.formatted ?? shortAddress(property)}` : undefined}
+              onClick={() => onSelect(property.property_id)}
+              data-testid="picker-choice"
+            >
+              <span className="row-label">{property.formatted}</span>
+              {property.removed && <span className="badge">Removed</span>}
+              {property.maintainers.length > 0 && !property.removed && (
+                <span className="row-avatars">
+                  {property.maintainers.map((person) => (
+                    <img key={person.user_id} src={person.photo_url} alt={person.label} />
+                  ))}
+                </span>
+              )}
+            </button>
+            {!property.removed && (
+              <Link
+                className="picker-open"
+                to={`/property/${property.property_id}`}
+                aria-label={`Open ${property.formatted ?? shortAddress(property)}`}
+                data-testid="picker-open"
+              >
+                <ChevronIcon />
+              </Link>
+            )}
+          </div>
+        );
+      })}
+      {children}
+    </div>
+  );
+}
+
+/** Section title with the address the controls under it apply to. */
+function ScopedHead({ title, property }: { title: string; property: MaintainedProperty | null }) {
+  return (
+    <div className="section-head">
+      <h2>{title}</h2>
+      {property && (
+        <span className="section-scope" key={property.property_id} data-testid={`${title.toLowerCase()}-scope`}>
+          {shortAddress(property)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * How this house shows you. Hide my address and Hide my name are each set
+ * per property; the alias is one per account and appears when any house
+ * hides your name.
+ */
+export function VisibilityCard({
+  user,
+  property,
+  onUser,
+  onProperty,
+}: {
+  user: User;
+  property: MaintainedProperty | null;
+  onUser: () => Promise<void>;
+  onProperty: (patch: Pick<MaintainedProperty, "property_id"> & Partial<MaintainedProperty>) => void;
+}) {
   const [busy, setBusy] = useState<"anonymize" | "handle" | "street" | null>(null);
   const [toast, showToast] = useToast();
   const [handleDraft, setHandleDraft] = useState((user.handle ?? "").replace(/^@+/, ""));
@@ -123,7 +219,9 @@ export function VisibilityCard({ user, onUser }: { user: User; onUser: () => Pro
     }
   };
 
-  const hideStreet = Boolean(user.hide_street);
+  const hideStreet = Boolean(property?.hide_street);
+  const anonymize = Boolean(property?.anonymize);
+  const where = property ? shortAddress(property) : null;
   const canSaveHandle = availability === "available";
   const hintClass = availability === "available"
     ? " is-ok"
@@ -134,25 +232,29 @@ export function VisibilityCard({ user, onUser }: { user: User; onUser: () => Pro
     ? "Available"
     : availability === "unavailable"
       ? "Unavailable"
-      : handleHint ?? (user.handle ? "Shown on property pages instead of your real name." : "Letters, numbers, and underscores. Starts with a letter.");
+      : handleHint ?? (user.handle ? "One alias for your account, used wherever your name is hidden." : "Letters, numbers, and underscores. Starts with a letter.");
 
-  const flipPrivate = () =>
-    run("anonymize", async () => {
-      const saved = await api.updateMe({ anonymize: !user.anonymize });
-      await onUser();
-      return saved.user.anonymize
-        ? "Your name is hidden. Add an alias to use on property pages."
-        : "Property pages now show your real name.";
+  const flipName = () => {
+    if (!property) return;
+    void run("anonymize", async () => {
+      const saved = await api.setPropertyVisibility(property.property_id, { anonymize: !anonymize });
+      onProperty(saved.property);
+      return saved.property.anonymize
+        ? (user.handle ? `${where} shows ${formatHandle(user.handle)} instead of your name.` : `Your name is hidden on ${where}. Add an alias below.`)
+        : `${where} shows your real name again.`;
     }, "Could not update that.");
+  };
 
-  const flipStreet = () =>
-    run("street", async () => {
-      const saved = await api.updateMe({ hide_street: !hideStreet });
-      await onUser();
-      return saved.user.hide_street
-        ? "Your street address is hidden on your property page."
-        : "Your street address is visible on your property page.";
+  const flipStreet = () => {
+    if (!property) return;
+    void run("street", async () => {
+      const saved = await api.setPropertyVisibility(property.property_id, { hide_street: !hideStreet });
+      onProperty(saved.property);
+      return saved.property.hide_street
+        ? `${where} now shows only the town.`
+        : `${where} shows its street address again.`;
     }, "Could not update that.");
+  };
 
   const saveHandle = () => {
     if (busy || !canSaveHandle) return;
@@ -166,93 +268,99 @@ export function VisibilityCard({ user, onUser }: { user: User; onUser: () => Pro
   return (
     <>
       <section className="section" data-testid="visibility-section">
-        <h2>Visibility</h2>
-        <div className="group profile-card-settings">
-          <div className="row">
-            <div>
-              <strong>Hide my address</strong>
-              <div className="meta-line">Hide your street address on your property page.</div>
-            </div>
-            <button
-              type="button"
-              className={`switch${hideStreet ? " on" : ""}`}
-              role="switch"
-              aria-checked={hideStreet}
-              aria-label="Hide my address"
-              disabled={busy !== null}
-              data-testid="hide-street-toggle"
-              onClick={() => void flipStreet()}
-            >
-              <span className="visually-hidden">{hideStreet ? "On" : "Off"}</span>
-            </button>
+        <ScopedHead title="Visibility" property={property} />
+        {!property ? (
+          <div className="group profile-card-settings">
+            <div className="empty-card">Claim a property to choose what its page shows.</div>
           </div>
-          <div className="row">
-            <div>
-              <strong>Hide my name</strong>
-              <div className="meta-line">
-                Create an alias to use instead of your real name on property pages.
+        ) : (
+          <div className="group profile-card-settings scope-swap" key={property.property_id}>
+            <div className="row">
+              <div>
+                <strong>Hide my address</strong>
+                <div className="meta-line">Show only the town on this property's page.</div>
               </div>
+              <button
+                type="button"
+                className={`switch${hideStreet ? " on" : ""}`}
+                role="switch"
+                aria-checked={hideStreet}
+                aria-label={`Hide my address on ${where}`}
+                disabled={busy !== null}
+                data-testid="hide-street-toggle"
+                onClick={flipStreet}
+              >
+                <span className="visually-hidden">{hideStreet ? "On" : "Off"}</span>
+              </button>
             </div>
-            <button
-              type="button"
-              className={`switch${user.anonymize ? " on" : ""}`}
-              role="switch"
-              aria-checked={user.anonymize}
-              aria-label="Hide my name"
-              disabled={busy !== null}
-              data-testid="anonymize-toggle"
-              onClick={() => void flipPrivate()}
-            >
-              <span className="visually-hidden">{user.anonymize ? "On" : "Off"}</span>
-            </button>
-          </div>
-          {user.anonymize && (
-            <form
-              className="row profile-handle-row"
-              onSubmit={(event) => {
-                event.preventDefault();
-                saveHandle();
-              }}
-            >
-              <label className="profile-handle-label">
-                <strong>Alias</strong>
-                <span className={`profile-handle${availability === "unavailable" || availability === "invalid" ? " is-error" : availability === "available" ? " is-ok" : ""}`}>
-                  <span className="profile-handle-at" aria-hidden="true">@</span>
-                  <input
-                    className="field"
-                    type="text"
-                    autoComplete="username"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    maxLength={24}
-                    value={handleDraft}
-                    onChange={(event) => setHandleDraft(event.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
-                    placeholder="yourname"
-                    aria-invalid={availability === "unavailable" || availability === "invalid"}
-                    data-testid="profile-handle"
-                  />
-                </span>
-                <span className={`meta-line${hintClass}`} data-testid="profile-handle-hint">
-                  {hintText}
-                </span>
-              </label>
-              <div className={`profile-handle-accept${canSaveHandle ? " is-on" : ""}`}>
-                <div className="profile-handle-accept-slot">
-                  <button
-                    type="submit"
-                    className="btn profile-handle-accept-btn"
-                    disabled={!canSaveHandle || busy !== null}
-                    tabIndex={canSaveHandle ? 0 : -1}
-                    data-testid="profile-handle-accept"
-                  >
-                    {busy === "handle" ? "Saving…" : "Accept"}
-                  </button>
+            <div className="row">
+              <div>
+                <strong>Hide my name</strong>
+                <div className="meta-line">
+                  Use an alias instead of your real name on this page and with its neighbors.
                 </div>
               </div>
-            </form>
-          )}
-        </div>
+              <button
+                type="button"
+                className={`switch${anonymize ? " on" : ""}`}
+                role="switch"
+                aria-checked={anonymize}
+                aria-label={`Hide my name on ${where}`}
+                disabled={busy !== null}
+                data-testid="anonymize-toggle"
+                onClick={flipName}
+              >
+                <span className="visually-hidden">{anonymize ? "On" : "Off"}</span>
+              </button>
+            </div>
+            {anonymize && (
+              <form
+                className="row profile-handle-row"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  saveHandle();
+                }}
+              >
+                <label className="profile-handle-label">
+                  <strong>Alias</strong>
+                  <span className={`profile-handle${availability === "unavailable" || availability === "invalid" ? " is-error" : availability === "available" ? " is-ok" : ""}`}>
+                    <span className="profile-handle-at" aria-hidden="true">@</span>
+                    <input
+                      className="field"
+                      type="text"
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={24}
+                      value={handleDraft}
+                      onChange={(event) => setHandleDraft(event.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
+                      placeholder="yourname"
+                      aria-invalid={availability === "unavailable" || availability === "invalid"}
+                      data-testid="profile-handle"
+                    />
+                  </span>
+                  <span className={`meta-line${hintClass}`} data-testid="profile-handle-hint">
+                    {hintText}
+                  </span>
+                </label>
+                <div className={`profile-handle-accept${canSaveHandle ? " is-on" : ""}`}>
+                  <div className="profile-handle-accept-slot">
+                    <button
+                      type="submit"
+                      className="btn profile-handle-accept-btn"
+                      disabled={!canSaveHandle || busy !== null}
+                      tabIndex={canSaveHandle ? 0 : -1}
+                      data-testid="profile-handle-accept"
+                    >
+                      {busy === "handle" ? "Saving…" : "Accept"}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
       </section>
       {toast && (
         <div className="page-toast" role="status" data-testid="visibility-toast">{toast}</div>
@@ -262,33 +370,35 @@ export function VisibilityCard({ user, onUser }: { user: User; onUser: () => Pro
 }
 
 /**
- * Take a claimed house off Myplace. Off by default. When on, the parcel
- * disappears from search, the map, and every public URL.
+ * Take the selected house off Myplace. Off by default. When on, the parcel
+ * disappears from search, the map, and every public URL until it is turned
+ * back off. Other houses on the account are untouched.
  */
 export function ManageCard({
-  properties,
-  onChange,
+  property,
+  onProperty,
 }: {
-  properties: MaintainedProperty[];
-  onChange: () => Promise<void>;
+  property: MaintainedProperty | null;
+  onProperty: (patch: Pick<MaintainedProperty, "property_id"> & Partial<MaintainedProperty>) => void;
 }) {
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [toast, showToast] = useToast();
+  const where = property ? shortAddress(property) : null;
 
-  const flipRemoved = (property: MaintainedProperty) => {
-    if (busyId) return;
-    setBusyId(property.property_id);
+  const flipRemoved = () => {
+    if (busy || !property) return;
+    setBusy(true);
     void (async () => {
       try {
         const saved = await api.setPropertyRemoved(property.property_id, !property.removed);
-        await onChange();
+        onProperty(saved.property);
         showToast(saved.property.removed
-          ? "That property is off Myplace. Toggle this off to bring it back."
-          : "That property is on Myplace again.");
+          ? `${where} is off Myplace. Turn this off to bring it back.`
+          : `${where} is on Myplace again.`);
       } catch (err) {
         showToast(err instanceof Error ? err.message : "Could not update that.");
       } finally {
-        setBusyId(null);
+        setBusy(false);
       }
     })();
   };
@@ -296,38 +406,33 @@ export function ManageCard({
   return (
     <>
       <section className="section" data-testid="manage-section">
-        <h2>Manage</h2>
-        <div className="group profile-card-settings">
-          {properties.length === 0 && (
+        <ScopedHead title="Manage" property={property} />
+        {!property ? (
+          <div className="group profile-card-settings">
+            <div className="empty-card">Claim a property to take it off Myplace.</div>
+          </div>
+        ) : (
+          <div className="group profile-card-settings scope-swap" key={property.property_id}>
             <div className="row">
-              <span className="meta-line">Claim a property to take it off Myplace.</span>
-            </div>
-          )}
-          {properties.map((property) => (
-            <div className="row" key={property.property_id}>
               <div>
                 <strong>Remove my property</strong>
-                <div className="meta-line">
-                  {property.formatted
-                    ? `${property.formatted}. Off the map, out of search, and gone from every public page.`
-                    : "Off the map, out of search, and gone from every public page."}
-                </div>
+                <div className="meta-line">Off the map, out of search, and gone from every public page.</div>
               </div>
               <button
                 type="button"
                 className={`switch${property.removed ? " on" : ""}`}
                 role="switch"
                 aria-checked={property.removed}
-                aria-label={property.formatted ? `Remove ${property.formatted}` : "Remove my property"}
-                disabled={busyId !== null}
+                aria-label={`Remove ${where}`}
+                disabled={busy}
                 data-testid="remove-property-toggle"
-                onClick={() => flipRemoved(property)}
+                onClick={flipRemoved}
               >
                 <span className="visually-hidden">{property.removed ? "On" : "Off"}</span>
               </button>
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </section>
       {toast && (
         <div className="page-toast" role="status" data-testid="manage-toast">{toast}</div>
@@ -341,6 +446,14 @@ function CameraIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 8.6h2.1l1.5-2.3h8.8l1.5 2.3H20a2 2 0 0 1 2 2v8.2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10.6a2 2 0 0 1 2-2Z" />
       <circle cx="12" cy="14.2" r="3.2" />
+    </svg>
+  );
+}
+
+function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 6l6 6-6 6" />
     </svg>
   );
 }

@@ -93,9 +93,8 @@ export async function loadPropertyPage(propertyId: string, options: { viewerIsMa
     LIMIT 50
   `;
   const maintainerRows = await sql<MaintainerRow[]>`
-    SELECT m.maintainer_id, m.user_id, m.role, m.verified_at,
-           u.display_name, u.first_name, u.last_name, u.handle, u.anonymize,
-           u.hide_street, u.avatar_url, u.primary_email
+    SELECT m.maintainer_id, m.user_id, m.role, m.verified_at, m.anonymize, m.hide_street,
+           u.display_name, u.first_name, u.last_name, u.handle, u.avatar_url, u.primary_email
     FROM property_maintainers m
     JOIN users u ON u.user_id = m.user_id
     WHERE m.property_id = ${propertyId} AND m.revoked_at IS NULL
@@ -153,7 +152,10 @@ function sortMaintainers<T extends { role: string }>(rows: T[]): T[] {
   });
 }
 
-/** Properties this user maintains, each with everyone on the page. */
+/**
+ * Properties this user maintains, each with everyone on the page and this
+ * user's own visibility choices for that house.
+ */
 export async function loadMyProperties(userId: string) {
   const sql = getSql();
   const mine = await sql<{
@@ -163,20 +165,22 @@ export async function loadMyProperties(userId: string) {
     role: string;
     verified_at: Date | string;
     removed: boolean;
+    anonymize: boolean;
+    hide_street: boolean;
   }[]>`
-    SELECT p.property_id, p.municipality, a.formatted, m.role, m.verified_at, p.removed
+    SELECT p.property_id, p.municipality, a.formatted, m.role, m.verified_at, p.removed,
+           m.anonymize, m.hide_street
     FROM property_maintainers m
     JOIN properties p ON p.property_id = m.property_id
     LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
     WHERE m.user_id = ${userId} AND m.revoked_at IS NULL
-    ORDER BY a.formatted
+    ORDER BY m.verified_at ASC, a.formatted
   `;
   if (mine.length === 0) return [];
 
   const people = await sql<(MaintainerRow & { property_id: string })[]>`
-    SELECT m.property_id, m.maintainer_id, m.user_id, m.role, m.verified_at,
-           u.display_name, u.first_name, u.last_name, u.handle, u.anonymize,
-           u.hide_street, u.avatar_url, u.primary_email
+    SELECT m.property_id, m.maintainer_id, m.user_id, m.role, m.verified_at, m.anonymize, m.hide_street,
+           u.display_name, u.first_name, u.last_name, u.handle, u.avatar_url, u.primary_email
     FROM property_maintainers mine
     JOIN property_maintainers m ON m.property_id = mine.property_id AND m.revoked_at IS NULL
     JOIN users u ON u.user_id = m.user_id
@@ -193,8 +197,32 @@ export async function loadMyProperties(userId: string) {
 
   return mine.map((row) => ({
     ...row,
+    anonymize: Boolean(row.anonymize),
+    hide_street: Boolean(row.hide_street),
     maintainers: sortMaintainers(byProperty.get(row.property_id) ?? []),
   }));
+}
+
+/**
+ * One person's visibility on one house. Only a current maintainer has a row
+ * to change; anyone else gets null.
+ */
+export async function setMaintainerVisibility(
+  userId: string,
+  propertyId: string,
+  patch: { anonymize?: boolean; hide_street?: boolean },
+): Promise<{ property_id: string; anonymize: boolean; hide_street: boolean } | null> {
+  const sql = getSql();
+  const rows = await sql<{ anonymize: boolean; hide_street: boolean }[]>`
+    UPDATE property_maintainers
+    SET anonymize = COALESCE(${patch.anonymize ?? null}, anonymize),
+        hide_street = COALESCE(${patch.hide_street ?? null}, hide_street)
+    WHERE property_id = ${propertyId} AND user_id = ${userId} AND revoked_at IS NULL
+    RETURNING anonymize, hide_street
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return { property_id: propertyId, anonymize: Boolean(row.anonymize), hide_street: Boolean(row.hide_street) };
 }
 
 export async function searchProperties(query: string, limit = 12) {

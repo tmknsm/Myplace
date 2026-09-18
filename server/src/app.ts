@@ -77,6 +77,7 @@ import {
   parcelsInBbox,
   parcelTile,
   searchProperties,
+  setMaintainerVisibility,
   TILE_LAYER,
   TILE_MAX_ZOOM,
   TILE_MIN_ZOOM,
@@ -123,8 +124,11 @@ app.onError((error, c) => {
   return c.json({ error: message }, status as 500);
 });
 
+/** The account settings for a house stay reachable while it is off Myplace. */
+const OWNER_SETTINGS_PATH = /\/(removed|visibility)$/;
+
 async function rejectRemovedProperty(c: Context<AppEnv>, next: Next) {
-  if (c.req.method === "PATCH" && c.req.path.endsWith("/removed")) {
+  if (c.req.method === "PATCH" && OWNER_SETTINGS_PATH.test(c.req.path)) {
     await next();
     return;
   }
@@ -268,17 +272,11 @@ app.post("/api/auth/verify", async (c) => {
 
 app.patch("/api/me", async (c) => {
   const user = requireUser(c);
-  const body = await c.req.json<{ anonymize?: boolean; handle?: string; hide_street?: boolean; avatar?: string }>();
-  if (body.anonymize !== undefined && typeof body.anonymize !== "boolean") {
-    return c.json({ error: "Say whether to anonymize." }, 400);
-  }
-  if (body.hide_street !== undefined && typeof body.hide_street !== "boolean") {
-    return c.json({ error: "Say whether to hide the street." }, 400);
-  }
+  const body = await c.req.json<{ handle?: string; avatar?: string }>();
   if (body.avatar !== undefined && !isAvatarPreset(body.avatar)) {
     return c.json({ error: "Unknown photo." }, 400);
   }
-  if (body.anonymize === undefined && body.handle === undefined && body.hide_street === undefined && body.avatar === undefined) {
+  if (body.handle === undefined && body.avatar === undefined) {
     return c.json({ error: "Say what to change." }, 400);
   }
 
@@ -293,15 +291,7 @@ app.patch("/api/me", async (c) => {
     if (taken[0]) return c.json({ error: "That handle is already taken." }, 409);
     handle = parsed.handle;
   }
-  const anonymize = body.anonymize ?? user.anonymize;
-  const hideStreet = body.hide_street ?? user.hide_street;
-  await sql`
-    UPDATE users
-    SET anonymize = ${anonymize},
-        handle = ${handle},
-        hide_street = ${hideStreet}
-    WHERE user_id = ${user.user_id}
-  `;
+  await sql`UPDATE users SET handle = ${handle} WHERE user_id = ${user.user_id}`;
   if (body.avatar !== undefined) {
     await setAvatar(user, AVATAR_PRESETS[body.avatar as AvatarPreset], null);
   }
@@ -739,6 +729,25 @@ app.patch("/api/properties/:id/removed", async (c) => {
   if (!exists[0]) return c.json({ error: "Property not found" }, 404);
   await sql`UPDATE properties SET removed = ${body.removed} WHERE property_id = ${propertyId}`;
   return c.json({ property: { property_id: propertyId, removed: body.removed } });
+});
+
+/** How this person appears on this one house: alias or name, street or town. */
+app.patch("/api/properties/:id/visibility", async (c) => {
+  const user = requireUser(c);
+  const propertyId = c.req.param("id");
+  const body = await c.req.json<{ anonymize?: boolean; hide_street?: boolean }>();
+  if (body.anonymize !== undefined && typeof body.anonymize !== "boolean") {
+    return c.json({ error: "Say whether to hide your name." }, 400);
+  }
+  if (body.hide_street !== undefined && typeof body.hide_street !== "boolean") {
+    return c.json({ error: "Say whether to hide the street." }, 400);
+  }
+  if (body.anonymize === undefined && body.hide_street === undefined) {
+    return c.json({ error: "Say what to change." }, 400);
+  }
+  const saved = await setMaintainerVisibility(user.user_id, propertyId, body);
+  if (!saved) return c.json({ error: "Only someone on this page can change how it shows them." }, 403);
+  return c.json({ property: saved });
 });
 
 app.post("/api/properties/:id/documents", async (c) => {

@@ -374,9 +374,15 @@ export async function loadInbox(propertyId: string): Promise<InboxItem[]> {
     anonymize: boolean;
   }[]>`
     SELECT r.request_id, r.created_at, r.from_property_id, a.formatted,
-           u.display_name, u.first_name, u.last_name, u.handle, u.anonymize
+           u.display_name, u.first_name, u.last_name, u.handle,
+           COALESCE(
+             pm.anonymize,
+             EXISTS (SELECT 1 FROM property_maintainers x WHERE x.user_id = u.user_id AND x.revoked_at IS NULL AND x.anonymize)
+           ) AS anonymize
     FROM neighbor_requests r
     JOIN users u ON u.user_id = r.from_user_id
+    LEFT JOIN property_maintainers pm
+      ON pm.user_id = u.user_id AND pm.property_id = r.from_property_id AND pm.revoked_at IS NULL
     LEFT JOIN property_addresses a ON a.property_id = r.from_property_id AND a.is_current
     WHERE r.property_id = ${propertyId} AND r.status = 'pending'
     ORDER BY r.created_at DESC
