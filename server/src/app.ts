@@ -129,7 +129,12 @@ async function rejectRemovedProperty(c: Context<AppEnv>, next: Next) {
     return;
   }
   const propertyId = c.req.param("id");
-  const rows = await getSql()<{ removed: boolean }[]>`
+  if (!propertyId) {
+    await next();
+    return;
+  }
+  const sql = getSql();
+  const rows = await sql<{ removed: boolean }[]>`
     SELECT removed FROM properties WHERE property_id = ${propertyId}
   `;
   if (rows[0]?.removed) return c.json({ error: "Property not found" }, 404);
