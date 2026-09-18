@@ -75,6 +75,11 @@ export const api = {
   claim: (id: string) => request<{ claim: Claim; documents: Doc[] }>(`/api/claims/${id}`),
   myClaims: () => request<{ claims: Claim[] }>("/api/me/claims"),
   myProperties: () => request<{ properties: MaintainedProperty[] }>("/api/me/properties"),
+  setPropertyRemoved: (id: string, removed: boolean) =>
+    request<{ property: { property_id: string; removed: boolean } }>(`/api/properties/${id}/removed`, {
+      method: "PATCH",
+      body: JSON.stringify({ removed }),
+    }),
   myNeighbors: () => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>("/api/me/neighbors"),
   propertyNeighbors: (id: string) => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>(`/api/properties/${id}/neighbors`),
   neighborStatus: (id: string) => request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`),
@@ -531,6 +536,7 @@ export interface MaintainedProperty {
   formatted: string | null;
   municipality: string | null;
   role: string;
+  removed: boolean;
   maintainers: Maintainer[];
 }
 

@@ -1075,6 +1075,64 @@ test("owner badge never shows a street address", async () => {
   expect(page.property.maintainers[0].label).toBe("@priyashah");
 });
 
+test("removing a property hides it from search, tiles, and every public URL", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("owner@example.com");
+  const visitor = await signIn("visitor@example.com");
+
+  const hide = await app.request("http://localhost/api/properties/prop_test/removed", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ removed: true }),
+  });
+  expect(hide.status).toBe(200);
+  expect((await hide.json()).property.removed).toBe(true);
+
+  expect((await app.request("http://localhost/api/properties/prop_test")).status).toBe(404);
+  expect((await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).status).toBe(404);
+  expect((await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: visitor },
+    body: JSON.stringify({ method: "tax_bill", attestationAccepted: true }),
+  })).status).toBe(404);
+
+  const search = await (await app.request("http://localhost/api/search?q=441%20Warren")).json();
+  expect(search.results.map((row: { property_id: string }) => row.property_id)).not.toContain("prop_test");
+
+  const parcels = await (await app.request("http://localhost/api/parcels?bbox=-74,42,-73,43")).json();
+  expect(parcels.features.map((f: { id: string }) => f.id)).not.toContain("prop_test");
+
+  const hit = tileFor(-73.7895, 42.2505, 14);
+  const tile = await app.request(`http://localhost/api/tiles/14/${hit.x}/${hit.y}.mvt`);
+  if (tile.status === 200) {
+    const text = new TextDecoder("latin1").decode(new Uint8Array(await tile.arrayBuffer()));
+    expect(text).not.toContain("prop_test");
+  } else {
+    expect(tile.status).toBe(204);
+  }
+
+  const mine = await (await app.request("http://localhost/api/me/properties", { headers: { cookie } })).json();
+  expect(mine.properties[0].removed).toBe(true);
+  expect(mine.properties[0].property_id).toBe("prop_test");
+
+  const stranger = await app.request("http://localhost/api/properties/prop_test/removed", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie: visitor },
+    body: JSON.stringify({ removed: false }),
+  });
+  expect(stranger.status).toBe(403);
+
+  const show = await app.request("http://localhost/api/properties/prop_test/removed", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ removed: false }),
+  });
+  expect(show.status).toBe(200);
+  expect((await app.request("http://localhost/api/properties/prop_test")).status).toBe(200);
+  const back = await (await app.request("http://localhost/api/search?q=441%20Warren")).json();
+  expect(back.results[0].property_id).toBe("prop_test");
+});
+
 test("anonymize swaps the name, never the photo; the photo is its own change", async () => {
   const cloud = memoryStore();
   await seedProperty();

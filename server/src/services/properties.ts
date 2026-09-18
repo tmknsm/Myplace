@@ -50,6 +50,7 @@ export interface PropertyCore {
   county: string;
   municipality: string | null;
   status: string;
+  removed: boolean;
   formatted: string | null;
   swis: string | null;
   sbl: string | null;
@@ -62,7 +63,7 @@ export async function loadPropertyCore(propertyId: string): Promise<PropertyCore
   const sql = getSql();
   const rows = await sql<PropertyCore[]>`
     SELECT
-      p.property_id, p.state, p.county, p.municipality, p.status,
+      p.property_id, p.state, p.county, p.municipality, p.status, p.removed,
       a.formatted, i.swis, i.sbl, i.print_key,
       CASE WHEN g.geom IS NULL THEN NULL ELSE ST_AsGeoJSON(g.geom)::json END AS geojson,
       g.quality AS geometry_quality
@@ -161,8 +162,9 @@ export async function loadMyProperties(userId: string) {
     formatted: string | null;
     role: string;
     verified_at: Date | string;
+    removed: boolean;
   }[]>`
-    SELECT p.property_id, p.municipality, a.formatted, m.role, m.verified_at
+    SELECT p.property_id, p.municipality, a.formatted, m.role, m.verified_at, p.removed
     FROM property_maintainers m
     JOIN properties p ON p.property_id = m.property_id
     LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
@@ -216,7 +218,7 @@ export async function searchProperties(query: string, limit = 12) {
       i.sbl, i.print_key,
       CASE WHEN g.geom IS NULL THEN NULL ELSE ST_AsGeoJSON(ST_Centroid(g.geom))::json END AS centroid
     FROM hits
-    JOIN properties p ON p.property_id = hits.property_id
+    JOIN properties p ON p.property_id = hits.property_id AND NOT p.removed
     LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
     LEFT JOIN parcel_identities i ON i.property_id = p.property_id AND i.is_current
     LEFT JOIN property_geometries g ON g.property_id = p.property_id AND g.is_current
@@ -249,7 +251,7 @@ export async function parcelTile(z: number, x: number, y: number): Promise<Uint8
         p.county
       FROM property_geometries g
       CROSS JOIN bounds
-      JOIN properties p ON p.property_id = g.property_id
+      JOIN properties p ON p.property_id = g.property_id AND NOT p.removed
       WHERE g.is_current AND g.geom && bounds.search
     )
     SELECT ST_AsMVT(mvt, ${TILE_LAYER}, 4096, 'geom') AS tile FROM mvt WHERE geom IS NOT NULL
@@ -274,7 +276,7 @@ export async function parcelsInBbox(west: number, south: number, east: number, n
       g.quality,
       ST_AsGeoJSON(g.geom)::json AS geojson
     FROM property_geometries g
-    JOIN properties p ON p.property_id = g.property_id
+    JOIN properties p ON p.property_id = g.property_id AND NOT p.removed
     LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
     WHERE g.is_current
       AND g.geom && ST_MakeEnvelope(${west}, ${south}, ${east}, ${north}, 4326)

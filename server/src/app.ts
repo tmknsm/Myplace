@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context, type Next } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import {
@@ -104,6 +104,8 @@ app.use("*", cors({
   credentials: true,
 }));
 app.use("/api/*", authMiddleware);
+app.use("/api/properties/:id", rejectRemovedProperty);
+app.use("/api/properties/:id/*", rejectRemovedProperty);
 app.use("/api/*", async (c, next) => {
   await next();
   if (c.req.path.startsWith("/api/tiles/")) return;
@@ -120,6 +122,19 @@ app.onError((error, c) => {
   if (status >= 500) console.error(error);
   return c.json({ error: message }, status as 500);
 });
+
+async function rejectRemovedProperty(c: Context<AppEnv>, next: Next) {
+  if (c.req.method === "PATCH" && c.req.path.endsWith("/removed")) {
+    await next();
+    return;
+  }
+  const propertyId = c.req.param("id");
+  const rows = await getSql()<{ removed: boolean }[]>`
+    SELECT removed FROM properties WHERE property_id = ${propertyId}
+  `;
+  if (rows[0]?.removed) return c.json({ error: "Property not found" }, 404);
+  await next();
+}
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "myplace" }));
 
@@ -702,6 +717,23 @@ app.get("/api/me/claims", async (c) => {
 app.get("/api/me/properties", async (c) => {
   const user = requireUser(c);
   return c.json({ properties: await loadMyProperties(user.user_id) });
+});
+
+app.patch("/api/properties/:id/removed", async (c) => {
+  const user = requireUser(c);
+  const propertyId = c.req.param("id");
+  if (!await isMaintainer(user.user_id, propertyId)) {
+    return c.json({ error: "Only someone on this page can remove it." }, 403);
+  }
+  const body = await c.req.json<{ removed?: boolean }>();
+  if (typeof body.removed !== "boolean") return c.json({ error: "Say whether to remove it." }, 400);
+  const sql = getSql();
+  const exists = await sql<{ property_id: string }[]>`
+    SELECT property_id FROM properties WHERE property_id = ${propertyId}
+  `;
+  if (!exists[0]) return c.json({ error: "Property not found" }, 404);
+  await sql`UPDATE properties SET removed = ${body.removed} WHERE property_id = ${propertyId}`;
+  return c.json({ property: { property_id: propertyId, removed: body.removed } });
 });
 
 app.post("/api/properties/:id/documents", async (c) => {
@@ -1685,7 +1717,7 @@ app.get("/api/dev/debug/state", async (c) => {
 app.post("/api/dev/debug/claim/:id", async (c) => {
   const propertyId = c.req.param("id");
   const core = await loadPropertyCore(propertyId);
-  if (!core) return c.json({ error: "Property not found" }, 404);
+  if (!core || core.removed) return c.json({ error: "Property not found" }, 404);
   const body = await c.req.json<{ pin?: string }>().catch(() => ({} as { pin?: string }));
   if (!pinMatches(body.pin)) return c.json({ error: "That PIN is not correct." }, 400);
 

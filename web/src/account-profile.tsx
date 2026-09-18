@@ -1,17 +1,69 @@
 import { useEffect, useRef, useState } from "react";
 import { formatHandle, ownerLabel, ownerPhoto, parseHandle } from "../../shared/profile";
-import { api, type User } from "./api";
+import { api, type MaintainedProperty, type User } from "./api";
 import { Spinner } from "./components";
 import { snapshotPhotoFile } from "./optimize-photo";
 import { useToast } from "./property-shared";
 
-/**
- * The top of the account page: one photo, the name property pages show, then
- * visibility. Hide my address is its own switch. Hide my name is off until
- * they create an alias; turning it on reveals the alias field.
- */
+/** Photo and the name property pages show. */
 export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promise<void> }) {
-  const [busy, setBusy] = useState<"anonymize" | "handle" | "street" | "photo" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, showToast] = useToast();
+  const uploadPhoto = async (file: File) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api.uploadAvatar(file);
+      await onUser();
+      showToast("Photo updated.");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "That photo could not be uploaded.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const label = ownerLabel(user);
+  return (
+    <>
+      <section className="profile-card" data-testid="profile-card">
+        <label className={`profile-card-avatar file-btn${busy ? " is-busy" : ""}`} aria-label="Change photo" aria-busy={busy}>
+          <img src={ownerPhoto(user)} alt="" width={96} height={96} data-testid="profile-avatar" />
+          <span className="profile-card-avatar-cam" aria-hidden="true">
+            <CameraIcon />
+          </span>
+          {busy && <span className="profile-card-avatar-busy"><Spinner /></span>}
+          <input
+            type="file"
+            accept="image/*"
+            data-testid="avatar-input"
+            disabled={busy}
+            onChange={(event) => {
+              const picked = event.target.files?.[0];
+              const copy = picked ? snapshotPhotoFile(picked) : null;
+              event.target.value = "";
+              if (!copy) return;
+              void copy.then(uploadPhoto).catch((err) => showToast(err instanceof Error ? err.message : "That photo could not be read."));
+            }}
+          />
+        </label>
+        <h1 className="display profile-card-name" data-testid="profile-name">{label}</h1>
+        <p className="meta-line profile-card-sub" data-testid="profile-sub">
+          {user.anonymize ? "Real name is never displayed." : user.primary_email}
+        </p>
+      </section>
+      {toast && (
+        <div className="page-toast" role="status" data-testid="profile-toast">{toast}</div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Hide my address is its own switch. Hide my name is off until they create
+ * an alias; turning it on reveals the alias field.
+ */
+export function VisibilityCard({ user, onUser }: { user: User; onUser: () => Promise<void> }) {
+  const [busy, setBusy] = useState<"anonymize" | "handle" | "street" | null>(null);
   const [toast, showToast] = useToast();
   const [handleDraft, setHandleDraft] = useState((user.handle ?? "").replace(/^@+/, ""));
   const [availability, setAvailability] = useState<"idle" | "checking" | "available" | "unavailable" | "invalid">("idle");
@@ -71,7 +123,6 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
     }
   };
 
-  const label = ownerLabel(user);
   const hideStreet = Boolean(user.hide_street);
   const canSaveHandle = availability === "available";
   const hintClass = availability === "available"
@@ -112,42 +163,8 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
     }, "Could not save that handle.");
   };
 
-  const uploadPhoto = (file: File) =>
-    run("photo", async () => {
-      await api.uploadAvatar(file);
-      await onUser();
-      return "Photo updated.";
-    }, "That photo could not be uploaded.");
-
   return (
     <>
-      <section className="profile-card" data-testid="profile-card">
-        <label className={`profile-card-avatar file-btn${busy === "photo" ? " is-busy" : ""}`} aria-label="Change photo" aria-busy={busy === "photo"}>
-          <img src={ownerPhoto(user)} alt="" width={96} height={96} data-testid="profile-avatar" />
-          <span className="profile-card-avatar-cam" aria-hidden="true">
-            <CameraIcon />
-          </span>
-          {busy === "photo" && <span className="profile-card-avatar-busy"><Spinner /></span>}
-          <input
-            type="file"
-            accept="image/*"
-            data-testid="avatar-input"
-            disabled={busy !== null}
-            onChange={(event) => {
-              const picked = event.target.files?.[0];
-              // Copy before the handler returns; iOS revokes picker files after.
-              const copy = picked ? snapshotPhotoFile(picked) : null;
-              event.target.value = "";
-              if (!copy) return;
-              void copy.then(uploadPhoto).catch((err) => showToast(err instanceof Error ? err.message : "That photo could not be read."));
-            }}
-          />
-        </label>
-        <h1 className="display profile-card-name" data-testid="profile-name">{label}</h1>
-        <p className="meta-line profile-card-sub" data-testid="profile-sub">
-          {user.anonymize ? "Real name is never displayed." : user.primary_email}
-        </p>
-      </section>
       <section className="section" data-testid="visibility-section">
         <h2>Visibility</h2>
         <div className="group profile-card-settings">
@@ -238,7 +255,82 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
         </div>
       </section>
       {toast && (
-        <div className="page-toast" role="status" data-testid="profile-toast">{toast}</div>
+        <div className="page-toast" role="status" data-testid="visibility-toast">{toast}</div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Take a claimed house off Myplace. Off by default. When on, the parcel
+ * disappears from search, the map, and every public URL.
+ */
+export function ManageCard({
+  properties,
+  onChange,
+}: {
+  properties: MaintainedProperty[];
+  onChange: () => Promise<void>;
+}) {
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [toast, showToast] = useToast();
+
+  const flipRemoved = (property: MaintainedProperty) => {
+    if (busyId) return;
+    setBusyId(property.property_id);
+    void (async () => {
+      try {
+        const saved = await api.setPropertyRemoved(property.property_id, !property.removed);
+        await onChange();
+        showToast(saved.property.removed
+          ? "That property is off Myplace. Toggle this off to bring it back."
+          : "That property is on Myplace again.");
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Could not update that.");
+      } finally {
+        setBusyId(null);
+      }
+    })();
+  };
+
+  return (
+    <>
+      <section className="section" data-testid="manage-section">
+        <h2>Manage</h2>
+        <div className="group profile-card-settings">
+          {properties.length === 0 && (
+            <div className="row">
+              <span className="meta-line">Claim a property to take it off Myplace.</span>
+            </div>
+          )}
+          {properties.map((property) => (
+            <div className="row" key={property.property_id}>
+              <div>
+                <strong>Remove my property</strong>
+                <div className="meta-line">
+                  {property.formatted
+                    ? `${property.formatted}. Off the map, out of search, and gone from every public page.`
+                    : "Off the map, out of search, and gone from every public page."}
+                </div>
+              </div>
+              <button
+                type="button"
+                className={`switch${property.removed ? " on" : ""}`}
+                role="switch"
+                aria-checked={property.removed}
+                aria-label={property.formatted ? `Remove ${property.formatted}` : "Remove my property"}
+                disabled={busyId !== null}
+                data-testid="remove-property-toggle"
+                onClick={() => flipRemoved(property)}
+              >
+                <span className="visually-hidden">{property.removed ? "On" : "Off"}</span>
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+      {toast && (
+        <div className="page-toast" role="status" data-testid="manage-toast">{toast}</div>
       )}
     </>
   );

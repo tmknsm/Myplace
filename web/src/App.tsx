@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ProfileCard } from "./account-profile";
+import { ManageCard, ProfileCard, VisibilityCard } from "./account-profile";
 import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty } from "./api";
 import { useAuth } from "./auth";
 import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, SettingsButton, ShareButton } from "./components";
@@ -549,10 +549,14 @@ function AccountPage() {
   const { user, signOut, refresh } = useAuth();
   const [properties, setProperties] = useState<MaintainedProperty[]>([]);
   const [claims, setClaims] = useState<Claim[]>([]);
+  const loadHomes = async () => {
+    const [homes, mine] = await Promise.all([api.myProperties(), api.myClaims()]);
+    setProperties(homes.properties);
+    setClaims(mine.claims);
+  };
   useEffect(() => {
     if (!user) return;
-    api.myProperties().then((d) => setProperties(d.properties));
-    api.myClaims().then((d) => setClaims(d.claims));
+    void loadHomes();
   }, [user]);
   if (!user) return <Navigate to="/signin" replace />;
   const ownedIds = new Set(properties.map((property) => property.property_id));
@@ -562,24 +566,36 @@ function AccountPage() {
   return (
     <div className="page account-page">
       <ProfileCard user={user} onUser={refresh} />
-      <section className="section">
+      <section className="section" data-testid="properties-section">
         <h2>Properties</h2>
         <div className="group">
           {properties.length === 0 && openClaims.length === 0 && (
             <div className="row"><span className="meta-line">None yet</span></div>
           )}
-          {properties.map((property) => (
-            <Link className="row" key={property.property_id} to={`/property/${property.property_id}`} data-testid="owned-property">
-              <span className="row-label">{property.formatted}</span>
-              {property.maintainers.length > 0 && (
-                <span className="row-avatars">
-                  {property.maintainers.map((person) => (
-                    <img key={person.user_id} src={person.photo_url} alt={person.label} />
-                  ))}
-                </span>
-              )}
-            </Link>
-          ))}
+          {properties.map((property) => {
+            const row = (
+              <>
+                <span className="row-label">{property.formatted}</span>
+                {property.removed && <span className="badge">Removed</span>}
+                {property.maintainers.length > 0 && !property.removed && (
+                  <span className="row-avatars">
+                    {property.maintainers.map((person) => (
+                      <img key={person.user_id} src={person.photo_url} alt={person.label} />
+                    ))}
+                  </span>
+                )}
+              </>
+            );
+            return property.removed ? (
+              <div className="row" key={property.property_id} data-testid="owned-property">
+                {row}
+              </div>
+            ) : (
+              <Link className="row" key={property.property_id} to={`/property/${property.property_id}`} data-testid="owned-property">
+                {row}
+              </Link>
+            );
+          })}
           {openClaims.map((claim) => (
             <Link className="row" key={claim.claim_id} to={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
               <span>{claim.formatted}</span>
@@ -588,6 +604,8 @@ function AccountPage() {
           ))}
         </div>
       </section>
+      <VisibilityCard user={user} onUser={refresh} />
+      <ManageCard properties={properties} onChange={loadHomes} />
       <div className="action-row account-signout">
         <button className="btn secondary" onClick={() => signOut()} data-testid="account-signout">Sign out</button>
       </div>

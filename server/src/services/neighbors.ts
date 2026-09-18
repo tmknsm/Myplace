@@ -123,7 +123,7 @@ async function homesOf(userId: string) {
     FROM property_maintainers m
     JOIN properties p ON p.property_id = m.property_id
     LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
-    WHERE m.user_id = ${userId} AND m.revoked_at IS NULL
+    WHERE m.user_id = ${userId} AND m.revoked_at IS NULL AND NOT p.removed
     ORDER BY a.formatted
   `;
 }
@@ -358,6 +358,7 @@ export async function loadPropertyNeighbors(propertyId: string): Promise<Propert
       d.document_id,
       d.byte_size
     FROM unique_linked u
+    JOIN properties p ON p.property_id = u.property_id AND NOT p.removed
     LEFT JOIN property_addresses a ON a.property_id = u.property_id AND a.is_current
     LEFT JOIN LATERAL (
       SELECT document_id, byte_size
