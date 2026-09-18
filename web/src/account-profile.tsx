@@ -181,7 +181,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
                 }}
               >
                 <label className="profile-handle-label">
-                  <strong>Handle</strong>
+                  <strong>Alias</strong>
                   <span className={`profile-handle${availability === "unavailable" || availability === "invalid" ? " is-error" : availability === "available" ? " is-ok" : ""}`}>
                     <span className="profile-handle-at" aria-hidden="true">@</span>
                     <input
@@ -219,7 +219,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
               </form>
               <div className="row">
                 <div>
-                  <strong>Address</strong>
+                  <strong>Hide my address</strong>
                   <div className="meta-line">Hide your street address on your property page.</div>
                 </div>
                 <button
@@ -227,7 +227,7 @@ export function ProfileCard({ user, onUser }: { user: User; onUser: () => Promis
                   className={`switch${hideStreet ? " on" : ""}`}
                   role="switch"
                   aria-checked={hideStreet}
-                  aria-label="Address"
+                  aria-label="Hide my address"
                   disabled={busy !== null}
                   data-testid="hide-street-toggle"
                   onClick={() => void flipStreet()}
