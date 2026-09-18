@@ -1664,7 +1664,7 @@ test("room photos stay with the room and follow its visibility", async () => {
   expect(gone.property.documents.map((doc) => doc.document_id)).not.toContain(documentId);
 });
 
-test("posts: an owner's photos and caption show on the page, newest first, and come off together", async () => {
+test("posts: an owner's photos and caption show on the page, newest first, and stay in Photos after the post is gone", async () => {
   await seedProperty();
   const cookie = await verifiedOwner("poster@example.com", "poster-desk@example.com");
   await sql`UPDATE users SET first_name = 'Sam', last_name = 'Ellison', handle = 'samwrites' WHERE primary_email = 'poster@example.com'`;
