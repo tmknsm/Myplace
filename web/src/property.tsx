@@ -22,7 +22,7 @@ import {
   type TopicField,
   type TopicFieldKind,
 } from "./property-topics";
-import { ownerLabel, ownerPhoto } from "../../shared/profile";
+import { ownerLabel, ownerPhoto, propertyHeading } from "../../shared/profile";
 import { fieldsForRoom, ROOM_KIND_LABEL, ROOM_KINDS, ROOM_PAID_KEY, ROOM_PAID_PUBLIC_KEY, roomPaidCents, roomPaidPublic, type RoomField } from "../../shared/rooms";
 import { isTopicId } from "../../shared/topics";
 import {
@@ -390,7 +390,11 @@ export function PropertyPageView() {
     };
   }, [gated, data]);
 
-  const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
+  const ownsPage = Boolean(data?.viewer.maintainer && !data.viewer.openClaim);
+  const { title, locality: headingLocality } = propertyHeading(
+    data?.property ?? { formatted: null, municipality: null },
+    ownsPage,
+  );
   useEffect(() => {
     if (!data) return;
     const previous = document.title;
@@ -441,10 +445,10 @@ export function PropertyPageView() {
 
   const { property, viewer } = data;
   const owner = Boolean(viewer.maintainer && !viewer.openClaim);
-  const locality = property.formatted?.includes(",")
-    ? property.formatted.slice(property.formatted.indexOf(",") + 1).trim()
-    : null;
-  const address = property.formatted ?? "this property";
+  const locality = headingLocality;
+  const address = property.hide_street && !owner
+    ? (property.municipality || "this property")
+    : (property.formatted ?? "this property");
   const photos = property.documents.filter(isImage);
   // Paint and style attachments live on those cards, not in the hero or Photos gallery.
   const galleryPhotos = photos.filter(isGalleryPhoto);
@@ -1685,9 +1689,9 @@ export function PropertyNeighborsPage() {
   useEffect(() => { setData(null); setList(null); }, [id]);
   useEffect(() => { void load(); }, [load, user?.user_id]);
 
-  const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
   const tiles = data?.property.neighbors ?? [];
   const owner = Boolean(data?.viewer.maintainer && !data.viewer.openClaim);
+  const { title } = propertyHeading(data?.property ?? { formatted: null, municipality: null }, owner);
   useEffect(() => {
     if (!data) return;
     const previous = document.title;
@@ -4307,7 +4311,8 @@ export function PropertyPhotosPage() {
   useEffect(() => { setData(null); }, [id]);
   useEffect(() => { void load(); }, [load, user?.user_id]);
 
-  const title = data?.property.formatted?.split(",")[0] ?? "Untitled parcel";
+  const ownsPhotos = Boolean(data?.viewer.maintainer && !data.viewer.openClaim);
+  const { title } = propertyHeading(data?.property ?? { formatted: null, municipality: null }, ownsPhotos);
   useEffect(() => {
     if (!data) return;
     const previous = document.title;

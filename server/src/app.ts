@@ -248,14 +248,17 @@ app.post("/api/auth/verify", async (c) => {
 
 app.patch("/api/me", async (c) => {
   const user = requireUser(c);
-  const body = await c.req.json<{ anonymize?: boolean; handle?: string; avatar?: string }>();
+  const body = await c.req.json<{ anonymize?: boolean; handle?: string; hide_street?: boolean; avatar?: string }>();
   if (body.anonymize !== undefined && typeof body.anonymize !== "boolean") {
     return c.json({ error: "Say whether to anonymize." }, 400);
+  }
+  if (body.hide_street !== undefined && typeof body.hide_street !== "boolean") {
+    return c.json({ error: "Say whether to hide the street." }, 400);
   }
   if (body.avatar !== undefined && !isAvatarPreset(body.avatar)) {
     return c.json({ error: "Unknown photo." }, 400);
   }
-  if (body.anonymize === undefined && body.handle === undefined && body.avatar === undefined) {
+  if (body.anonymize === undefined && body.handle === undefined && body.hide_street === undefined && body.avatar === undefined) {
     return c.json({ error: "Say what to change." }, 400);
   }
 
@@ -271,13 +274,14 @@ app.patch("/api/me", async (c) => {
     handle = parsed.handle;
   }
   const anonymize = body.anonymize ?? user.anonymize;
-  if (anonymize && !handle) {
-    return c.json({ error: "Add a handle before you anonymize." }, 400);
-  }
+  // Street hiding lives under the private/alias package: turning private off
+  // also puts the street back on the page.
+  const hideStreet = anonymize ? (body.hide_street ?? user.hide_street) : false;
   await sql`
     UPDATE users
     SET anonymize = ${anonymize},
-        handle = ${handle}
+        handle = ${handle},
+        hide_street = ${hideStreet}
     WHERE user_id = ${user.user_id}
   `;
   if (body.avatar !== undefined) {

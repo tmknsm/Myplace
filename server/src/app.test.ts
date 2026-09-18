@@ -899,6 +899,32 @@ test("debug PIN claim refuses to displace a verified owner", async () => {
   ]);
 });
 
+test("sign-up stores first and last name without a handle", async () => {
+  const email = "nohandle@example.com";
+  let res = await app.request("http://localhost/api/auth/request-code", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  expect(res.status).toBe(200);
+  const mail = await sql<{ text_body: string }[]>`
+    SELECT text_body FROM emails WHERE to_email = ${email} ORDER BY sent_at DESC LIMIT 1
+  `;
+  const code = mail[0]?.text_body.match(/is (\d{6})/)?.[1];
+  expect(code).toBeTruthy();
+  res = await app.request("http://localhost/api/auth/verify", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, code, firstName: "Ada", lastName: "Lovelace" }),
+  });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.user.first_name).toBe("Ada");
+  expect(body.user.handle).toBeNull();
+  expect(body.user.anonymize).toBe(false);
+  expect(body.user.hide_street).toBe(false);
+});
+
 test("sign-up stores first and last name", async () => {
   const email = "ada@example.com";
   let res = await app.request("http://localhost/api/auth/request-code", {
@@ -951,6 +977,56 @@ test("anonymize shows the handle on the public property page", async () => {
   expect(hidden.property.maintainers[0].anonymize).toBe(true);
   expect(hidden.property.maintainers[0].primary_email).toBeUndefined();
   expect(hidden.property.maintainers[0].display_name).toBeUndefined();
+});
+
+test("private works before a handle; visitors see Owner", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("owner@example.com");
+  await sql`UPDATE users SET handle = NULL, first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
+
+  const hide = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ anonymize: true }),
+  });
+  expect(hide.status).toBe(200);
+  expect((await hide.json()).user.anonymize).toBe(true);
+
+  const hidden = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(hidden.property.maintainers[0].label).toBe("Owner");
+  expect(hidden.property.maintainers[0].display_name).toBeUndefined();
+});
+
+test("hiding the street redacts it for visitors and keeps it for the owner", async () => {
+  await seedProperty();
+  const cookie = await verifiedOwner("owner@example.com");
+  await sql`UPDATE users SET anonymize = true, handle = 'hudsonowner' WHERE primary_email = 'owner@example.com'`;
+
+  const hide = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ hide_street: true }),
+  });
+  expect(hide.status).toBe(200);
+  expect((await hide.json()).user.hide_street).toBe(true);
+
+  const visitor = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(visitor.property.hide_street).toBe(true);
+  expect(visitor.property.formatted).toBe("Hudson, NY 12534");
+  expect(visitor.property.formatted).not.toMatch(/441/);
+
+  const owner = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).json();
+  expect(owner.property.formatted).toBe("441 Warren Street, Hudson, NY 12534");
+
+  const off = await app.request("http://localhost/api/me", {
+    method: "PATCH",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ anonymize: false }),
+  });
+  expect((await off.json()).user.hide_street).toBe(false);
+  const shown = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(shown.property.hide_street).toBe(false);
+  expect(shown.property.formatted).toBe("441 Warren Street, Hudson, NY 12534");
 });
 
 test("owner badge never shows a street address", async () => {

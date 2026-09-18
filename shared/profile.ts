@@ -95,11 +95,48 @@ export function ownerLabel(input: {
   last_name: string | null;
   display_name: string | null;
 }): string {
-  if (input.anonymize && input.handle) return `@${input.handle}`;
+  if (input.anonymize) return input.handle ? `@${input.handle}` : "Owner";
   const name = personName(input);
   if (name) return name;
   if (input.handle) return `@${input.handle}`;
   return "Owner";
+}
+
+/**
+ * What a visitor sees as the property's address. When the owner hides the
+ * street, drop everything before the first comma so "51 State Route 9H,
+ * Claverack, NY" becomes "Claverack, NY".
+ */
+export function publicAddress(input: {
+  formatted: string | null;
+  municipality: string | null;
+  county: string;
+  state?: string | null;
+  hideStreet: boolean;
+}): string | null {
+  if (!input.hideStreet) return input.formatted;
+  if (input.formatted) {
+    const comma = input.formatted.indexOf(",");
+    if (comma >= 0) return input.formatted.slice(comma + 1).trim() || null;
+  }
+  const bits = [input.municipality, input.state].filter(Boolean);
+  return bits.length ? bits.join(", ") : input.county || null;
+}
+
+/** Heading and locality line for the property page. */
+export function propertyHeading(
+  property: { formatted: string | null; municipality: string | null; hide_street?: boolean },
+  viewerOwns: boolean,
+): { title: string; locality: string | null } {
+  const hide = Boolean(property.hide_street) && !viewerOwns;
+  if (hide) {
+    return { title: property.municipality || "Home", locality: null };
+  }
+  const formatted = property.formatted;
+  return {
+    title: formatted?.split(",")[0] ?? "Untitled parcel",
+    locality: formatted?.includes(",") ? formatted.slice(formatted.indexOf(",") + 1).trim() : null,
+  };
 }
 
 /** The one photo on the account. Anonymize does not change it. */

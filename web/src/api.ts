@@ -50,10 +50,10 @@ export const api = {
   me: () => request<{ user: User | null }>("/api/auth/me"),
   requestCode: (email: string) =>
     request<{ ok: boolean }>("/api/auth/request-code", { method: "POST", body: JSON.stringify({ email }) }),
-  verify: (email: string, code: string, names?: { firstName?: string; lastName?: string; handle?: string }) =>
+  verify: (email: string, code: string, names?: { firstName?: string; lastName?: string }) =>
     request<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ email, code, ...names }) }),
   signOut: () => request<{ ok: boolean }>("/api/auth/sign-out", { method: "POST" }),
-  updateMe: (body: { anonymize?: boolean; handle?: string; avatar?: "abstract" | "default" }) =>
+  updateMe: (body: { anonymize?: boolean; handle?: string; hide_street?: boolean; avatar?: "abstract" | "default" }) =>
     request<{ user: User }>("/api/me", { method: "PATCH", body: JSON.stringify(body) }),
   handleAvailable: (handle: string) =>
     request<{ available: boolean; handle: string }>(`/api/handles/${encodeURIComponent(handle)}`),
@@ -217,6 +217,7 @@ export interface User {
   last_name: string | null;
   handle: string | null;
   anonymize: boolean;
+  hide_street: boolean;
   avatar_url: string | null;
   avatar_key: string | null;
   is_admin: boolean;
@@ -433,6 +434,7 @@ export interface PropertyPage {
   municipality: string | null;
   county: string;
   formatted: string | null;
+  hide_street?: boolean;
   sbl: string | null;
   swis: string | null;
   geojson: { type: string; coordinates: number[][][] | number[][][][] } | null;
