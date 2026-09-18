@@ -540,53 +540,40 @@ img, svg { max-width: 100%; }
   margin-top: 2px;
 }
 
-/* Filled button with a soft top-to-bottom gradient, a bright hairline along
-   the top inner edge, and a 1px ring one shade darker than the fill. */
+/* Flat black pill. No gradient, ring, or inner highlight. Danger uses the
+   same fill — every former red button is this. */
 .btn {
-  --btn-top: color-mix(in srgb, var(--accent) 86%, #fff);
-  --btn-bottom: var(--accent);
-  --btn-ring: color-mix(in srgb, var(--accent-pressed) 82%, #000);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: linear-gradient(to bottom, var(--btn-top), var(--btn-bottom));
+  background: var(--ink);
   color: #fff;
-  border: 1px solid var(--btn-ring);
+  border: 0;
   padding: 9px 18px;
   min-height: 40px;
-  border-radius: 10px;
+  border-radius: 100px;
   text-decoration: none;
   font-size: 15px;
   font-weight: 500;
   line-height: 1.3;
   white-space: nowrap;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.32),
-    0 1px 1px rgba(40, 36, 30, 0.08);
+  box-shadow: none;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
-.btn:hover {
-  --btn-top: color-mix(in srgb, var(--accent) 94%, #fff);
-  --btn-bottom: var(--accent-pressed);
-}
-.btn:active {
-  background: var(--accent-pressed);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
-}
+.btn:hover { background: #2c2c2e; }
+.btn:active { background: #111; }
 .btn.secondary {
-  --btn-top: #fff;
-  --btn-bottom: var(--surface);
-  --btn-ring: rgba(60, 56, 50, 0.22);
+  background: var(--surface);
   color: var(--ink);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 1px 1px rgba(40, 36, 30, 0.05);
+  border: 1px solid rgba(60, 56, 50, 0.22);
 }
-.btn.secondary:hover { --btn-top: var(--surface); --btn-bottom: var(--surface-2); }
+.btn.secondary:hover { background: var(--surface-2); }
 .btn.secondary:active { background: var(--surface-2); }
-.btn.danger { --btn-bottom: var(--danger); }
+.btn.danger { background: var(--ink); }
+.btn.danger:hover { background: #2c2c2e; }
+.btn.danger:active { background: #111; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .action-row {
@@ -1123,7 +1110,7 @@ tr:last-child td { border-bottom: 0; }
 .account-chip { font-size: 13px; color: var(--muted); }
 
 /* ---- Buttons & small controls ---------------------------------------- */
-.btn.small { min-height: 32px; padding: 5px 12px; font-size: 14px; border-radius: 8px; }
+.btn.small { min-height: 32px; padding: 5px 12px; font-size: 14px; border-radius: 100px; }
 .action-row.compact { margin-top: 10px; gap: 8px; }
 .text-btn {
   background: none;
@@ -1814,7 +1801,7 @@ tr:last-child td { border-bottom: 0; }
 .hero-pill:hover { background: var(--surface); }
 .hero-pill.quiet { color: var(--ink-soft); font-weight: 500; }
 .hero-pill.warn { color: var(--warn); }
-.hero-cta { box-shadow: 0 8px 24px rgba(226, 59, 50, 0.28); }
+.hero-cta { box-shadow: none; }
 .profile-hero .maplibregl-ctrl-top-right { top: var(--hero-pad); right: var(--hero-pad); }
 .profile-hero .maplibregl-ctrl-bottom-right { bottom: var(--hero-pad-bottom); right: var(--hero-pad); }
 
@@ -3661,7 +3648,6 @@ html.peek-gated body {
 .property-page .vis-chip,
 .property-page .chip,
 .property-page .badge,
-.property-page .btn,
 .property-page .segmented,
 .property-page .segmented button,
 .property-page .field,
