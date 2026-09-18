@@ -40,7 +40,8 @@ export interface PropertyNeighbor {
 }
 
 function housePhotoUrl(documentId: string | null, byteSize: number | null): string | null {
-  return documentId ? `/api/documents/${documentId}/file?v=${byteSize ?? 0}` : null;
+  // Neighbor tiles and bylines draw the cover small; 480 covers them at 3×.
+  return documentId ? `/api/documents/${documentId}/file?v=${byteSize ?? 0}&w=480` : null;
 }
 
 function presentPerson(row: NeighborUserRow) {

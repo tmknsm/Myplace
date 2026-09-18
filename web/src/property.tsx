@@ -35,6 +35,8 @@ import {
   hasFile,
   isImage,
   money,
+  PHOTO_SIZES,
+  photoSrcSet,
   FIELD_HINTS,
   hexFieldKey,
   MULTILINE_FIELDS,
@@ -1328,9 +1330,12 @@ function HeroCarousel({
             tabIndex={i === current ? 0 : -1}
           >
             <img
-              src={fileUrl(doc)}
+              src={fileUrl(doc, 1280)}
+              srcSet={photoSrcSet(doc)}
+              sizes={PHOTO_SIZES.hero}
               alt={doc.caption ?? title}
               loading={i === 0 ? "eager" : "lazy"}
+              fetchPriority={i === 0 ? "high" : "auto"}
               draggable={false}
             />
           </button>
@@ -3544,7 +3549,9 @@ function PhotoLightbox({
             >
               {hasFile(doc) ? (
                 <img
-                  src={fileUrl(doc)}
+                  src={fileUrl(doc, 1280)}
+                  srcSet={photoSrcSet(doc)}
+                  sizes={PHOTO_SIZES.hero}
                   alt={doc.caption ?? doc.original_filename}
                   loading={Math.abs(i - current) <= 1 ? "eager" : "lazy"}
                   draggable={false}
@@ -3917,7 +3924,7 @@ function ImprovementPhotos({
             onClick={() => setOpen(index)}
             aria-label={doc.caption ?? doc.original_filename}
           >
-            {hasFile(doc) ? <img src={fileUrl(doc)} alt="" loading="lazy" /> : <span className="photo-missing-label">Missing</span>}
+            {hasFile(doc) ? <img src={fileUrl(doc, 480)} alt="" loading="lazy" /> : <span className="photo-missing-label">Missing</span>}
           </button>
         ))}
         {trailing}
@@ -4077,7 +4084,8 @@ function PhotoFileButton({
   );
 }
 
-function PhotoImage({ src, alt }: { src: string; alt: string }) {
+function PhotoImage({ doc, alt, sizes }: { doc: Doc; alt: string; sizes: string }) {
+  const src = fileUrl(doc, 1280);
   const imgRef = useRef<HTMLImageElement>(null);
   const [ready, setReady] = useState(false);
 
@@ -4104,7 +4112,16 @@ function PhotoImage({ src, alt }: { src: string; alt: string }) {
           <Spinner />
         </span>
       )}
-      <img ref={imgRef} src={src} alt={alt} onLoad={() => setReady(true)} onError={() => setReady(true)} />
+      <img
+        ref={imgRef}
+        src={src}
+        srcSet={photoSrcSet(doc)}
+        sizes={sizes}
+        alt={alt}
+        loading="lazy"
+        onLoad={() => setReady(true)}
+        onError={() => setReady(true)}
+      />
     </>
   );
 }
@@ -4183,12 +4200,12 @@ function PhotosSection({
                   />
                 ) : overflow ? (
                   <Link className="photo-open photo-more-link" to={allHref} aria-label={`View all photos, ${extra} more`} data-testid="photos-more">
-                    <PhotoImage src={fileUrl(doc)} alt="" />
+                    <PhotoImage doc={doc} alt="" sizes={PHOTO_SIZES.thumb} />
                     <span className="photo-more">+{extra}</span>
                   </Link>
                 ) : (
                   <button type="button" className="photo-open" onClick={() => onOpen(index)} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
-                    <PhotoImage src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} />
+                    <PhotoImage doc={doc} alt={doc.caption ?? doc.original_filename} sizes={index === 0 ? PHOTO_SIZES.cover : PHOTO_SIZES.thumb} />
                     {owner && cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
                     {owner && doc.visibility === "private" && <span className="photo-flag private">Private</span>}
                   </button>
@@ -4215,6 +4232,7 @@ function PhotoCard({
   doc,
   cover,
   owner,
+  featured = false,
   onOpen,
   onChange,
   toast,
@@ -4222,6 +4240,8 @@ function PhotoCard({
   doc: Doc;
   cover: Doc | null;
   owner: boolean;
+  /** Spans the grid, so it wants a hero-sized source. */
+  featured?: boolean;
   onOpen: () => void;
   onChange: PageRefresh;
   toast: Toast;
@@ -4239,7 +4259,7 @@ function PhotoCard({
         />
       ) : (
         <button type="button" className="photo-open" onClick={onOpen} aria-label={doc.caption ? `Open photo: ${doc.caption}` : "Open photo"}>
-          <PhotoImage src={fileUrl(doc)} alt={doc.caption ?? doc.original_filename} />
+          <PhotoImage doc={doc} alt={doc.caption ?? doc.original_filename} sizes={featured ? PHOTO_SIZES.cover : PHOTO_SIZES.thumb} />
           {owner && cover?.document_id === doc.document_id && <span className="photo-flag">Cover</span>}
           {owner && doc.visibility === "private" && <span className="photo-flag private">Private</span>}
         </button>
@@ -4385,6 +4405,7 @@ export function PropertyPhotosPage() {
               doc={doc}
               cover={cover}
               owner={owner}
+              featured={index === 0}
               onOpen={() => setLightbox(index)}
               onChange={refresh}
               toast={showToast}

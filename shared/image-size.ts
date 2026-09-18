@@ -150,14 +150,67 @@ function heifSize(bytes: Uint8Array): ImageSize | null {
   return rotation % 2 === 1 ? { width: bestHeight, height: bestWidth } : { width: bestWidth, height: bestHeight };
 }
 
+function isWebp(bytes: Uint8Array): boolean {
+  return bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+}
+
+/** Walk RIFF chunks for the first bitstream header: VP8 (lossy), VP8L (lossless), or VP8X (extended). */
+function webpSize(bytes: Uint8Array): ImageSize | null {
+  let offset = 12;
+  while (offset + 8 <= bytes.length) {
+    const tag = String.fromCharCode(bytes[offset]!, bytes[offset + 1]!, bytes[offset + 2]!, bytes[offset + 3]!);
+    const size = u32(bytes, offset + 4, true);
+    const payload = offset + 8;
+    if (tag === "VP8X" && payload + 10 <= bytes.length) {
+      const width = 1 + (bytes[payload + 4]! | (bytes[payload + 5]! << 8) | (bytes[payload + 6]! << 16));
+      const height = 1 + (bytes[payload + 7]! | (bytes[payload + 8]! << 8) | (bytes[payload + 9]! << 16));
+      return { width, height };
+    }
+    if (tag === "VP8 " && payload + 10 <= bytes.length) {
+      const width = u16(bytes, payload + 6, true) & 0x3fff;
+      const height = u16(bytes, payload + 8, true) & 0x3fff;
+      return width && height ? { width, height } : null;
+    }
+    if (tag === "VP8L" && payload + 5 <= bytes.length) {
+      const b0 = bytes[payload + 1]!;
+      const b1 = bytes[payload + 2]!;
+      const b2 = bytes[payload + 3]!;
+      const b3 = bytes[payload + 4]!;
+      const width = 1 + (b0 | ((b1 & 0x3f) << 8));
+      const height = 1 + ((b1 >> 6) | (b2 << 2) | ((b3 & 0x0f) << 10));
+      return { width, height };
+    }
+    offset = payload + size + (size & 1);
+  }
+  return null;
+}
+
 export function imageDimensions(bytes: Uint8Array): ImageSize | null {
   if (isJpeg(bytes)) return jpegSize(bytes);
   if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return pngSize(bytes);
   if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) return heifSize(bytes);
-  if (bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
-    return null;
-  }
+  if (isWebp(bytes)) return webpSize(bytes);
   return null;
+}
+
+/**
+ * Long edges we serve photos at. The stored file is the archive; the page
+ * asks for the smallest of these that covers the slot it is drawing into.
+ * 480 covers thumbnails and avatars, 1280 a phone-width hero at 3×, 2560 a
+ * desktop hero or lightbox at 2×.
+ */
+export const PHOTO_VARIANT_WIDTHS = [480, 1280, 2560] as const;
+export type PhotoVariantWidth = (typeof PHOTO_VARIANT_WIDTHS)[number];
+
+/** Round a requested width up to the variant we keep; null means "the original". */
+export function snapVariantWidth(raw: string | number | null | undefined): PhotoVariantWidth | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const wanted = typeof raw === "number" ? raw : Number.parseInt(raw, 10);
+  if (!Number.isFinite(wanted) || wanted <= 0) return null;
+  for (const width of PHOTO_VARIANT_WIDTHS) {
+    if (wanted <= width) return width;
+  }
+  return PHOTO_VARIANT_WIDTHS[PHOTO_VARIANT_WIDTHS.length - 1]!;
 }
 
 export function fitImageSize(width: number, height: number, maxEdge = PHOTO_MAX_EDGE, maxPixels = PHOTO_MAX_PIXELS): ImageSize {

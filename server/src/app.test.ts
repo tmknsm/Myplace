@@ -1558,13 +1558,13 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   expect(sentList.outgoing).toHaveLength(1);
   expect(sentList.outgoing[0].label).toBe("441 Warren Street, Hudson, NY 12534");
   expect(sentList.outgoing[0].status).toBe("pending");
-  expect(sentList.outgoing[0].photo_url).toBe("/api/documents/doc_test_cover/file?v=12000");
+  expect(sentList.outgoing[0].photo_url).toBe("/api/documents/doc_test_cover/file?v=12000&w=480");
   expect(sentList.outgoing[0].owners).toEqual([expect.objectContaining({ label: "Sam Ellison" })]);
 
   const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json();
   expect(inbox.incoming).toHaveLength(1);
   expect(inbox.incoming[0].label).toBe("12 State Street, Hudson, NY 12534");
-  expect(inbox.incoming[0].photo_url).toBe("/api/documents/doc_home_cover/file?v=12000");
+  expect(inbox.incoming[0].photo_url).toBe("/api/documents/doc_home_cover/file?v=12000&w=480");
   expect(inbox.incoming[0].owners).toEqual([expect.objectContaining({ label: "Ada Visitor" })]);
   expect(inbox.neighbors).toHaveLength(0);
 
@@ -1600,12 +1600,12 @@ test("neighbors: request from a claimed page, then approve on the profile", asyn
   expect((await (await app.request("http://localhost/api/properties/prop_test/inbox", { headers: { cookie: ownerCookie } })).json()).items).toEqual([]);
   expect((await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } })).json()).viewer.inboxCount).toBe(0);
   expect(ownerList.neighbors[0].label).toBe("12 State Street, Hudson, NY 12534");
-  expect(ownerList.neighbors[0].photo_url).toBe("/api/documents/doc_home_cover/file?v=12000");
+  expect(ownerList.neighbors[0].photo_url).toBe("/api/documents/doc_home_cover/file?v=12000&w=480");
   expect(ownerList.neighbors[0].owners).toEqual([expect.objectContaining({ label: "Ada Visitor" })]);
 
   const visitorList = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: visitorCookie } })).json();
   expect(visitorList.neighbors[0].label).toBe("441 Warren Street, Hudson, NY 12534");
-  expect(visitorList.neighbors[0].photo_url).toBe("/api/documents/doc_test_cover/file?v=12000");
+  expect(visitorList.neighbors[0].photo_url).toBe("/api/documents/doc_test_cover/file?v=12000&w=480");
   expect(visitorList.neighbors[0].owners).toEqual([expect.objectContaining({ label: "Sam Ellison" })]);
 
   const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitorCookie } })).json();

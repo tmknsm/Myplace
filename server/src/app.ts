@@ -82,7 +82,9 @@ import {
   TILE_MIN_ZOOM,
 } from "./services/properties.ts";
 import { optimizePhoto, storeUpload, type OptimizedPhoto } from "./services/photos.ts";
+import { canServeVariant, deletePhotoVariants, photoVariant } from "./services/photo-variants.ts";
 import { avatarKey, deleteDocumentObject, getDocument, putDocument } from "./services/storage.ts";
+import { snapVariantWidth } from "../../shared/image-size.ts";
 import { deferTask } from "./runtime.ts";
 import { FIELD_BY_KEY, FIELD_VOCAB, ownerWritable } from "./vocab.ts";
 
@@ -336,12 +338,15 @@ app.get("/api/users/:id/avatar", async (c) => {
   `;
   const key = rows[0]?.avatar_key;
   if (!key) return c.json({ error: "Not found" }, 404);
-  const bytes = await getDocument(key);
-  const body = bytes instanceof Uint8Array ? Uint8Array.from(bytes) : new Uint8Array(bytes);
-  return new Response(body as BodyInit, {
+  // Avatars draw at 96px or less; a 480 long edge covers any of them at 3×.
+  const width = snapVariantWidth(c.req.query("w") ?? 480);
+  const served = width && canServeVariant(mimeFromKey(key))
+    ? await photoVariant(key, mimeFromKey(key), width)
+    : { bytes: await getDocument(key), mime: mimeFromKey(key) };
+  return new Response(served.bytes as BodyInit, {
     headers: {
-      "content-type": mimeFromKey(key),
-      "content-length": String(body.byteLength),
+      "content-type": served.mime,
+      "content-length": String(served.bytes.byteLength),
       "cache-control": "public, max-age=31536000, immutable",
     },
   });
@@ -795,11 +800,15 @@ app.get("/api/properties/:id/documents", async (c) => {
 
 /** Point a document row at the encode that finished after its upload responded. */
 async function recordOptimizedFile(documentId: string, stored: OptimizedPhoto, key: string): Promise<void> {
-  await getSql()`
+  const sql = getSql();
+  const previous = await sql<{ storage_key: string }[]>`SELECT storage_key FROM documents WHERE document_id = ${documentId}`;
+  await sql`
     UPDATE documents
     SET storage_key = ${key}, original_filename = ${stored.filename}, mime_type = ${stored.mime}, byte_size = ${stored.bytes.byteLength}
     WHERE document_id = ${documentId}
   `;
+  const old = previous[0]?.storage_key;
+  if (old && old !== key) await deletePhotoVariants(old);
 }
 
 async function loadOwnedDocument(c: Parameters<typeof requireUser>[0], documentId: string) {
@@ -926,6 +935,9 @@ app.post("/api/documents/:id/file", async (c) => {
   const { stored, key } = upload;
   const sql = getSql();
   const isImage = stored.mime.startsWith("image/");
+  const previous = await sql<{ storage_key: string }[]>`SELECT storage_key FROM documents WHERE document_id = ${doc.document_id}`;
+  // Rendered sizes belong to the old bytes; the new file renders its own.
+  if (previous[0]?.storage_key) await deletePhotoVariants(previous[0].storage_key);
   await sql`
     UPDATE documents
     SET
@@ -1395,15 +1407,24 @@ app.get("/api/documents/:id/file", async (c) => {
       || await isMaintainer(user.user_id, doc.property_id);
     if (!allowed) return c.json({ error: "Forbidden" }, 403);
   }
-  const bytes = await getDocument(doc.storage_key);
-  const body = bytes instanceof Uint8Array ? Uint8Array.from(bytes) : new Uint8Array(bytes);
+  // `?w=` asks for a display-sized WebP instead of the archived upload.
+  const width = snapVariantWidth(c.req.query("w"));
+  const mime = doc.mime_type || "application/octet-stream";
+  const served = width && canServeVariant(doc.mime_type)
+    ? await photoVariant(doc.storage_key, mime, width)
+    : { bytes: await getDocument(doc.storage_key), mime };
   const filename = (doc.original_filename ?? "document").replace(/["\r\n]/g, "_");
-  return new Response(body as BodyInit, {
+  // Public URLs carry the file's version (`?v=`), so a browser can keep them
+  // for good; a replaced photo shows up under a new URL.
+  const cacheControl = !isPublic
+    ? "private, no-store"
+    : c.req.query("v") ? "public, max-age=31536000, immutable" : "public, max-age=3600";
+  return new Response(served.bytes as BodyInit, {
     headers: {
-      "content-type": doc.mime_type || "application/octet-stream",
+      "content-type": served.mime,
       "content-disposition": `inline; filename="${filename}"`,
-      "content-length": String(body.byteLength),
-      "cache-control": isPublic ? "private, max-age=300" : "private, no-store",
+      "content-length": String(served.bytes.byteLength),
+      "cache-control": cacheControl,
     },
   });
 });

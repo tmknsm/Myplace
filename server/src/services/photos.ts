@@ -144,6 +144,47 @@ export async function optimizePhoto(input: Uint8Array, mime: string, filename: s
   }
 }
 
+/**
+ * Shrink an already-stored photo so its long edge fits `maxEdge`. Images
+ * binding first; in-isolate WASM only where a response is not waiting on it
+ * (Node). Null means "serve the original".
+ */
+export async function resizePhoto(
+  input: Uint8Array,
+  mime: string,
+  maxEdge: number,
+  options: OptimizeOptions = {},
+): Promise<{ bytes: Uint8Array; mime: string } | null> {
+  const detected = sniffMime(input, mime);
+  if (!detected.startsWith("image/") || SKIP_TYPES.has(detected)) return null;
+  const transform = options.hosted === false ? undefined : imageTransformer();
+  if (transform) {
+    try {
+      const result = await transform(input, { width: maxEdge, height: maxEdge, quality: PHOTO_WEBP_QUALITY });
+      if (result && result.bytes.byteLength > 0) return result;
+    } catch (error) {
+      console.warn("photo resize (images) failed", error instanceof Error ? error.message : error);
+    }
+  }
+  if (options.wasm === false || !WASM_TYPES.has(detected) || tooBigForWorker(input)) return null;
+  try {
+    let image = await decodeRaster(input, detected);
+    const next = fitImageSize(image.width, image.height, maxEdge);
+    if (next.width !== image.width || next.height !== image.height) {
+      await ensureResize();
+      const { default: resize } = await import("@jsquash/resize");
+      image = await resize(image as Parameters<typeof resize>[0], { width: next.width, height: next.height, method: "lanczos3" });
+    }
+    await ensureWebpEncode();
+    const { default: encode } = await import("@jsquash/webp/encode");
+    const encoded = new Uint8Array(await encode(image as Parameters<typeof encode>[0], { quality: PHOTO_WEBP_QUALITY }));
+    return encoded.byteLength ? { bytes: encoded, mime: "image/webp" } : null;
+  } catch (error) {
+    console.warn("photo resize skipped", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
 export async function ingestUploadFile(file: File): Promise<OptimizedPhoto> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const mime = file.type || "application/octet-stream";
