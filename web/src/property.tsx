@@ -235,9 +235,9 @@ function applyClaimedOwner(data: PageData, result: DebugClaimResult): PageData {
   };
 }
 
-/** Post photos belong to their post; paint and style attachments to their cards. */
+/** Paint and style attachments live on those cards. A post photo is also a gallery photo. */
 function isGalleryPhoto(doc: Doc): boolean {
-  return isImage(doc) && !doc.post_id && doc.topic_id !== "paint" && doc.topic_id !== "style";
+  return isImage(doc) && doc.topic_id !== "paint" && doc.topic_id !== "style";
 }
 
 /** Cover first, then the rest in the order they arrived. */
@@ -951,7 +951,14 @@ export function PropertyPageView() {
           sheet={postSheet}
           onPosted={async (post) => {
             showToast("Posted.");
-            await refresh((page) => ({ ...page, posts: [post, ...(page.posts ?? []).filter((row) => row.post_id !== post.post_id)] }));
+            await refresh((page) => ({
+              ...page,
+              posts: [post, ...(page.posts ?? []).filter((row) => row.post_id !== post.post_id)],
+              documents: [
+                ...post.documents.filter((doc) => !page.documents.some((existing) => existing.document_id === doc.document_id)),
+                ...page.documents,
+              ],
+            }));
           }}
         />
       )}
@@ -4788,7 +4795,14 @@ export function PropertyPostsPage() {
           sheet={postSheet}
           onPosted={async (post) => {
             showToast("Posted.");
-            await refresh((page) => ({ ...page, posts: [post, ...(page.posts ?? []).filter((row) => row.post_id !== post.post_id)] }));
+            await refresh((page) => ({
+              ...page,
+              posts: [post, ...(page.posts ?? []).filter((row) => row.post_id !== post.post_id)],
+              documents: [
+                ...post.documents.filter((doc) => !page.documents.some((existing) => existing.document_id === doc.document_id)),
+                ...page.documents,
+              ],
+            }));
           }}
         />
       )}

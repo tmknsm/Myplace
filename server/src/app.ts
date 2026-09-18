@@ -1065,7 +1065,7 @@ app.delete("/api/posts/:id", async (c) => {
   if (!post) return c.json({ error: "Not found" }, 404);
   if (!(await isMaintainer(user.user_id, post.property_id))) return c.json({ error: "Forbidden" }, 403);
   await sql`UPDATE property_posts SET removed_at = now() WHERE post_id = ${post.post_id}`;
-  await sql`UPDATE documents SET removed_at = now() WHERE post_id = ${post.post_id} AND removed_at IS NULL`;
+  // The photos stay: posting added them to the property's library.
   await emitEvent({
     propertyId: post.property_id,
     eventType: "post.removed",

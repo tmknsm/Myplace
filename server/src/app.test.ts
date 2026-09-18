@@ -1740,8 +1740,9 @@ test("posts: an owner's photos and caption show on the page, newest first, and c
   const withPhotos = page.property.posts[1]!;
   expect(withPhotos.documents.map((doc) => doc.document_id)).toEqual([docA, docB]);
   expect(withPhotos.documents.every((doc) => doc.visibility === "public" && doc.post_id === post.post_id)).toBe(true);
-  // The page's document list tags post photos so the gallery can leave them out.
+  // Posting also puts the photos on the page's document list, so Photos includes them.
   expect(page.property.documents.find((doc) => doc.document_id === docA)?.post_id).toBe(post.post_id);
+  expect(page.property.documents.find((doc) => doc.document_id === docB)?.post_id).toBe(post.post_id);
   expect(page.property.documents.find((doc) => doc.document_id === docA && (doc as { is_cover?: boolean }).is_cover)).toBeUndefined();
   // One history entry per post; the photos don't each add a line.
   expect(page.property.events.filter((event) => event.event_type === "post.added")).toHaveLength(2);
@@ -1755,14 +1756,13 @@ test("posts: an owner's photos and caption show on the page, newest first, and c
   const hidden = await (await app.request("http://localhost/api/properties/prop_test/posts")).json() as { posts: PostView[] };
   expect(hidden.posts[1]?.author?.label).toBe("@samwrites");
 
-  // Only a maintainer removes a post, and its photos leave with it.
+  // Only a maintainer removes a post. Its photos stay in the library.
   expect((await app.request(`http://localhost/api/posts/${post.post_id}`, { method: "DELETE", headers: { cookie: strangerCookie } })).status).toBe(403);
   expect((await app.request(`http://localhost/api/posts/${post.post_id}`, { method: "DELETE", headers: { cookie } })).status).toBe(200);
   expect((await app.request(`http://localhost/api/posts/${post.post_id}`, { method: "DELETE", headers: { cookie } })).status).toBe(404);
   const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).json() as Page;
   expect(after.property.posts.map((row) => row.post_id)).toEqual([latest.post_id]);
-  expect(after.property.documents.map((doc) => doc.document_id)).not.toContain(docA);
-  expect(after.property.documents.map((doc) => doc.document_id)).not.toContain(docB);
+  expect(after.property.documents.map((doc) => doc.document_id)).toEqual(expect.arrayContaining([docA, docB]));
 });
 
 test("owner can attach a photo to a topic card", async () => {
