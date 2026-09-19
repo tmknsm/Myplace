@@ -25,7 +25,9 @@ function Layout({ children }: { children: React.ReactNode }) {
   // Signed out it is the landing page, which hands its own search to the bar.
   const isLanding = location.pathname === "/" && !user;
   const onAuth = /^\/(signin|signup)/.test(location.pathname);
-  const searchOnThisPage = !isLanding && !onAuth && !/^\/(dev|admin)/.test(location.pathname);
+  // Claiming is a focused flow (identity, photo, proof, review): no search bar.
+  const onboarding = /^\/property\/[^/]+\/claim(\/|$)/.test(location.pathname);
+  const searchOnThisPage = !isLanding && !onAuth && !onboarding && !/^\/(dev|admin)/.test(location.pathname);
   // Keep the search row in the layout on auth if the page you left had one,
   // so the bar does not shrink. Hidden visually, still occupies its height.
   const searchOnArrival = useRef(false);
