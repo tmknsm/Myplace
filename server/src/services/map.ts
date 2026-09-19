@@ -50,6 +50,16 @@ interface HomeRow {
   photo_count: number | string;
 }
 
+/** Public photos that count toward a home's gallery: what the property page's hero shows. */
+const GALLERY_PHOTO = `
+  removed_at IS NULL
+  AND claim_id IS NULL
+  AND visibility = 'public'
+  AND (mime_type LIKE 'image/%' OR document_type = 'photo')
+  AND topic_id IS DISTINCT FROM 'paint'
+  AND topic_id IS DISTINCT FROM 'style'
+`;
+
 interface OwnerRow {
   property_id: string;
   user_id: string;
@@ -88,86 +98,88 @@ export async function homesInView(
 ): Promise<{ count: number; homes: MapHome[] }> {
   const sql = getSql();
   const size = Math.max(1, Math.min(limit, MAP_HOMES_LIMIT));
+  const envelope = sql`ST_MakeEnvelope(${west}, ${south}, ${east}, ${north}, 4326)`;
+  const gallery = sql.unsafe(GALLERY_PHOTO);
 
   const counted = await sql<{ count: number | string }[]>`
     SELECT count(*) AS count
     FROM property_geometries g
     JOIN properties p ON p.property_id = g.property_id AND NOT p.removed
-    WHERE g.is_current
-      AND g.geom && ST_MakeEnvelope(${west}, ${south}, ${east}, ${north}, 4326)
+    WHERE g.is_current AND g.geom && ${envelope}
   `;
   const count = Number(counted[0]?.count ?? 0);
   if (count === 0) return { count: 0, homes: [] };
 
-  const rows = await sql<HomeRow[]>`
-    WITH bounds AS (
-      SELECT ST_MakeEnvelope(${west}, ${south}, ${east}, ${north}, 4326) AS env
-    ),
-    in_view AS (
-      SELECT g.property_id, g.geom, g.quality
-      FROM property_geometries g
-      CROSS JOIN bounds
-      JOIN properties p ON p.property_id = g.property_id AND NOT p.removed
-      WHERE g.is_current AND g.geom && bounds.env
-    ),
-    claimed AS (
+  // Claimed and pictured homes are a small set; rank them by hand, then fill
+  // the rest from the middle of the view outward. The second query has no
+  // tie-breaker so the GIST index can serve rows in distance order.
+  const featured = await sql<{ property_id: string }[]>`
+    WITH claimed AS (
       SELECT DISTINCT property_id FROM property_maintainers WHERE revoked_at IS NULL
     ),
-    gallery AS (
-      SELECT property_id, document_id, byte_size, is_cover, created_at
-      FROM documents
-      WHERE removed_at IS NULL
-        AND claim_id IS NULL
-        AND visibility = 'public'
-        AND (mime_type LIKE 'image/%' OR document_type = 'photo')
-        AND topic_id IS DISTINCT FROM 'paint'
-        AND topic_id IS DISTINCT FROM 'style'
-    ),
     pictured AS (
-      SELECT property_id, count(*) AS photo_count FROM gallery GROUP BY property_id
+      SELECT DISTINCT property_id FROM documents WHERE ${gallery}
     ),
-    picked AS (
-      SELECT
-        v.property_id, v.geom, v.quality,
-        COALESCE(ph.photo_count, 0) AS photo_count,
-        row_number() OVER (
-          ORDER BY
-            (ph.property_id IS NOT NULL) DESC,
-            (cl.property_id IS NOT NULL) DESC,
-            v.geom <-> ST_Centroid(bounds.env),
-            v.property_id
-        ) AS rank
-      FROM in_view v
-      CROSS JOIN bounds
-      LEFT JOIN pictured ph ON ph.property_id = v.property_id
-      LEFT JOIN claimed cl ON cl.property_id = v.property_id
-      ORDER BY rank
-      LIMIT ${size}
+    interesting AS (
+      SELECT property_id FROM claimed UNION SELECT property_id FROM pictured
     )
+    SELECT g.property_id
+    FROM interesting i
+    JOIN property_geometries g ON g.property_id = i.property_id AND g.is_current
+    JOIN properties p ON p.property_id = g.property_id AND NOT p.removed
+    LEFT JOIN pictured ph ON ph.property_id = g.property_id
+    WHERE g.geom && ${envelope}
+    ORDER BY
+      (ph.property_id IS NOT NULL) DESC,
+      g.geom <-> ST_Centroid(${envelope}),
+      g.property_id
+    LIMIT ${size}
+  `;
+  const ids = featured.map((row) => row.property_id);
+  if (ids.length < size) {
+    const filler = await sql<{ property_id: string }[]>`
+      SELECT g.property_id
+      FROM property_geometries g
+      JOIN properties p ON p.property_id = g.property_id AND NOT p.removed
+      WHERE g.is_current
+        AND g.geom && ${envelope}
+        ${ids.length ? sql`AND g.property_id NOT IN ${sql(ids)}` : sql``}
+      ORDER BY g.geom <-> ST_Centroid(${envelope})
+      LIMIT ${size - ids.length}
+    `;
+    for (const row of filler) ids.push(row.property_id);
+  }
+  if (ids.length === 0) return { count, homes: [] };
+
+  const detailRows = await sql<HomeRow[]>`
     SELECT
-      k.property_id,
+      p.property_id,
       a.formatted, a.street_number, a.street_name,
       p.municipality, p.county,
-      k.quality,
-      ST_AsGeoJSON(ST_Centroid(k.geom))::json AS centroid,
-      ST_AsGeoJSON(k.geom)::json AS geojson,
+      g.quality,
+      ST_AsGeoJSON(ST_Centroid(g.geom))::json AS centroid,
+      ST_AsGeoJSON(g.geom)::json AS geojson,
       d.document_id, d.byte_size,
-      k.photo_count
-    FROM picked k
-    JOIN properties p ON p.property_id = k.property_id
-    LEFT JOIN property_addresses a ON a.property_id = k.property_id AND a.is_current
+      COALESCE(n.photo_count, 0) AS photo_count
+    FROM properties p
+    JOIN property_geometries g ON g.property_id = p.property_id AND g.is_current
+    LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
     LEFT JOIN LATERAL (
       SELECT document_id, byte_size
-      FROM gallery
-      WHERE property_id = k.property_id
+      FROM documents
+      WHERE property_id = p.property_id AND ${gallery}
       ORDER BY is_cover DESC, created_at DESC
       LIMIT 1
     ) d ON TRUE
-    ORDER BY k.rank
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS photo_count
+      FROM documents
+      WHERE property_id = p.property_id AND ${gallery}
+    ) n ON TRUE
+    WHERE p.property_id IN ${sql(ids)}
   `;
-  if (rows.length === 0) return { count, homes: [] };
-
-  const ids = rows.map((row) => row.property_id);
+  const byId = new Map(detailRows.map((row) => [row.property_id, row]));
+  const rows = ids.map((id) => byId.get(id)).filter((row): row is HomeRow => Boolean(row));
   const [ownerRows, factRows] = await Promise.all([
     sql<OwnerRow[]>`
       SELECT m.property_id, u.user_id, u.display_name, u.first_name, u.last_name, u.handle,
