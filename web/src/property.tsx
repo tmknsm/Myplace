@@ -498,13 +498,13 @@ export function PropertyPageView() {
     navigate(user ? `/property/${id}/claim` : `/signup?next=/property/${id}/claim`);
   };
   // A draft is onboarding left half-done: send them back into it. Pending
-  // means the evidence is in, so the door leads to the review status.
+  // means the postcard is in the mail, so the door leads to the account.
   const claimDraft = viewer.openClaim?.status === "draft";
   const openClaimHref = viewer.openClaim
     ? (claimDraft ? `/property/${id}/claim` : `/property/${id}/claim/${viewer.openClaim.claim_id}`)
     : null;
-  const openClaimLabel = claimDraft ? "Finish claiming" : "Claim under review";
-  /** Where the preview's doors lead: into the claim flow, or to the claim already under review. */
+  const openClaimLabel = claimDraft ? "Finish claiming" : "Claim in progress";
+  /** Where the preview's doors lead: into the claim flow, or to the claim already in progress. */
   const goClaim = () => {
     if (openClaimHref) {
       navigate(openClaimHref);
