@@ -1087,9 +1087,186 @@ tr:last-child td { border-bottom: 0; }
 }
 .map-page {
   position: relative;
-  height: calc(100dvh - 7.5rem);
+  /* Fills the viewport below the header, so the homes sheet's top stop lands
+     on the search bar's bottom edge. The rem fallback covers the first paint
+     before the layout has measured the header. */
+  height: calc(100dvh - var(--topbar-height, 7.5rem));
   min-height: 360px;
+  /* The lowered sheet hangs below the page edge; keep that from stretching the document. */
+  overflow: clip;
+  --map-sheet-inset: 0px;
 }
+/* The legend and attribution ride up with the homes sheet instead of hiding under it. */
+.map-page.has-homes-sheet .map-legend {
+  bottom: calc(var(--map-sheet-inset) + 12px);
+  transition: bottom var(--sheet-out) var(--sheet-settle);
+}
+.map-page.has-homes-sheet .maplibregl-ctrl-bottom-left,
+.map-page.has-homes-sheet .maplibregl-ctrl-bottom-right {
+  bottom: var(--map-sheet-inset);
+  transition: bottom var(--sheet-out) var(--sheet-settle);
+}
+
+/* ---- Map: homes-in-view sheet ---------------------------------------- */
+/* Rests at three heights (collapsed header, a peek at the first card, or
+   docked under the search bar) and follows the finger between them. The
+   visible height is one variable; everything else derives from it. */
+.map-homes-sheet {
+  --map-sheet-visible: 0px;
+  position: absolute;
+  inset: 0 0 0 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 560px);
+  margin: 0 auto;
+  background: var(--canvas);
+  border-radius: 24px 24px 0 0;
+  box-shadow: 0 -1px 0 rgba(60, 56, 50, 0.06), 0 -12px 40px rgba(20, 18, 14, 0.16);
+  transform: translate3d(0, calc(100% - var(--map-sheet-visible)), 0);
+  transition: transform var(--sheet-out) var(--sheet-settle);
+  will-change: transform;
+  touch-action: none;
+  overflow: hidden;
+}
+.map-homes-sheet.is-dragging {
+  transition: none;
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.map-homes-sheet.is-full { border-radius: 18px 18px 0 0; }
+.map-homes-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px var(--pad) 12px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  cursor: grab;
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.map-homes-head:active { cursor: grabbing; }
+.map-homes-head:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; border-radius: 16px; }
+.map-homes-grabber {
+  display: block;
+  width: 36px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(60, 56, 50, 0.22);
+}
+.map-homes-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  transition: opacity 160ms ease;
+}
+.map-homes-sheet.is-pending .map-homes-title { opacity: 0.55; }
+.map-homes-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 var(--pad) calc(24px + env(safe-area-inset-bottom));
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+/* Only the docked sheet scrolls; lower down, every drag moves the sheet. */
+.map-homes-sheet.is-full .map-homes-body {
+  overflow-y: auto;
+  touch-action: pan-y;
+}
+.map-homes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.map-homes-empty,
+.map-homes-more {
+  margin: 0;
+  padding: 4px 0 8px;
+  text-align: center;
+}
+.map-homes-more { padding-top: 16px; }
+.map-home-card {
+  display: block;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.map-home-card:active { background: var(--surface-2); }
+.map-home-media {
+  position: relative;
+  margin: 0;
+  aspect-ratio: 16 / 9;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.map-home-media img,
+.map-home-media .map-home-sketch {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* A lot with no photo is drawn as it appears on the map, over faint graph paper. */
+.map-home-media.is-map {
+  background-color: #f4f2ec;
+  background-image:
+    linear-gradient(rgba(60, 56, 50, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(60, 56, 50, 0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: center;
+}
+.map-home-sketch {
+  padding: 12px;
+}
+.map-home-sketch.is-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.map-home-sketch-icon { width: 30%; height: 30%; }
+.map-home-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 24px 12px 12px;
+  margin: 0;
+  background: linear-gradient(to top, rgba(29, 29, 31, 0.32), rgba(29, 29, 31, 0));
+  pointer-events: none;
+}
+.map-home-body { padding: 14px 16px 16px; }
+.map-home-body .kicker { font-size: 12px; }
+.map-home-body h3 {
+  margin: 3px 0 0;
+  font-size: 21px;
+  font-weight: 500;
+  font-family: var(--font-serif);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.map-home-body .owner-bylines { margin: 10px 0 0; }
+.map-home-body .map-home-facts { margin-top: 10px; }
+.map-home-body .map-home-facts > div { grid-template-columns: 120px 1fr; padding: 8px 0; }
+
 .maplibregl-ctrl-attrib { font-size: 10px; }
 .maplibregl-ctrl-group {
   border: 0 !important;
@@ -3884,7 +4061,7 @@ html.peek-gated body {
     margin-right: calc(-1 * var(--page-inline-end));
   }
   .map-card { height: 260px; }
-  .map-page { height: calc(100dvh - 8.5rem); }
+  .map-page { height: calc(100dvh - var(--topbar-height, 8.5rem)); }
   .fact { grid-template-columns: 1fr; gap: 3px; padding: 14px 16px; }
   .coverage { grid-template-columns: 1fr; }
   .coverage div { border-right: 0; }

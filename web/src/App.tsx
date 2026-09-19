@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ManageCard, ProfileCard, PropertyPicker, shortAddress, VisibilityCard } from "./account-profile";
-import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty } from "./api";
+import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty, type MapHome } from "./api";
 import { useAuth } from "./auth";
-import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, SettingsButton, ShareButton } from "./components";
+import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, SettingsButton, ShareButton, type MapView } from "./components";
 import { DebugSheet } from "./debug";
 import { FeedPage } from "./feed";
 import { HomePage } from "./home";
+import { type HomesDetent } from "./map-homes-detents";
+import { MapHomesSheet } from "./map-homes-sheet";
 import { useMeta } from "./meta";
 import { PropertyNeighborsPage, PropertyPageView, PropertyPhotosPage, PropertyPostsPage } from "./property";
 import { NotificationsRedirect, PropertyInboxPage, PropertyManagePage } from "./property-manage";
@@ -135,11 +137,57 @@ function RootPage() {
   return user ? <FeedPage /> : <HomePage />;
 }
 
+/** Debounced count and cards for whatever the map is showing; stale replies are dropped. */
+function useHomesInView(view: MapView | null) {
+  const [state, setState] = useState<{ count: number | null; homes: MapHome[]; pending: boolean }>({
+    count: null,
+    homes: [],
+    pending: true,
+  });
+  useEffect(() => {
+    if (!view) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    setState((current) => ({ ...current, pending: true }));
+    const timer = window.setTimeout(() => {
+      api.mapHomes(view.bbox, { signal: controller.signal }).then((data) => {
+        if (!cancelled) setState({ count: data.count, homes: data.homes, pending: false });
+      }).catch(() => {
+        if (!cancelled) setState((current) => ({ ...current, pending: false }));
+      });
+    }, 160);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [view]);
+  return state;
+}
+
 function MapPage() {
   const navigate = useNavigate();
+  const [view, setView] = useState<MapView | null>(null);
+  const [detent, setDetent] = useState<HomesDetent>("peek");
+  const [inset, setInset] = useState(0);
+  const homes = useHomesInView(view);
   return (
-    <div className="map-page">
-      <ParcelMap legend zoom={11.6} onSelect={(id) => navigate(`/property/${id}`)} />
+    <div className="map-page has-homes-sheet" style={{ "--map-sheet-inset": `${inset}px` } as CSSProperties}>
+      <ParcelMap
+        legend
+        zoom={11.6}
+        onSelect={(id) => navigate(`/property/${id}`)}
+        viewInset={inset}
+        onViewChange={setView}
+      />
+      <MapHomesSheet
+        count={homes.count}
+        homes={homes.homes}
+        pending={homes.pending}
+        detent={detent}
+        onDetent={setDetent}
+        onInset={setInset}
+      />
     </div>
   );
 }

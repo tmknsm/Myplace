@@ -66,6 +66,8 @@ export const api = {
   },
   search: (q: string) => request<{ results: SearchHit[] }>(`/api/search?q=${encodeURIComponent(q)}`),
   parcels: (bbox: string) => request<ParcelCollection>(`/api/parcels?bbox=${bbox}`),
+  mapHomes: (bbox: [number, number, number, number], init?: RequestInit) =>
+    request<MapHomesResponse>(`/api/map/homes?bbox=${bbox.map((n) => n.toFixed(6)).join(",")}`, init),
   property: (id: string) => request<{ property: PropertyPage; viewer: Viewer }>(`/api/properties/${id}`),
   createClaim: (id: string, body: { method: string; notes?: string; attestationAccepted: boolean }) =>
     request<{ claimId: string; status: string }>(`/api/properties/${id}/claims`, {
@@ -289,6 +291,35 @@ export interface NeighborOwner {
   user_id: string;
   label: string;
   photo_url: string;
+}
+
+export interface MapHomeFact {
+  key: string;
+  label: string;
+  display: string;
+}
+
+/** One card in the map's homes sheet. */
+export interface MapHome {
+  property_id: string;
+  formatted: string | null;
+  street_number: string | null;
+  street_name: string | null;
+  municipality: string | null;
+  county: string;
+  geometry_quality: string | null;
+  centroid: [number, number] | null;
+  geojson: { type: string; coordinates: number[][][] | number[][][][] } | null;
+  photo_url: string | null;
+  photo_count: number;
+  owners: NeighborOwner[];
+  facts: MapHomeFact[];
+}
+
+export interface MapHomesResponse {
+  /** Every home the viewport touches, not just the cards that came back. */
+  count: number;
+  homes: MapHome[];
 }
 
 export interface NeighborPerson {

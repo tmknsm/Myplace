@@ -60,6 +60,7 @@ import {
   TRANSFERABLE_TYPES,
 } from "./services/owner.ts";
 import { loadFeed, parseFeedScope } from "./services/feed.ts";
+import { homesInView, MAP_HOMES_LIMIT } from "./services/map.ts";
 import { loadMyNeighbors, loadPropertyNeighbors, neighborState, requestNeighborsOnProperty, reviewNeighbor } from "./services/neighbors.ts";
 import {
   addComment,
@@ -391,6 +392,19 @@ app.get("/api/parcels", async (c) => {
     return c.json({ error: "bbox=west,south,east,north is required" }, 400);
   }
   return c.json(await parcelsInBbox(bbox[0]!, bbox[1]!, bbox[2]!, bbox[3]!));
+});
+
+app.get("/api/map/homes", async (c) => {
+  const bbox = (c.req.query("bbox") ?? "").split(",").map(Number);
+  if (bbox.length !== 4 || bbox.some((n) => !Number.isFinite(n))) {
+    return c.json({ error: "bbox=west,south,east,north is required" }, 400);
+  }
+  const [west, south, east, north] = bbox as [number, number, number, number];
+  if (west > east || south > north || Math.abs(south) > 90 || Math.abs(north) > 90) {
+    return c.json({ error: "bbox must run west to east and south to north" }, 400);
+  }
+  const limit = Number(c.req.query("limit") ?? MAP_HOMES_LIMIT);
+  return c.json(await homesInView(west, south, east, north, Number.isFinite(limit) ? limit : MAP_HOMES_LIMIT));
 });
 
 app.get("/api/tiles/:z/:x/:y", async (c) => {

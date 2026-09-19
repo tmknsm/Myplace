@@ -978,6 +978,101 @@ test("parcel vector tiles carry shapes only where parcels exist", async () => {
   expect(bad.status).toBe(400);
 });
 
+test("homes in view: the count covers the whole box, cards lead with pictured then claimed homes", async () => {
+  await seedProperty();
+  // Two more lots beside the seeded one: one claimed with a public cover, one bare.
+  for (const [propertyId, formatted, number, wkt] of [
+    ["prop_pictured", "443 Warren Street, Hudson, NY 12534", "443", "POLYGON((-73.788 42.25,-73.787 42.25,-73.787 42.251,-73.788 42.251,-73.788 42.25))"],
+    ["prop_bare", "445 Warren Street, Hudson, NY 12534", "445", "POLYGON((-73.786 42.25,-73.785 42.25,-73.785 42.251,-73.786 42.251,-73.786 42.25))"],
+  ] as const) {
+    await sql`INSERT INTO properties (property_id, state, county, municipality) VALUES (${propertyId}, 'NY', 'Columbia', 'Hudson')`;
+    await sql`
+      INSERT INTO property_addresses (address_id, property_id, formatted, street_number, street_name, city)
+      VALUES (${`adr_${propertyId}`}, ${propertyId}, ${formatted}, ${number}, 'Warren Street', 'Hudson')
+    `;
+    await sql`
+      INSERT INTO property_geometries (geometry_id, property_id, geom, quality, is_current)
+      VALUES (${`geo_${propertyId}`}, ${propertyId}, ST_SetSRID(ST_GeomFromText(${wkt}), 4326), 'approximate', true)
+    `;
+  }
+  // The seeded lot is claimed but has no photo; the pictured lot is claimed with a cover.
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  await sql`
+    UPDATE users SET first_name = 'Sam', last_name = 'Ellison' WHERE primary_email = 'owner@example.com'
+  `;
+  const owner = (await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'owner@example.com'`)[0]!;
+  await sql`
+    INSERT INTO property_maintainers (maintainer_id, property_id, user_id, role)
+    VALUES ('mnt_pictured', 'prop_pictured', ${owner.user_id}, 'owner')
+  `;
+  await giveCover("prop_pictured", "doc_pictured_cover");
+  // A private photo on the bare lot must not turn it into a pictured home.
+  await sql`
+    INSERT INTO documents (document_id, property_id, storage_key, original_filename, mime_type, byte_size, document_type, visibility)
+    VALUES ('doc_bare_private', 'prop_bare', 'property-documents/prop_bare/doc/x.webp', 'x.webp', 'image/webp', 100, 'photo', 'private')
+  `;
+
+  const wide = await (await app.request("http://localhost/api/map/homes?bbox=-73.8,42.24,-73.78,42.26")).json();
+  expect(wide.count).toBe(3);
+  expect(wide.homes.map((home: { property_id: string }) => home.property_id)).toEqual(["prop_pictured", "prop_test", "prop_bare"]);
+
+  const pictured = wide.homes[0];
+  expect(pictured.photo_url).toBe("/api/documents/doc_pictured_cover/file?v=12000");
+  expect(pictured.photo_count).toBe(1);
+  expect(pictured.street_number).toBe("443");
+  expect(pictured.street_name).toBe("Warren Street");
+  expect(pictured.municipality).toBe("Hudson");
+  expect(pictured.county).toBe("Columbia");
+  expect(pictured.geometry_quality).toBe("approximate");
+  expect(pictured.geojson.type).toBe("Polygon");
+  expect(pictured.centroid[0]).toBeCloseTo(-73.7875, 3);
+  expect(pictured.owners).toEqual([expect.objectContaining({ user_id: owner.user_id, label: "Sam Ellison" })]);
+
+  const seeded = wide.homes[1];
+  expect(seeded.photo_url).toBeNull();
+  expect(seeded.owners).toHaveLength(1);
+  // Roll facts come along for the card; the conflicting year built still shows the official value.
+  expect(seeded.facts).toEqual(expect.arrayContaining([
+    expect.objectContaining({ key: "assessment.total", display: "$485,000" }),
+    expect.objectContaining({ key: "year_built" }),
+  ]));
+
+  const bare = wide.homes[2];
+  expect(bare.photo_url).toBeNull();
+  expect(bare.photo_count).toBe(0);
+  expect(bare.owners).toEqual([]);
+
+  // A box over only the bare lot counts one home, and the limit trims cards but not the count.
+  const narrow = await (await app.request("http://localhost/api/map/homes?bbox=-73.7865,42.2502,-73.7855,42.2508")).json();
+  expect(narrow.count).toBe(1);
+  expect(narrow.homes.map((home: { property_id: string }) => home.property_id)).toEqual(["prop_bare"]);
+
+  const trimmed = await (await app.request("http://localhost/api/map/homes?bbox=-73.8,42.24,-73.78,42.26&limit=1")).json();
+  expect(trimmed.count).toBe(3);
+  expect(trimmed.homes).toHaveLength(1);
+
+  // Nothing in the Atlantic.
+  const empty = await (await app.request("http://localhost/api/map/homes?bbox=-70,40,-69,41")).json();
+  expect(empty).toEqual({ count: 0, homes: [] });
+
+  // A hidden street shows the town instead, on the map as on the page.
+  await setVisibility(ownerCookie, "prop_test", { hide_street: true });
+  const hidden = await (await app.request("http://localhost/api/map/homes?bbox=-73.8,42.24,-73.78,42.26")).json();
+  const seededHidden = hidden.homes.find((home: { property_id: string }) => home.property_id === "prop_test");
+  expect(seededHidden.formatted).toBe("Hudson, NY");
+  expect(seededHidden.street_number).toBeNull();
+  expect(seededHidden.street_name).toBeNull();
+
+  // Removed properties leave the count too.
+  await sql`UPDATE properties SET removed = true WHERE property_id = 'prop_bare'`;
+  const afterRemoval = await (await app.request("http://localhost/api/map/homes?bbox=-73.8,42.24,-73.78,42.26")).json();
+  expect(afterRemoval.count).toBe(2);
+
+  expect((await app.request("http://localhost/api/map/homes")).status).toBe(400);
+  expect((await app.request("http://localhost/api/map/homes?bbox=1,2,3")).status).toBe(400);
+  expect((await app.request("http://localhost/api/map/homes?bbox=-73,42,-74,43")).status).toBe(400);
+});
+
 test("debug PIN claim grants ownership and a follow-up page load sees the owner", async () => {
   await seedProperty();
   const claim = await app.request("http://localhost/api/dev/debug/claim/prop_test", {

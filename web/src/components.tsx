@@ -351,7 +351,35 @@ function applySelection(
   );
 }
 
-const QUALITY_COLORS: Record<string, string> = {
+export interface MapView {
+  /** west, south, east, north */
+  bbox: [number, number, number, number];
+  zoom: number;
+}
+
+/** Keep at least this much map above whatever covers the bottom edge. */
+const MIN_VISIBLE_MAP = 40;
+
+/**
+ * Geographic box of the map above `insetBottom` px. Corners are unprojected
+ * one by one so a rotated map still yields a box that contains everything
+ * on screen.
+ */
+function visibleView(map: maplibregl.Map, insetBottom: number): MapView {
+  const container = map.getContainer();
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+  const bottom = Math.max(Math.min(MIN_VISIBLE_MAP, height), height - Math.max(0, insetBottom));
+  const corners = [[0, 0], [width, 0], [0, bottom], [width, bottom]].map(([x, y]) => map.unproject([x!, y!]));
+  const lngs = corners.map((point) => point.lng);
+  const lats = corners.map((point) => point.lat);
+  return {
+    bbox: [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)],
+    zoom: map.getZoom(),
+  };
+}
+
+export const QUALITY_COLORS: Record<string, string> = {
   official: "#1d1d1f",
   approximate: "#c47d1a",
   demonstration: "#e23b32",
@@ -392,6 +420,8 @@ export function ParcelMap({
   focusCenter,
   focusZoom,
   legend = false,
+  viewInset = 0,
+  onViewChange,
 }: {
   selectedId?: string;
   selectedGeometry?: { type: string; coordinates: number[][][] | number[][][][] } | null;
@@ -405,15 +435,30 @@ export function ParcelMap({
   focusCenter?: [number, number];
   focusZoom?: number;
   legend?: boolean;
+  /** Pixels along the bottom that something else covers; `onViewChange` reports the map above it. */
+  viewInset?: number;
+  /** The uncovered part of the map, after every move and whenever the inset changes. */
+  onViewChange?: (view: MapView) => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const onSelectRef = useRef(onSelect);
   const geometryRef = useRef(selectedGeometry);
+  const viewInsetRef = useRef(viewInset);
+  const onViewChangeRef = useRef(onViewChange);
   const [qualities, setQualities] = useState<string[]>([]);
   const meta = useMeta();
   onSelectRef.current = onSelect;
   geometryRef.current = selectedGeometry;
+  viewInsetRef.current = viewInset;
+  onViewChangeRef.current = onViewChange;
+
+  const emitView = () => {
+    const map = mapRef.current;
+    const report = onViewChangeRef.current;
+    if (!map || !report) return;
+    report(visibleView(map, viewInsetRef.current));
+  };
 
   useEffect(() => {
     if (!legend || !meta) return;
@@ -485,7 +530,9 @@ export function ParcelMap({
       map.on("mouseenter", "parcel-fill", () => { map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", "parcel-fill", () => { map.getCanvas().style.cursor = ""; });
       applySelection(map, geometryRef.current);
+      emitView();
     });
+    map.on("moveend", emitView);
     const onResize = () => map.resize();
     window.addEventListener("resize", onResize);
     window.addEventListener("orientationchange", onResize);
@@ -511,6 +558,12 @@ export function ParcelMap({
     if (!map || !focusCenter) return;
     map.flyTo({ center: focusCenter, zoom: focusZoom ?? 15, essential: true, duration: 800 });
   }, [focusKey, focusCenter, focusZoom]);
+
+  // A sheet growing or shrinking over the map changes what counts as in view.
+  useEffect(() => {
+    if (mapRef.current?.isStyleLoaded()) emitView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewInset]);
 
   useEffect(() => {
     if (!visible) return;
