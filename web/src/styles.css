@@ -3883,6 +3883,31 @@ body:has(.feed-page) .topbar .header-search.narrow-only {
 html.chrome-search-tucked .chrome-glass::before {
   height: var(--topbar-main-height, var(--topbar-height, 0px));
 }
+/* Where the browser can, the tuck follows the scroll itself, the same way the
+   property page's tabs hand off: progress 0 at the top of the page, 1 once
+   you have scrolled the height of the search row. The row slides up behind
+   the brand row and the glass shrinks with it, no script per frame. The
+   class-based tuck above stays as the fallback. */
+@media (max-width: 880px) {
+  @supports (animation-timeline: scroll()) {
+    body:has(.feed-page) .topbar .header-search.narrow-only {
+      animation: search-row-tuck linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0px var(--search-row-height);
+      transition: none;
+    }
+    body:has(.feed-page) .chrome-glass::before {
+      animation: feed-chrome-shrink linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0px var(--search-row-height);
+      transition: transform var(--sheet-out) var(--sheet-settle);
+    }
+  }
+  @keyframes feed-chrome-shrink {
+    from { height: var(--topbar-height, 0px); }
+    to { height: var(--topbar-main-height, var(--topbar-height, 0px)); }
+  }
+}
 
 /* New post sheet: the photos go up top in the same mosaic, then the caption. */
 .post-form-photos { margin: 4px 0 12px; }

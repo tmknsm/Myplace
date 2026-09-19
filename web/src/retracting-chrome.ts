@@ -8,6 +8,9 @@ export const CHROME_TUCKED_CLASS = "chrome-search-tucked";
 /** Scroll travel in one direction before the header reacts, so a wobble does nothing. */
 export const RETRACT_THRESHOLD = 10;
 
+/** With scroll-driven animations the search row tucks in CSS, following the scroll itself. */
+const CSS_TUCK = typeof CSS !== "undefined" && CSS.supports("animation-timeline: scroll()");
+
 /**
  * `full` is the whole header with its search row, only at the top of the
  * page. `tucked` is the brand row alone, while reading back up. `hidden`
@@ -69,7 +72,7 @@ export function useRetractingChrome(enabled = true) {
     let frame = 0;
     const paint = (mode: ChromeMode) => {
       root.classList.toggle(CHROME_RETRACTED_CLASS, mode === "hidden");
-      root.classList.toggle(CHROME_TUCKED_CLASS, mode === "tucked");
+      root.classList.toggle(CHROME_TUCKED_CLASS, mode === "tucked" && !CSS_TUCK);
     };
     const commit = (next: ChromeScroll) => {
       const changed = next.mode !== state.mode;
