@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ownerPhoto, parseHandle, publicAddress } from "../../shared/profile";
+import { hasOwnPhoto, ownerPhoto, parseHandle, publicAddress } from "../../shared/profile";
 import { api, type Claim, type User } from "./api";
 import { Spinner } from "./components";
 
@@ -191,7 +191,13 @@ export function IdentityStep({
       }
     >
       <div className="onboard-preview" aria-live="polite">
-        <img className="onboard-preview-avatar" src={ownerPhoto(user)} alt="" />
+        {hasOwnPhoto(user) ? (
+          <img className="onboard-preview-avatar" src={ownerPhoto(user)} alt="" />
+        ) : (
+          <span className="onboard-preview-avatar is-empty" aria-hidden="true">
+            <CameraIcon />
+          </span>
+        )}
         <div className="onboard-preview-text">
           <strong key={label} className="onboard-preview-name">{label}</strong>
           <span key={addressLine} className={`onboard-preview-address${placement === "hidden" ? " is-hidden" : ""}`}>
@@ -580,6 +586,15 @@ function TownIcon() {
       <path d="M5 20V9.5l4-3 4 3V20" />
       <path d="M13 20v-8h6v8" />
       <path d="M8 13h2M8 16.5h2M15.5 15h1" />
+    </svg>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8.6h2.1l1.5-2.3h8.8l1.5 2.3H20a2 2 0 0 1 2 2v8.2a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10.6a2 2 0 0 1 2-2Z" />
+      <circle cx="12" cy="14.2" r="3.2" />
     </svg>
   );
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { defaultAvatarFor, ownerLabel, ownerPhoto, parseHandle, propertyHeading, publicAddress, DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
+import { defaultAvatarFor, hasOwnPhoto, ownerLabel, ownerPhoto, parseHandle, propertyHeading, publicAddress, DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
 
 test("parseHandle strips @ and rejects junk", () => {
   expect(parseHandle("@Sam_Ellison")).toEqual({ handle: "sam_ellison" });
@@ -88,4 +88,11 @@ test("ownerPhoto picks a stable face per person when they have not set one", () 
   expect(a).toBe(defaultAvatarFor("usr_aaa"));
   expect(b).toBe(defaultAvatarFor("usr_zzz"));
   expect(a).not.toBe(b);
+});
+
+test("hasOwnPhoto is false for a fresh account and the stock defaults", () => {
+  expect(hasOwnPhoto({ avatar_url: null })).toBe(false);
+  expect(hasOwnPhoto({ avatar_url: DEFAULT_AVATAR_URL })).toBe(false);
+  expect(hasOwnPhoto({ avatar_url: defaultAvatarFor("usr_zzz") })).toBe(false);
+  expect(hasOwnPhoto({ avatar_url: "https://example.com/me.jpg" })).toBe(true);
 });

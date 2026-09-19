@@ -137,8 +137,13 @@ export function propertyHeading(
   };
 }
 
+/** True only when they uploaded a photo or picked the abstract preset. Stock faces do not count. */
+export function hasOwnPhoto(input: { avatar_url: string | null | undefined }): boolean {
+  return Boolean(input.avatar_url && !STOCK_AVATARS.has(input.avatar_url));
+}
+
 /** The one photo on the account. Anonymize does not change it. */
 export function ownerPhoto(input: { avatar_url: string | null; user_id?: string | null }): string {
-  if (input.avatar_url && !STOCK_AVATARS.has(input.avatar_url)) return input.avatar_url;
+  if (hasOwnPhoto(input)) return input.avatar_url!;
   return defaultAvatarFor(input.user_id);
 }
