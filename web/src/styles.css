@@ -3858,16 +3858,31 @@ html.peek-gated body {
 .feed-search { position: relative; }
 .feed-more { justify-content: center; margin-top: 32px; }
 /* Reading down the feed, the header and its glass slide up out of the way
-   together; scrolling back up returns them. Driven by `useRetractingChrome`. */
-.topbar,
-.chrome-glass::before {
-  transition: transform var(--sheet-out) var(--sheet-settle);
+   together; scrolling back up returns the brand row alone, and the search
+   row only once you are back at the top. Driven by `useRetractingChrome`. */
+body:has(.feed-page) .topbar,
+body:has(.feed-page) .chrome-glass::before {
+  transition: transform var(--sheet-out) var(--sheet-settle), height var(--sheet-out) var(--sheet-settle);
 }
 html.chrome-retracted .topbar,
 html.chrome-retracted .chrome-glass::before {
   transform: translateY(-100%);
 }
 html.chrome-retracted .topbar { pointer-events: none; }
+/* Tucked: the search row slides up behind the brand row (same move as the
+   property page's hand-off) and the glass shrinks to the brand row. On wide
+   screens the search lives in the brand row and the row height is 0. */
+html.chrome-search-tucked .topbar .header-search.narrow-only {
+  transform: translateY(calc(-1 * var(--search-row-height)));
+  clip-path: inset(var(--search-row-height) 0 0 0);
+  pointer-events: none;
+}
+body:has(.feed-page) .topbar .header-search.narrow-only {
+  transition: transform var(--sheet-out) var(--sheet-settle), clip-path var(--sheet-out) var(--sheet-settle);
+}
+html.chrome-search-tucked .chrome-glass::before {
+  height: var(--topbar-main-height, var(--topbar-height, 0px));
+}
 
 /* New post sheet: the photos go up top in the same mosaic, then the caption. */
 .post-form-photos { margin: 4px 0 12px; }
@@ -4845,7 +4860,7 @@ html.home-search-docked .topbar .home-handoff {
 @media (prefers-reduced-motion: reduce) {
   .header-share, .header-neighbor, .header-settings, .share-btn { animation: none; }
   .header-add, .header-add-btn { transition: none; }
-  .topbar, .chrome-glass::before { transition-duration: 0.01ms; }
+  .topbar, .chrome-glass::before, .topbar .header-search.narrow-only { transition-duration: 0.01ms; }
   .home-hero-copy > * { animation: none; }
   .home-chapter,
   .home-scene,
