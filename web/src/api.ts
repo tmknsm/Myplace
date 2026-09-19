@@ -75,16 +75,28 @@ export const api = {
     cacheSet(queryKeys.property(id), data);
     return data;
   },
-  createClaim: (id: string, body: { method: string; notes?: string; attestationAccepted: boolean }) =>
+  createClaim: (id: string, body: { attestationAccepted: boolean }) =>
     request<{ claimId: string; status: string }>(`/api/properties/${id}/claims`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  /** The six digits from the postcard. Success makes them the owner on the spot. */
+  verifyClaimCode: (claimId: string, code: string) =>
+    request<{ ok: boolean; propertyId: string }>(`/api/claims/${claimId}/verify`, {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    }),
+  claimNotifications: (claimId: string) => request<{ items: InboxItem[] }>(`/api/claims/${claimId}/notifications`),
+  markClaimSeen: (claimId: string) => request<{ ok: boolean }>(`/api/claims/${claimId}/notifications/seen`, { method: "POST" }),
   startClaim: (id: string) => request<{ claim: Claim }>(`/api/properties/${id}/claims/start`, { method: "POST" }),
   patchClaim: (claimId: string, body: ClaimChoices) =>
     request<{ claim: Claim }>(`/api/claims/${claimId}`, { method: "PATCH", body: JSON.stringify(body) }),
   claim: (id: string) => request<{ claim: Claim; documents: Doc[]; hero: ClaimHero | null }>(`/api/claims/${id}`),
-  myClaims: () => request<{ claims: Claim[] }>("/api/me/claims"),
+  myClaims: async () => {
+    const data = await request<{ claims: Claim[] }>("/api/me/claims");
+    cacheSet(queryKeys.meClaims(), data.claims);
+    return data;
+  },
   myProperties: async () => {
     const data = await request<{ properties: MaintainedProperty[] }>("/api/me/properties");
     cacheSet(queryKeys.meProperties(), data.properties);
@@ -320,6 +332,9 @@ export interface MapHomeFact {
 }
 
 /** One card in the map's homes sheet. */
+/** A lot's outline as GeoJSON, drawn where there is no photo of the house yet. */
+export type ParcelGeometry = { type: string; coordinates: number[][][] | number[][][][] };
+
 export interface MapHome {
   property_id: string;
   formatted: string | null;
@@ -329,7 +344,7 @@ export interface MapHome {
   county: string;
   geometry_quality: string | null;
   centroid: [number, number] | null;
-  geojson: { type: string; coordinates: number[][][] | number[][][][] } | null;
+  geojson: ParcelGeometry | null;
   photo_url: string | null;
   photo_count: number;
   owners: NeighborOwner[];
@@ -582,6 +597,14 @@ export interface Claim {
   hero_document_id?: string | null;
   hero_caption?: string | null;
   hero_as_post?: boolean;
+  /** When the postcard with the code left for the house. */
+  postcard_sent_at?: string | null;
+  /** On the account list: the hero they uploaded, else the house's cover, else null (draw the lot). */
+  photo_url?: string | null;
+  geojson?: ParcelGeometry | null;
+  geometry_quality?: string | null;
+  /** 1 while the "code is in the mail" notice has not been looked at. */
+  unseen?: number;
 }
 
 /** Onboarding choices kept on an open claim until it is verified. */
@@ -606,6 +629,9 @@ export interface ClaimHero {
 export interface AdminClaim extends Claim {
   primary_email: string;
   display_name: string | null;
+  /** The code on the card. Admins only. */
+  postcard_code?: string | null;
+  code_attempts?: number;
 }
 
 export interface Doc {
@@ -671,6 +697,10 @@ export interface MaintainedProperty {
   hide_street: boolean;
   /** Notifications that landed since this viewer last looked at the house's feed. */
   unseen: number;
+  /** The cover photo, or null when the lot is drawn instead. */
+  photo_url: string | null;
+  geojson: ParcelGeometry | null;
+  geometry_quality: string | null;
   maintainers: Maintainer[];
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import type { MapHome } from "./api";
-import { NeighborHouseIcon, PersonAvatar, QUALITY_COLORS } from "./components";
+import { ParcelSketch, PersonAvatar } from "./components";
 import { DISMISS_MS, bindPressDrag, sampleVelocity, scrollChainAtTop } from "./dismiss-gesture";
 import {
   detentHeights,
@@ -289,64 +289,4 @@ function HomeCard({ home }: { home: MapHome }) {
       </div>
     </Link>
   );
-}
-
-/**
- * The lot, drawn as it is on the map, for a home with no photo yet. Rings are
- * projected with the latitude squeeze so the shape reads the same as the
- * tiles, and fitted with a little air around them.
- */
-function ParcelSketch({
-  geometry,
-  quality,
-}: {
-  geometry: MapHome["geojson"];
-  quality: string | null;
-}) {
-  const rings = ringsOf(geometry);
-  const points = rings.flat();
-  if (points.length < 3) {
-    return (
-      <span className="map-home-sketch is-empty" aria-hidden="true">
-        <NeighborHouseIcon className="map-home-sketch-icon" />
-      </span>
-    );
-  }
-  const lats = points.map((point) => point[1]!);
-  const midLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-  const squeeze = Math.cos((midLat * Math.PI) / 180);
-  const project = ([lng, lat]: number[]): [number, number] => [lng! * squeeze, -lat!];
-  const projected = rings.map((ring) => ring.map(project));
-  const xs = projected.flat().map((point) => point[0]);
-  const ys = projected.flat().map((point) => point[1]);
-  const minX = Math.min(...xs);
-  const minY = Math.min(...ys);
-  const width = Math.max(...xs) - minX || 1e-9;
-  const height = Math.max(...ys) - minY || 1e-9;
-  const scale = 100 / Math.max(width, height);
-  const offsetX = (100 - width * scale) / 2;
-  const offsetY = (100 - height * scale) / 2;
-  const path = projected
-    .map((ring) => ring
-      .map(([x, y], index) => `${index === 0 ? "M" : "L"}${((x - minX) * scale + offsetX).toFixed(2)} ${((y - minY) * scale + offsetY).toFixed(2)}`)
-      .join(" ") + " Z")
-    .join(" ");
-  const color = QUALITY_COLORS[quality ?? ""] ?? QUALITY_COLORS.official!;
-  return (
-    <svg className="map-home-sketch" viewBox="-12 -12 124 124" aria-hidden="true">
-      <path d={path} fill={color} fillOpacity={0.22} stroke={color} strokeWidth={1.6} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
-}
-
-function ringsOf(geometry: MapHome["geojson"]): number[][][] {
-  if (!geometry) return [];
-  if (geometry.type === "MultiPolygon") {
-    return (geometry.coordinates as number[][][][]).map((polygon) => polygon[0] ?? []).filter((ring) => ring.length > 0);
-  }
-  if (geometry.type === "Polygon") {
-    const outer = (geometry.coordinates as number[][][])[0];
-    return outer ? [outer] : [];
-  }
-  return [];
 }

@@ -1,12 +1,46 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import { hasOwnPhoto, ownerLabel, ownerPhoto } from "../../shared/profile";
-import { api, type MaintainedProperty, type User } from "./api";
-import { PersonAvatar, Spinner } from "./components";
-import { markNotificationsSeen } from "./my-properties";
+import { api, type Claim, type Maintainer, type ParcelGeometry, type User } from "./api";
+import { HouseThumb, PersonAvatar, Spinner } from "./components";
+import { loadMyClaims, loadMyProperties, markClaimNoticeSeen, markNotificationsSeen } from "./my-properties";
 import { snapshotPhotoFile } from "./optimize-photo";
 import { InboxRows, useInbox } from "./property-manage";
 import { localityOf, shortAddress, type Toast } from "./property-shared";
+
+/**
+ * A card in the picker: a house they maintain, or one they have claimed and
+ * are waiting on the postcard for. The pending kind carries its claim.
+ */
+export interface PickerHouse {
+  property_id: string;
+  formatted: string | null;
+  municipality: string | null;
+  removed: boolean;
+  unseen: number;
+  maintainers: Maintainer[];
+  photo_url: string | null;
+  geojson: ParcelGeometry | null;
+  geometry_quality: string | null;
+  /** Set while the code is in the mail. */
+  claim_id?: string;
+}
+
+/** A claimed house waits at the end of the row looking like the others, with the photo they gave it. */
+export function pendingHouse(claim: Claim): PickerHouse {
+  return {
+    property_id: claim.property_id,
+    formatted: claim.formatted ?? null,
+    municipality: claim.municipality ?? null,
+    removed: false,
+    unseen: claim.unseen ?? 0,
+    maintainers: [],
+    photo_url: claim.photo_url ?? null,
+    geojson: claim.geojson ?? null,
+    geometry_quality: claim.geometry_quality ?? null,
+    claim_id: claim.claim_id,
+  };
+}
 
 /** Photo and the name on the account. What each property page shows is set per house below. */
 export function ProfileCard({ user, onUser, showToast }: { user: User; onUser: () => Promise<void>; showToast: Toast }) {
@@ -66,15 +100,17 @@ export function ProfileCard({ user, onUser, showToast }: { user: User; onUser: (
 /**
  * The houses on the account. A tap opens the house (or its settings, if it is
  * off Myplace). With more than one, the track is a snap carousel: swipe to
- * focus a card, and the notifications feed below follows. A red dot beside
- * the address means notifications landed since the last look.
+ * focus a card, and the notifications feed below follows. Each card shows
+ * the house: its cover photo, or the lot when there is none. A red dot on the
+ * picture means notifications landed since the last look. A house whose
+ * postcard is in the mail sits at the end, marked pending.
  */
 export function PropertyPicker({
   properties,
   selectedId,
   onSelect,
 }: {
-  properties: MaintainedProperty[];
+  properties: PickerHouse[];
   selectedId: string | null;
   onSelect: (propertyId: string) => void;
 }) {
@@ -171,22 +207,31 @@ export function PropertyPicker({
         >
           {properties.map((property) => {
             const selected = property.property_id === selectedId;
+            const pending = Boolean(property.claim_id);
             const href = property.removed
               ? `/property/${property.property_id}/manage`
               : `/property/${property.property_id}`;
             return (
               <Link
-                className={`picker-card${selected ? " is-selected" : ""}`}
-                key={property.property_id}
+                className={`picker-card${selected ? " is-selected" : ""}${pending ? " is-pending" : ""}`}
+                key={property.claim_id ?? property.property_id}
                 to={href}
                 aria-label={property.removed
                   ? `${shortAddress(property)} is off Myplace. Open its settings`
-                  : property.formatted ?? shortAddress(property)}
+                  : pending
+                    ? `${property.formatted ?? shortAddress(property)}, pending your code`
+                    : property.formatted ?? shortAddress(property)}
                 data-property-id={property.property_id}
-                data-testid="owned-property"
+                data-testid={pending ? "pending-property" : "owned-property"}
                 data-selected={selected || undefined}
               >
-                {/* At the card's edge so it shows in the sliver of the next house too. */}
+                <HouseThumb
+                  className="picker-thumb"
+                  photoUrl={property.photo_url}
+                  geometry={property.geojson}
+                  quality={property.geometry_quality}
+                />
+                {/* On the picture's corner, at the card's edge, so it shows in the sliver of the next house too. */}
                 <span
                   className={`picker-dot${property.unseen > 0 ? " is-on" : ""}`}
                   role={property.unseen > 0 ? "img" : undefined}
@@ -200,6 +245,7 @@ export function PropertyPicker({
                     {localityOf(property) && <span className="meta-line">{localityOf(property)}</span>}
                   </span>
                   {property.removed && <span className="badge">Removed</span>}
+                  {pending && <span className="badge pending" data-testid="picker-pending">Pending</span>}
                   {property.maintainers.length > 0 && !property.removed && (
                     <span className="row-avatars">
                       {property.maintainers.map((person) => (
@@ -218,34 +264,110 @@ export function PropertyPicker({
   );
 }
 
+const CODE_LENGTH = 6;
+
+/**
+ * Under a pending house: where the six digits from the postcard go. The
+ * right code makes the house theirs on the spot, and the chip above turns
+ * from pending into a house like the others.
+ */
+export function ClaimCodeCard({
+  house,
+  onVerified,
+  showToast,
+}: {
+  house: PickerHouse;
+  onVerified: (propertyId: string) => void;
+  showToast: Toast;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const claimId = house.claim_id!;
+  const digits = code.replace(/\D/g, "").slice(0, CODE_LENGTH);
+  const ready = digits.length === CODE_LENGTH && !busy;
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!ready) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.verifyClaimCode(claimId, digits);
+      await Promise.all([loadMyProperties(true), loadMyClaims(true)]);
+      showToast(`You're verified. ${shortAddress(house)} is yours.`);
+      onVerified(result.propertyId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That code could not be checked.");
+      setCode("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="group claim-code" key={claimId} onSubmit={submit} data-testid="claim-code">
+      <div className="claim-code-copy">
+        <strong>Enter the code from your postcard</strong>
+        <span className="meta-line">It is on its way to {shortAddress(house)}.</span>
+      </div>
+      <div className="claim-code-entry">
+        <input
+          className="field claim-code-field"
+          type="text"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          pattern="[0-9]*"
+          maxLength={CODE_LENGTH + 1}
+          placeholder="••••••"
+          aria-label="Six-digit code"
+          value={digits}
+          disabled={busy}
+          onChange={(event) => { setCode(event.target.value); setError(null); }}
+          data-testid="claim-code-input"
+        />
+        <button type="submit" className="btn" disabled={!ready} data-testid="claim-code-submit">
+          {busy ? "Checking…" : "Verify"}
+        </button>
+      </div>
+      {error && <p className="error claim-code-error" role="alert">{error}</p>}
+    </form>
+  );
+}
+
 const FEED_LIMIT = 5;
 const SEEN_AFTER_MS = 1200;
 
 /**
  * The selected house's notifications: neighbor requests, change requests,
  * disputes, and county notices, newest first. Five rows here; View all opens
- * the whole list. Showing the feed is what marks the house as seen.
+ * the whole list. Showing the feed is what marks the house as seen. A house
+ * waiting on its postcard has one thing to say: the card is on its way.
  */
 export function NotificationsFeed({
   property,
   showToast,
 }: {
-  property: MaintainedProperty | null;
+  property: PickerHouse | null;
   showToast: Toast;
 }) {
   const propertyId = property?.property_id ?? null;
-  const inbox = useInbox(propertyId, undefined, showToast);
+  const claimId = property?.claim_id ?? null;
+  const inbox = useInbox(propertyId, undefined, showToast, claimId);
   const unseen = property?.unseen ?? 0;
   // A beat after the rows are on screen, the house counts as seen: the dot on
   // its card and the count on your name fade rather than vanish on arrival.
   useEffect(() => {
     if (!propertyId || !inbox.items || unseen === 0) return;
-    const timer = window.setTimeout(() => markNotificationsSeen(propertyId), SEEN_AFTER_MS);
+    const timer = window.setTimeout(() => {
+      if (claimId) markClaimNoticeSeen(claimId);
+      else markNotificationsSeen(propertyId);
+    }, SEEN_AFTER_MS);
     return () => window.clearTimeout(timer);
-  }, [propertyId, inbox.items, unseen]);
+  }, [propertyId, claimId, inbox.items, unseen]);
 
   const items = inbox.items;
-  const more = Boolean(propertyId && items && items.length > FEED_LIMIT);
+  const more = Boolean(propertyId && !claimId && items && items.length > FEED_LIMIT);
   return (
     <section className="section" data-testid="notifications-section">
       <div className="section-head">
@@ -275,7 +397,7 @@ export function NotificationsFeed({
         </div>
       )}
       {propertyId && items && items.length > 0 && (
-        <div className="scope-swap" key={propertyId}>
+        <div className="scope-swap" key={claimId ?? propertyId}>
           <InboxRows propertyId={propertyId} items={items.slice(0, FEED_LIMIT)} busy={inbox.busy} onAct={inbox.act} />
         </div>
       )}

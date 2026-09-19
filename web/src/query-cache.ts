@@ -9,6 +9,7 @@ export const queryKeys = {
   property: (id: string) => `property:${id}`,
   neighbors: (id: string) => `neighbors:${id}`,
   meProperties: () => "me:properties",
+  meClaims: () => "me:claims",
 };
 
 export function cacheGet<T>(key: string): T | undefined {

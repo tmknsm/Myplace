@@ -5,12 +5,13 @@ import { Spinner } from "./components";
 import { snapshotPhotoFile } from "./optimize-photo";
 
 /**
- * The two steps between "your email works" and "prove you own it". Both write
- * onto the open claim so nothing is lost if the person leaves and comes back,
- * and nothing shows on the house until a reviewer says yes.
+ * The steps between "your email works" and "the house is yours". The first
+ * two write onto the open claim so nothing is lost if the person leaves and
+ * comes back; the last puts a postcard in the mail. Nothing shows on the
+ * house until the code from that card is typed in.
  */
 
-export const ONBOARDING_STEPS = ["You", "Your home", "Proof"] as const;
+export const ONBOARDING_STEPS = ["You", "Your home", "Your code"] as const;
 
 export function OnboardingProgress({ step }: { step: number }) {
   return (
@@ -660,7 +661,88 @@ export function HeroStep({
   );
 }
 
+// ---- Postcard ---------------------------------------------------------------
+
+/**
+ * Proof of ownership is proof of address: a postcard with a six-digit code
+ * goes to the house itself. This step says so, takes the attestation, and
+ * puts the card in the mail. The code is entered on the account page.
+ */
+export function PostcardStep({
+  address,
+  onBack,
+  onDone,
+}: {
+  address: string;
+  onBack: () => void;
+  onDone: () => Promise<void>;
+}) {
+  const [attested, setAttested] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const lines = address.split(",").map((part) => part.trim()).filter(Boolean);
+  const street = lines[0] ?? address;
+  const rest = lines.slice(1).join(", ");
+
+  const submit = async () => {
+    if (!attested || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send your card.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <OnboardingStep
+      step={3}
+      kicker="Step 3 of 3"
+      title="Your code is coming by mail"
+      lede="Proof you own the house is proof you get its mail. We send a postcard with a six-digit code to the address itself; type it in when it arrives and the house is yours."
+      onSubmit={() => void submit()}
+      actions={
+        <>
+          <button type="button" className="btn secondary onboard-back" onClick={onBack} disabled={busy}>Back</button>
+          <button type="submit" className="btn" disabled={!attested || busy} data-testid="claim-submit">
+            {busy ? <Spinner /> : "Mail my code"}
+          </button>
+        </>
+      }
+    >
+      <div className="postcard" aria-hidden="true">
+        <div className="postcard-stamp"><PostcardHouseIcon /></div>
+        <div className="postcard-lines"><span /><span /><span /></div>
+        <div className="postcard-to">
+          <span className="postcard-to-label">To</span>
+          <strong>{street}</strong>
+          {rest && <span>{rest}</span>}
+        </div>
+        <div className="postcard-code"><span>•</span><span>•</span><span>•</span><span>•</span><span>•</span><span>•</span></div>
+      </div>
+      <p className="meta-line postcard-note">Allow about a week. Until then the house waits on your account, marked pending.</p>
+      <label className="attest onboard-attest">
+        <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} data-testid="claim-attest" />
+        <span>I am a current owner of {address}, or authorized to act for one, and I can receive mail there.</span>
+      </label>
+      {error && <p className="error">{error}</p>}
+    </OnboardingStep>
+  );
+}
+
 // ---- Icons ------------------------------------------------------------------
+
+function PostcardHouseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 11.2 12 4l8 7.2" />
+      <path d="M6.5 10.2V20h11V10.2" />
+      <path d="M10 20v-6h4v6" />
+    </svg>
+  );
+}
 
 function PersonIcon() {
   return (

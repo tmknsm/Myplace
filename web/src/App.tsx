@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from "react-router-dom";
-import { NotificationsFeed, ProfileCard, PropertyPicker } from "./account-profile";
-import { api, type AdminClaim, type Claim, type ClaimHero, type Doc, type MailMessage, type MailSummary, type MapHome } from "./api";
+import { ClaimCodeCard, NotificationsFeed, pendingHouse, ProfileCard, PropertyPicker, type PickerHouse } from "./account-profile";
+import { api, type AdminClaim, type Claim, type MailMessage, type MailSummary, type MapHome } from "./api";
 import { useAuth } from "./auth";
-import { HeroStep, IdentityStep, OnboardingProgress } from "./claim-onboarding";
+import { HeroStep, IdentityStep, PostcardStep } from "./claim-onboarding";
 import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, SettingsButton, ShareButton, type MapView } from "./components";
 import { DebugSheet } from "./debug";
 import { FeedPage } from "./feed";
@@ -11,7 +11,7 @@ import { HomePage } from "./home";
 import { type HomesDetent } from "./map-homes-detents";
 import { MapHomesSheet } from "./map-homes-sheet";
 import { useMeta } from "./meta";
-import { unseenTotal, useMyProperties } from "./my-properties";
+import { loadMyClaims, loadMyProperties, pendingClaims, unseenTotal, useMyClaims, useMyProperties } from "./my-properties";
 import { PropertyNeighborsPage, PropertyPageView, PropertyPhotosPage, PropertyPostsPage } from "./property";
 import { NotificationsRedirect, PropertyInboxPage, PropertyManagePage } from "./property-manage";
 import { shortAddress, useToast } from "./property-shared";
@@ -31,7 +31,8 @@ function Layout({ children }: { children: React.ReactNode }) {
   // Notifications waiting on any house light a count on the name. Re-checked
   // as you move around the app, not more than every half minute.
   const { homes } = useMyProperties(location.pathname);
-  const unseen = unseenTotal(homes);
+  const { claims } = useMyClaims(location.pathname);
+  const unseen = unseenTotal(homes, claims);
   // A new page opens from the top. Back and forward keep the browser's own
   // restored position; a query-only change (feed tabs) is the same page.
   const navigationType = useNavigationType();
@@ -204,17 +205,12 @@ function MapPage() {
   );
 }
 
-const METHODS = [
-  { id: "tax_bill", title: "County tax bill", body: "A recent county or town tax bill showing your name and this parcel." },
-  { id: "deed", title: "Recorded deed", body: "The recorded deed or property transfer document for this parcel." },
-  { id: "utility_and_id", title: "Utility bill and ID", body: "A utility bill at this address plus a government photo ID." },
-];
-
 /**
  * Claiming is the front door of the account, so it doubles as onboarding:
- * how you appear, a photo of the house, then the evidence a reviewer needs.
- * A draft claim opens as soon as you arrive so the first two steps have
- * somewhere to live; submitting the evidence turns that same draft in.
+ * how you appear, a photo of the house, then the postcard that carries the
+ * code. A draft claim opens as soon as you arrive so the first two steps have
+ * somewhere to live; mailing the card turns that same draft in and lands on
+ * the account, where the house waits, pending, for the code.
  */
 function ClaimPage() {
   const { id } = useParams();
@@ -222,16 +218,9 @@ function ClaimPage() {
   const navigate = useNavigate();
   const [phase, setPhase] = useState<"identity" | "photo" | "verify">("identity");
   const [claim, setClaim] = useState<Claim | null>(null);
-  const [step, setStep] = useState(1);
   // Every step is the same route, so the router never resets scroll between
   // them. Each one opens from the top, before its entrance paints.
-  useLayoutEffect(() => { window.scrollTo(0, 0); }, [phase, step]);
-  const [method, setMethod] = useState("tax_bill");
-  const [files, setFiles] = useState<File[]>([]);
-  const [notes, setNotes] = useState("");
-  const [attested, setAttested] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  useLayoutEffect(() => { window.scrollTo(0, 0); }, [phase]);
   const [place, setPlace] = useState<{ formatted: string | null; municipality: string | null; county: string } | null>(null);
   const [blocked, setBlocked] = useState<string | null>(null);
 
@@ -243,7 +232,8 @@ function ClaimPage() {
       if (cancelled) return;
       setPlace({ formatted: d.property.formatted, municipality: d.property.municipality, county: d.property.county });
       if (started.claim.status === "pending") {
-        navigate(`/property/${id}/claim/${started.claim.claim_id}`, { replace: true });
+        // The card is already in the mail; the code goes in on the account.
+        navigate(`/account?house=${id}`, { replace: true });
         return;
       }
       setClaim(started.claim);
@@ -260,19 +250,9 @@ function ClaimPage() {
 
   const submit = async () => {
     if (!id) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const created = await api.createClaim(id, { method, notes, attestationAccepted: attested });
-      for (const file of files) {
-        await api.upload(id, file, { claimId: created.claimId, documentType: method, visibility: "private", transferability: "personal" });
-      }
-      navigate(`/property/${id}/claim/${created.claimId}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not submit claim");
-    } finally {
-      setBusy(false);
-    }
+    await api.createClaim(id, { attestationAccepted: true });
+    await Promise.all([loadMyClaims(true), loadMyProperties(true)]).catch(() => {});
+    navigate(`/account?house=${id}`, { replace: true });
   };
 
   if (blocked) {
@@ -316,141 +296,58 @@ function ClaimPage() {
   }
 
   return (
-    <div className="page wizard onboard-verify" data-testid="onboard-verify">
-      <OnboardingProgress step={3} />
-      <div className="kicker">Step 3 of 3</div>
-      <h1 className="display">Verify it's yours</h1>
-      <p className="meta-line">{address}</p>
-      <div className="steps">
-        {["Property", "Method", "Evidence", "Attest"].map((label, i) => (
-          <span key={label} className={step === i + 1 ? "on" : ""}>{i + 1}. {label}</span>
-        ))}
-      </div>
-
-      {step === 1 && (
-        <>
-          <p>You are asking to become the owner maintainer of this record. Official government facts stay public. You will control the owner-maintained layer and documents.</p>
-          <div className="action-row">
-            <button type="button" className="btn secondary" onClick={() => setPhase("photo")}>Back</button>
-            <button type="button" className="btn" data-testid="claim-confirm" onClick={() => setStep(2)}>This is my property</button>
-          </div>
-        </>
-      )}
-      {!blocked && step === 2 && (
-        <>
-          <div className="method-grid">
-            {METHODS.map((item) => (
-              <button key={item.id} className={`choice ${method === item.id ? "selected" : ""}`} onClick={() => setMethod(item.id)}>
-                <h3>{item.title}</h3>
-                <p>{item.body}</p>
-              </button>
-            ))}
-          </div>
-          <div className="action-row">
-            <button className="btn secondary" onClick={() => setStep(1)}>Back</button>
-            <button className="btn" onClick={() => setStep(3)}>Continue</button>
-          </div>
-        </>
-      )}
-      {!blocked && step === 3 && (
-        <>
-          <p>Upload clear copies. These stay private and are used only for review.</p>
-          <label className="stack">
-            <span>Documents</span>
-            <input className="field" type="file" multiple onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
-          </label>
-          {files.map((file) => <div key={file.name} className="meta-line">{file.name}</div>)}
-          <div className="action-row">
-            <button className="btn secondary" onClick={() => setStep(2)}>Back</button>
-            <button className="btn" onClick={() => setStep(4)}>Continue</button>
-          </div>
-        </>
-      )}
-      {!blocked && step === 4 && (
-        <>
-          <label className="stack">
-            <span>Anything the reviewer should know</span>
-            <textarea className="field" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </label>
-          <label className="attest">
-            <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} />
-            <span>I attest that I am a current owner or authorized representative of {address}, and that the documents I uploaded are genuine.</span>
-          </label>
-          {error && <p className="error">{error}</p>}
-          <div className="action-row">
-            <button className="btn secondary" onClick={() => setStep(3)}>Back</button>
-            <button type="button" className="btn" data-testid="claim-submit" disabled={!attested || busy} onClick={submit}>
-              {busy ? "Submitting…" : "Submit for review"}
-            </button>
-          </div>
-        </>
-      )}
+    <div className="page wizard auth-page onboard-page" data-testid="onboard-verify">
+      <PostcardStep
+        key={claim.claim_id}
+        address={address}
+        onBack={() => setPhase("photo")}
+        onDone={submit}
+      />
     </div>
   );
 }
 
+/**
+ * Where a finished claim ended up. A claim still waiting on its code lives on
+ * the account page instead, so that is where a pending one sends you.
+ */
 function ClaimStatusPage() {
   const { id, claimId } = useParams();
   const [claim, setClaim] = useState<Claim | null>(null);
-  const [docs, setDocs] = useState<Doc[]>([]);
-  const [hero, setHero] = useState<ClaimHero | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!claimId) return;
-    api.claim(claimId).then((d) => {
-      setClaim(d.claim);
-      setDocs(d.documents);
-      setHero(d.hero);
-    }).catch((err) => setError(err.message));
+    api.claim(claimId).then((d) => setClaim(d.claim)).catch((err) => setError(err.message));
   }, [claimId]);
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
   if (!claim) return <PageSpinner label="Loading claim" />;
+  if (claim.status === "pending" || claim.status === "draft") return <Navigate to={`/account?house=${claim.property_id}`} replace />;
 
   const status = claim.status;
   return (
     <div className="page wizard">
-      <div className="kicker">Claim status</div>
+      <div className="kicker">Claim</div>
       <h1 className="display">{claim.formatted ?? "Property claim"}</h1>
-      <p className="meta-line">Reference {claim.claim_id} · {METHODS.find((m) => m.id === claim.method)?.title}</p>
+      <p className="meta-line">Reference {claim.claim_id}</p>
       <div className="status-rail">
         <div className="done">Submitted {claim.submitted_at ? new Date(claim.submitted_at).toLocaleString() : ""}</div>
-        <div className={status === "pending" ? "current" : status === "verified" || status === "rejected" ? "done" : ""}>
-          Under review
-        </div>
-        <div className={status === "verified" ? "done" : status === "rejected" ? "current" : ""}>
-          {status === "rejected" ? "Not verified" : "Verified owner maintainer"}
+        <div className="done">Code mailed to the house</div>
+        <div className={status === "verified" ? "done" : "current"}>
+          {status === "verified" ? "Verified owner" : status === "rejected" ? "Not verified" : "Closed"}
         </div>
       </div>
-      {status === "pending" && (
-        <div className="notice">Most reviews complete within one to two business days. We will email you when a reviewer finishes.</div>
-      )}
       {status === "verified" && (
         <p><Link className="btn" to={`/property/${id}`}>Open the owner record</Link></p>
       )}
-      {status === "rejected" && claim.reviewer_note && <p>{claim.reviewer_note}</p>}
-      {hero && status === "pending" && (
-        <section className="section claim-hero-wait">
-          <img src={`/api/documents/${hero.document_id}/file`} alt="Your home" />
-          <div>
-            <h2>Your photo is ready</h2>
-            <p className="meta-line">
-              {claim.hero_as_post === false
-                ? "It becomes the cover of your page the moment you're verified."
-                : "It becomes the cover of your page and your first post the moment you're verified."}
-            </p>
-            {claim.hero_caption && <p className="claim-hero-caption">“{claim.hero_caption}”</p>}
-          </div>
-        </section>
+      {status === "rejected" && (
+        <>
+          {claim.reviewer_note && <p>{claim.reviewer_note}</p>}
+          <p><Link className="btn" to={`/property/${id}/claim`}>Start again</Link></p>
+        </>
       )}
-      <section className="section">
-        <h2>Evidence on file</h2>
-        {docs.length === 0 && <p className="meta-line">No documents uploaded.</p>}
-        {docs.map((doc) => (
-          <div key={doc.document_id}>{doc.original_filename}</div>
-        ))}
-      </section>
+      {status === "superseded" && <p>Someone else verified this property first.</p>}
     </div>
   );
 }
@@ -657,42 +554,52 @@ function EyeIcon() {
 function AccountPage() {
   const { user, signOut, refresh } = useAuth();
   const { homes: properties, reload } = useMyProperties();
-  const [claims, setClaims] = useState<Claim[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { claims, reload: reloadClaims } = useMyClaims();
+  // Arriving from the claim flow (or the email) lands on that house.
+  const [params] = useSearchParams();
+  const [selectedId, setSelectedId] = useState<string | null>(params.get("house"));
   const [toast, showToast] = useToast();
   useEffect(() => {
     if (!user) return;
     // The house list arrives fresh on every visit: the feed and badges depend on it.
     void reload().catch(() => {});
-    api.myClaims().then((mine) => setClaims(mine.claims)).catch(() => {});
-  }, [user?.user_id, reload]);
+    void reloadClaims().catch(() => {});
+  }, [user?.user_id, reload, reloadClaims]);
   if (!user) return <Navigate to="/signin" replace />;
   const homes = properties ?? [];
-  // The first house is selected until they pick another; a stale pick falls back.
-  const selected = homes.find((property) => property.property_id === selectedId) ?? homes[0] ?? null;
   const ownedIds = new Set(homes.map((property) => property.property_id));
   // Verified claims are houses we already show as chips. They stay in /api/me/claims,
-  // so without this they flash as "verified" rows on refresh, before the house list
-  // arrives and ownedIds can hide them. Wait for that list too — an empty ownedIds
-  // is "still loading", not "owns nothing".
-  const openClaims = properties === undefined
-    ? []
-    : claims.filter((claim) => (
-      (claim.status === "pending" || claim.status === "rejected") && !ownedIds.has(claim.property_id)
-    ));
+  // so without this they flash as rows on refresh, before the house list arrives
+  // and ownedIds can hide them. Wait for that list too — an empty ownedIds is
+  // "still loading", not "owns nothing".
+  const loaded = properties !== undefined && claims !== undefined;
+  const waiting = loaded ? pendingClaims(claims).filter((claim) => !ownedIds.has(claim.property_id)) : [];
+  // Houses first, then the ones whose postcard is in the mail, at the end of the row.
+  const houses: PickerHouse[] = [...homes, ...waiting.map(pendingHouse)];
+  // The first house is selected until they pick another; a stale pick falls back.
+  const selected = houses.find((house) => house.property_id === selectedId) ?? houses[0] ?? null;
+  const rejected = loaded ? (claims ?? []).filter((claim) => claim.status === "rejected" && !ownedIds.has(claim.property_id)) : [];
   return (
     <div className={`page account-page${selected ? " has-go" : ""}`}>
       <div className="account-body">
         <ProfileCard user={user} onUser={refresh} showToast={showToast} />
         <section className="section" data-testid="properties-section">
           <h2>Properties</h2>
-          <PropertyPicker properties={homes} selectedId={selected?.property_id ?? null} onSelect={setSelectedId} />
-          {properties && homes.length === 0 && openClaims.length === 0 && (
+          <PropertyPicker properties={houses} selectedId={selected?.property_id ?? null} onSelect={setSelectedId} />
+          {loaded && houses.length === 0 && rejected.length === 0 && (
             <div className="group"><div className="row"><span className="meta-line">None yet</span></div></div>
           )}
-          {openClaims.length > 0 && (
+          {selected?.claim_id && (
+            <ClaimCodeCard
+              key={selected.claim_id}
+              house={selected}
+              onVerified={setSelectedId}
+              showToast={showToast}
+            />
+          )}
+          {rejected.length > 0 && (
             <div className="group property-claims">
-              {openClaims.map((claim) => (
+              {rejected.map((claim) => (
                 <Link className="row" key={claim.claim_id} to={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
                   <span>{claim.formatted}</span>
                   <span className={`badge ${claim.status}`}>{claim.status}</span>
@@ -701,7 +608,7 @@ function AccountPage() {
             </div>
           )}
         </section>
-        {properties && <NotificationsFeed property={selected} showToast={showToast} />}
+        {loaded && <NotificationsFeed property={selected} showToast={showToast} />}
         <div className="action-row account-signout">
           <button className="btn secondary" onClick={() => signOut()} data-testid="account-signout">Sign out</button>
         </div>
@@ -749,17 +656,18 @@ function AdminPage() {
     <div className="page">
       <div className="kicker">Records desk</div>
       <h1 className="display">Ownership claims</h1>
-      <p className="meta-line">V1 verification is a human review of submitted evidence. Automated identity proofing is not enabled.</p>
+      <p className="meta-line">Each claim mails a six-digit code to the house. The code is shown here so the desk can help a caller, or verify by hand.</p>
       <div className="table-scroll">
       <table>
-        <thead><tr><th>Property</th><th>Claimant</th><th>Method</th><th></th></tr></thead>
+        <thead><tr><th>Property</th><th>Claimant</th><th>Code</th><th>Tries</th><th></th></tr></thead>
         <tbody>
           {claims.map((claim) => (
             <tr key={claim.claim_id}>
               <td>{claim.formatted}</td>
               <td>{claim.primary_email}</td>
-              <td>{claim.method}</td>
-              <td><Link to={`/admin/claims/${claim.claim_id}`}>Review</Link></td>
+              <td><code data-testid="admin-postcard-code">{claim.postcard_code ?? "—"}</code></td>
+              <td>{claim.code_attempts ?? 0}</td>
+              <td><Link to={`/admin/claims/${claim.claim_id}`}>Open</Link></td>
             </tr>
           ))}
         </tbody>
@@ -774,16 +682,12 @@ function AdminClaimPage() {
   const { claimId } = useParams();
   const { user, ready } = useAuth();
   const navigate = useNavigate();
-  const [claim, setClaim] = useState<Claim | null>(null);
-  const [docs, setDocs] = useState<Doc[]>([]);
+  const [claim, setClaim] = useState<AdminClaim | null>(null);
   const [note, setNote] = useState("");
 
   useEffect(() => {
     if (!claimId || !user?.is_admin) return;
-    api.claim(claimId).then((d) => {
-      setClaim(d.claim);
-      setDocs(d.documents);
-    });
+    api.claim(claimId).then((d) => setClaim(d.claim as AdminClaim));
   }, [claimId, user]);
 
   if (!ready) return <PageSpinner />;
@@ -791,30 +695,28 @@ function AdminClaimPage() {
   if (!claim) return <PageSpinner label="Loading claim" />;
   return (
     <div className="page wizard">
-      <div className="kicker">Review claim</div>
+      <div className="kicker">Claim</div>
       <h1 className="display">{claim.formatted}</h1>
-      <p>Method: {claim.method} · Status: {claim.status}</p>
-      <section className="section">
-        <h2>Evidence</h2>
-        {docs.map((doc) => (
-          <div key={doc.document_id}>
-            <a href={`/api/documents/${doc.document_id}/file`} target="_blank" rel="noreferrer">{doc.original_filename}</a>
-          </div>
-        ))}
-      </section>
+      <p>Status: {claim.status}{claim.postcard_sent_at ? ` · Card mailed ${new Date(claim.postcard_sent_at).toLocaleDateString()}` : ""}</p>
+      {claim.postcard_code && (
+        <section className="section">
+          <h2>Postcard code</h2>
+          <p className="admin-code"><code>{claim.postcard_code}</code> <span className="meta-line">{claim.code_attempts ?? 0} wrong tries so far</span></p>
+        </section>
+      )}
       <label className="stack">
-        <span>Reviewer note</span>
+        <span>Note</span>
         <textarea className="field" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
       <div className="action-row">
         <button type="button" className="btn" data-testid="verify-owner" onClick={async () => {
           await api.reviewClaim(claim.claim_id, "verified", note);
           navigate("/admin");
-        }}>Verify owner</button>
+        }}>Verify by hand</button>
         <button className="btn danger" onClick={async () => {
           await api.reviewClaim(claim.claim_id, "rejected", note);
           navigate("/admin");
-        }}>Reject</button>
+        }}>Close claim</button>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { api, type Fact, type MaintainedProperty, type NeighborStatus, type SearchHit } from "./api";
+import { api, type Fact, type MaintainedProperty, type NeighborStatus, type ParcelGeometry, type SearchHit } from "./api";
 import { useAuth } from "./auth";
 import { useMeta } from "./meta";
 import { useMyHome } from "./my-properties";
@@ -399,6 +399,92 @@ export const QUALITY_COLORS: Record<string, string> = {
   demonstration: "#e23b32",
 };
 
+/**
+ * The lot, drawn as it is on the map, for a home with no photo yet. Rings are
+ * projected with the latitude squeeze so the shape reads the same as the
+ * tiles, and fitted with a little air around them.
+ */
+export function ParcelSketch({
+  geometry,
+  quality,
+}: {
+  geometry: ParcelGeometry | null | undefined;
+  quality: string | null;
+}) {
+  const rings = sketchRings(geometry);
+  const points = rings.flat();
+  if (points.length < 3) {
+    return (
+      <span className="map-home-sketch is-empty" aria-hidden="true">
+        <NeighborHouseIcon className="map-home-sketch-icon" />
+      </span>
+    );
+  }
+  const lats = points.map((point) => point[1]!);
+  const midLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+  const squeeze = Math.cos((midLat * Math.PI) / 180);
+  const project = ([lng, lat]: number[]): [number, number] => [lng! * squeeze, -lat!];
+  const projected = rings.map((ring) => ring.map(project));
+  const xs = projected.flat().map((point) => point[0]);
+  const ys = projected.flat().map((point) => point[1]);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const width = Math.max(...xs) - minX || 1e-9;
+  const height = Math.max(...ys) - minY || 1e-9;
+  const scale = 100 / Math.max(width, height);
+  const offsetX = (100 - width * scale) / 2;
+  const offsetY = (100 - height * scale) / 2;
+  const path = projected
+    .map((ring) => ring
+      .map(([x, y], index) => `${index === 0 ? "M" : "L"}${((x - minX) * scale + offsetX).toFixed(2)} ${((y - minY) * scale + offsetY).toFixed(2)}`)
+      .join(" ") + " Z")
+    .join(" ");
+  const color = QUALITY_COLORS[quality ?? ""] ?? QUALITY_COLORS.official!;
+  return (
+    <svg className="map-home-sketch" viewBox="-12 -12 124 124" aria-hidden="true">
+      <path d={path} fill={color} fillOpacity={0.22} stroke={color} strokeWidth={1.6} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+function sketchRings(geometry: ParcelGeometry | null | undefined): number[][][] {
+  if (!geometry) return [];
+  if (geometry.type === "MultiPolygon") {
+    return (geometry.coordinates as number[][][][]).map((polygon) => polygon[0] ?? []).filter((ring) => ring.length > 0);
+  }
+  if (geometry.type === "Polygon") {
+    const outer = (geometry.coordinates as number[][][])[0];
+    return outer ? [outer] : [];
+  }
+  return [];
+}
+
+/**
+ * A small picture of a house for a list: its cover photo, or the lot drawn
+ * the way the map draws it when there is no photo yet.
+ */
+export function HouseThumb({
+  photoUrl,
+  geometry,
+  quality,
+  className = "house-thumb",
+}: {
+  photoUrl: string | null | undefined;
+  geometry: ParcelGeometry | null | undefined;
+  quality: string | null | undefined;
+  className?: string;
+}) {
+  return (
+    <span className={`${className}${photoUrl ? " has-photo" : " is-map"}`} aria-hidden="true">
+      {photoUrl ? (
+        <img src={photoUrl} alt="" loading="lazy" decoding="async" draggable={false} />
+      ) : (
+        <ParcelSketch geometry={geometry} quality={quality ?? null} />
+      )}
+    </span>
+  );
+}
+
 const QUALITY_LABELS: Record<string, string> = {
   official: "Official lot lines",
   approximate: "Approximate lot lines",
@@ -667,6 +753,7 @@ export function actorLabel(actorType: string | null | undefined): string | null 
     government: "Official source",
     verified_owner: "Owner",
     platform_admin: "Records desk",
+    postcard: "Code by mail",
     platform_inference: "Platform inference",
     user: "User",
     debug: "Debug",

@@ -1006,8 +1006,115 @@ label.stack span { display: block; margin-bottom: 6px; font-size: 13px; color: v
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
 }
-.onboard-verify .onboard-progress { max-width: 420px; margin-top: 4px; }
 .onboard-lede { margin-bottom: 22px; }
+
+/* The card itself, addressed to the house, code still blank. */
+.postcard {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  max-height: 260px;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, #fffdf8, #f7f3ea);
+  box-shadow: var(--shadow), inset 0 0 0 1px rgba(60, 56, 50, 0.08);
+  padding: 18px 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto 1fr auto;
+  gap: 12px 18px;
+  animation: postcard-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  margin-top: 4px;
+}
+.postcard::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: 50%;
+  width: 1px;
+  background: rgba(60, 56, 50, 0.14);
+}
+.postcard-stamp {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  width: 44px;
+  height: 52px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-soft);
+  box-shadow: 0 0 0 3px var(--surface), 0 0 0 4px rgba(60, 56, 50, 0.16);
+  display: grid;
+  place-items: center;
+  outline: 2px dashed rgba(60, 56, 50, 0.18);
+  outline-offset: -6px;
+}
+.postcard-stamp svg { width: 22px; height: 22px; }
+.postcard-lines {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  padding-right: 4px;
+}
+.postcard-lines span {
+  display: block;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(60, 56, 50, 0.1);
+}
+.postcard-lines span:nth-child(2) { width: 78%; }
+.postcard-lines span:nth-child(3) { width: 56%; }
+.postcard-to {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+.postcard-to strong { color: var(--ink); font-weight: 560; font-size: 15px; line-height: 1.25; }
+.postcard-to-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.postcard-code {
+  grid-column: 2;
+  grid-row: 3;
+  display: flex;
+  gap: 5px;
+  justify-self: start;
+}
+.postcard-code span {
+  width: 18px;
+  height: 24px;
+  border-radius: 5px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px rgba(60, 56, 50, 0.14);
+  display: grid;
+  place-items: center;
+  color: var(--hairline);
+  font-size: 12px;
+}
+.postcard-note { margin: 16px 2px 0; }
+.onboard-attest { margin: 14px 0 0; }
+@keyframes postcard-in {
+  from { opacity: 0; transform: translateY(10px) rotate(-1.2deg); }
+  to { opacity: 1; transform: none; }
+}
+@media (max-width: 420px) {
+  .postcard { padding: 14px 16px; gap: 10px 14px; }
+  .postcard-stamp { width: 38px; height: 44px; }
+  .postcard-code span { width: 16px; height: 22px; }
+}
 .onboard-label {
   font-size: 13px;
   font-weight: 600;
@@ -1421,7 +1528,7 @@ html.onboard-docked .onboard-preview { box-shadow: inset 0 0 0 1px var(--hairlin
 @media (prefers-reduced-motion: reduce) {
   .onboard-step .auth-body > *, .onboard-step .onboard-preview, .onboard-step .manage-cta,
   .onboard-reveal, .onboard-preview-name, .onboard-preview-address, .hero-drop img,
-  .onboard-progress span.is-on::after { animation: none; }
+  .postcard, .onboard-progress span.is-on::after { animation: none; }
   .onboard-hero-details, .onboard-card, .onboard-option, .onboard-option-check { transition: none; }
 }
 
@@ -2220,6 +2327,33 @@ body:has(.map-page) { overflow: hidden; }
   background: var(--ink);
 }
 .property-picker + .group { margin-top: 10px; }
+
+/* Under a pending house: the six digits from the postcard. */
+.claim-code {
+  margin: 0;
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.claim-code-copy { display: flex; flex-direction: column; gap: 3px; }
+.claim-code-copy strong { font-weight: 560; color: var(--ink); }
+.claim-code-copy .meta-line { font-size: 13px; }
+.claim-code-entry { display: flex; gap: 10px; align-items: stretch; }
+.claim-code-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.34em;
+  text-align: center;
+  padding-left: calc(14px + 0.34em);
+}
+.claim-code-field::placeholder { letter-spacing: 0.34em; color: var(--hairline); }
+.claim-code-entry .btn { flex: 0 0 auto; }
+.claim-code-error { margin: 0; }
+.admin-code code { font-size: 22px; letter-spacing: 0.2em; margin-right: 10px; }
 .section-scope {
   font-size: 13px;
   color: var(--muted);
@@ -2812,19 +2946,62 @@ body:has(.map-page) { overflow: hidden; }
   text-align: center;
   letter-spacing: 0;
 }
-.picker-card { position: relative; }
+.picker-card { position: relative; padding-left: 12px; }
+/* The house itself: cover photo, or the lot drawn as the map draws it. */
+.house-thumb,
+.picker-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  display: block;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.house-thumb img,
+.picker-thumb img,
+.house-thumb .map-home-sketch,
+.picker-thumb .map-home-sketch {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.house-thumb .map-home-sketch,
+.picker-thumb .map-home-sketch { padding: 6px; }
+.house-thumb .map-home-sketch-icon,
+.picker-thumb .map-home-sketch-icon { width: 40%; height: 40%; }
+.house-thumb.is-map,
+.picker-thumb.is-map {
+  background-color: #f4f2ec;
+  background-image:
+    linear-gradient(rgba(60, 56, 50, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(60, 56, 50, 0.07) 1px, transparent 1px);
+  background-size: 8px 8px;
+  background-position: center;
+}
+.picker-card:not(.is-selected) .picker-thumb { opacity: 0.86; }
+/* Waiting on the postcard: the picture is there, the house is not yet. */
+.picker-card.is-pending .picker-thumb { box-shadow: inset 0 0 0 1.5px rgba(196, 125, 26, 0.35); }
+.picker-card.is-pending .picker-radio {
+  box-shadow: inset 0 0 0 1.5px rgba(196, 125, 26, 0.55);
+}
+.picker-card.is-pending.is-selected .picker-radio::after { background: var(--warn); }
 .picker-dot {
   position: absolute;
-  left: 7px;
-  top: 21px;
-  width: 7px;
-  height: 7px;
+  left: 8px;
+  top: 12px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--accent);
+  box-shadow: 0 0 0 2px var(--surface);
   opacity: 0;
   transform: scale(0.4);
   transition: opacity 320ms ease, transform 320ms ease;
   pointer-events: none;
+  z-index: 1;
 }
 .picker-dot.is-on { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) {

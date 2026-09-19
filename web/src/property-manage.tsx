@@ -217,7 +217,12 @@ function InboxFeed({ propertyId, onChange, toast }: { propertyId: string; onChan
  * The house's notifications and the actions on them. Acting reloads the list,
  * the page record it came from, and the account's house list (the badge).
  */
-export function useInbox(propertyId: string | null, onChange: PageRefresh | undefined, toast: Toast) {
+/**
+ * A house's notifications, with the actions on them. Given a `claimId`, it is
+ * a house still waiting on its postcard: the feed is the claim's own notices
+ * instead of a maintainer inbox.
+ */
+export function useInbox(propertyId: string | null, onChange: PageRefresh | undefined, toast: Toast, claimId: string | null = null) {
   const [items, setItems] = useState<InboxItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -225,13 +230,13 @@ export function useInbox(propertyId: string | null, onChange: PageRefresh | unde
   const load = useCallback(async () => {
     if (!propertyId) return;
     try {
-      const data = await api.inbox(propertyId);
+      const data = claimId ? await api.claimNotifications(claimId) : await api.inbox(propertyId);
       setItems(data.items);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load notifications");
     }
-  }, [propertyId]);
+  }, [propertyId, claimId]);
 
   useEffect(() => {
     setItems(null);
