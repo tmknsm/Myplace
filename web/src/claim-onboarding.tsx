@@ -22,34 +22,21 @@ export function OnboardingProgress({ step }: { step: number }) {
   );
 }
 
+/** True for a field the soft keyboard opens for; not buttons, radios, or file pickers. */
+function opensKeyboard(target: EventTarget | null): boolean {
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (!(target instanceof HTMLInputElement)) return false;
+  return !["button", "submit", "reset", "checkbox", "radio", "file", "range", "color"].includes(target.type);
+}
+
 /**
- * Pin the action bar to the visual viewport. Mobile Safari shrinks that
- * viewport for the keyboard but leaves the layout viewport at full height, so
- * `position: sticky; bottom: 0` (and `env(safe-area-inset-bottom)`) resolve
- * against an edge that is now somewhere behind or above the keys. Tracking
- * `visualViewport` keeps the bar sitting on the visible bottom whether the
- * keyboard is up, animating, or already gone — without waiting for a blur
- * that iOS often never fires after a swipe-to-dismiss.
+ * Whether typing brings up a soft keyboard. Mobile Safari shrinks the visual
+ * viewport for it but leaves the layout viewport alone, so a bar stuck to
+ * `bottom: 0` lands somewhere behind or above the keyboard rather than at the
+ * screen's edge. While a field has focus the bar sits in the flow instead.
  */
-function useVisualViewportBottom() {
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    const root = document.documentElement;
-    if (!viewport) return;
-    const sync = () => {
-      const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
-      if (inset > 0.5) root.style.setProperty("--keyboard-inset", `${inset}px`);
-      else root.style.removeProperty("--keyboard-inset");
-    };
-    sync();
-    viewport.addEventListener("resize", sync);
-    viewport.addEventListener("scroll", sync);
-    return () => {
-      viewport.removeEventListener("resize", sync);
-      viewport.removeEventListener("scroll", sync);
-      root.style.removeProperty("--keyboard-inset");
-    };
-  }, []);
+function softKeyboard(): boolean {
+  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 }
 
 /** Frame shared by every onboarding step: progress, headline, body, one fixed action row. */
@@ -70,13 +57,19 @@ export function OnboardingStep({
   actions: ReactNode;
   onSubmit?: () => void;
 }) {
-  useVisualViewportBottom();
+  const [typing, setTyping] = useState(false);
   return (
     <form
-      className="auth-form onboard-step"
+      className={`auth-form onboard-step${typing ? " is-typing" : ""}`}
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit?.();
+      }}
+      onFocus={(event) => {
+        if (opensKeyboard(event.target) && softKeyboard()) setTyping(true);
+      }}
+      onBlur={(event) => {
+        if (opensKeyboard(event.target)) setTyping(false);
       }}
     >
       <div className="auth-body">
