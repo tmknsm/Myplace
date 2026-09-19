@@ -1110,9 +1110,16 @@ tr:last-child td { border-bottom: 0; }
 /* ---- Map: homes-in-view sheet ---------------------------------------- */
 /* Rests at three heights (collapsed header, a peek at the first card, or
    docked under the search bar) and follows the finger between them. The
-   visible height is one variable; everything else derives from it. */
+   visible height is one variable; everything else derives from it. The
+   top radius interpolates so the sheet arrives flush and square. */
+@property --map-sheet-radius {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 24px;
+}
 .map-homes-sheet {
   --map-sheet-visible: 0px;
+  --map-sheet-radius: 24px;
   position: absolute;
   inset: 0 0 0 0;
   z-index: 5;
@@ -1121,10 +1128,10 @@ tr:last-child td { border-bottom: 0; }
   width: min(100%, 560px);
   margin: 0 auto;
   background: var(--canvas);
-  border-radius: 24px 24px 0 0;
+  border-radius: var(--map-sheet-radius) var(--map-sheet-radius) 0 0;
   box-shadow: 0 -1px 0 rgba(60, 56, 50, 0.06), 0 -12px 40px rgba(20, 18, 14, 0.16);
   transform: translate3d(0, calc(100% - var(--map-sheet-visible)), 0);
-  transition: transform var(--sheet-out) var(--sheet-settle);
+  transition: transform var(--sheet-out) var(--sheet-settle), --map-sheet-radius var(--sheet-out) var(--sheet-settle);
   will-change: transform;
   touch-action: none;
   overflow: hidden;
@@ -1135,7 +1142,6 @@ tr:last-child td { border-bottom: 0; }
   user-select: none;
   -webkit-user-select: none;
 }
-.map-homes-sheet.is-full { border-radius: 18px 18px 0 0; }
 .map-homes-head {
   display: flex;
   flex-direction: column;

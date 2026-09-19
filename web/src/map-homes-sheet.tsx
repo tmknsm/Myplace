@@ -10,6 +10,8 @@ import {
   homesTitle,
   mapInsetFor,
   settleDetent,
+  SHEET_TOP_RADIUS,
+  sheetTopRadius,
   toggleDetent,
   type DetentHeights,
   type HomesDetent,
@@ -119,6 +121,8 @@ export function MapHomesSheet({
     };
     const setVisible = (px: number) => {
       panel.style.setProperty("--map-sheet-visible", `${px}px`);
+      const full = heightsRef.current?.full;
+      if (full != null) panel.style.setProperty("--map-sheet-radius", `${sheetTopRadius(px, full)}px`);
     };
     const listAtTop = () => scrollChainAtTop(startTarget, bodyRef.current);
 
@@ -182,6 +186,7 @@ export function MapHomesSheet({
   const visible = heights ? heights[detent] : 0;
   const style = {
     "--map-sheet-visible": `${visible}px`,
+    "--map-sheet-radius": `${heights ? sheetTopRadius(visible, heights.full) : SHEET_TOP_RADIUS}px`,
     visibility: heights ? undefined : "hidden",
   } as CSSProperties;
   const title = homesTitle(count);

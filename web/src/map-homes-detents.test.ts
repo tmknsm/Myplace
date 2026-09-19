@@ -6,6 +6,8 @@ import {
   homesTitle,
   mapInsetFor,
   settleDetent,
+  SHEET_TOP_RADIUS,
+  sheetTopRadius,
   stepDetent,
   toggleDetent,
 } from "./map-homes-detents";
@@ -82,6 +84,19 @@ describe("settleDetent", () => {
   test("the ends stay put", () => {
     expect(settleDetent("collapsed", 300, 2, heights)).toBe("collapsed");
     expect(settleDetent("full", -300, -2, heights)).toBe("full");
+  });
+});
+
+describe("sheetTopRadius", () => {
+  test("stays round until the sheet is within the corner radius of the search bar", () => {
+    expect(sheetTopRadius(heights.peek, heights.full)).toBe(SHEET_TOP_RADIUS);
+    expect(sheetTopRadius(heights.full - SHEET_TOP_RADIUS, heights.full)).toBe(SHEET_TOP_RADIUS);
+    expect(sheetTopRadius(heights.full - 12, heights.full)).toBe(12);
+  });
+
+  test("arrives square when docked, including a pull past the top", () => {
+    expect(sheetTopRadius(heights.full, heights.full)).toBe(0);
+    expect(sheetTopRadius(heights.full + 20, heights.full)).toBe(0);
   });
 });
 

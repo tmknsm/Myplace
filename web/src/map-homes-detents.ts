@@ -15,6 +15,9 @@ export type DetentHeights = Record<HomesDetent, number>;
 /** How much of the first card the peek detent reveals. */
 export const PEEK_CARD_FRACTION = 2 / 3;
 
+/** Top-corner radius while the sheet is off the search bar. Flattens as it docks. */
+export const SHEET_TOP_RADIUS = 24;
+
 /** Smallest jump between two detents, so a squat sheet still has three distinct stops. */
 const MIN_STEP = 48;
 
@@ -75,6 +78,15 @@ export function settleDetent(
  * the finger; past either end it gives a little, like an iOS sheet, instead
  * of stopping dead.
  */
+/**
+ * Top-corner radius for the current visible height. Stays at `SHEET_TOP_RADIUS`
+ * until the sheet is that close to the search bar, then matches the remaining
+ * gap so it arrives square and flush.
+ */
+export function sheetTopRadius(visible: number, full: number, max = SHEET_TOP_RADIUS): number {
+  return Math.min(max, Math.max(0, full - visible));
+}
+
 export function dragVisibleHeight(base: number, dy: number, heights: DetentHeights): number {
   const raw = base - dy;
   if (raw > heights.full) return heights.full + (raw - heights.full) * 0.16;
