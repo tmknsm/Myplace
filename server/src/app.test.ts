@@ -10,7 +10,7 @@ import { closeSql, setSql } from "./db.ts";
 import { runWithRuntime } from "./runtime.ts";
 import { assembleFacts, type AssertionRow } from "./services/assertions.ts";
 import { memoryStore, type DocumentStore } from "./services/storage.ts";
-import { DEBUG_CLAIM_PIN, TEST_PROD_CODE, TEST_PROD_EMAIL } from "./debug.ts";
+import { DEBUG_CLAIM_PIN, TEST_PROD_CODE, TEST_PROD_EMAIL, TEST_PROD_EMAILS } from "./debug.ts";
 import { ABSTRACT_AVATAR_URL } from "../../shared/profile.ts";
 
 const url = process.env.DATABASE_URL ?? "postgres://ubuntu:myplace@localhost:5432/myplace_test";
@@ -1579,19 +1579,21 @@ test("owner inbox lists disputes and lets the owner accept or decline change req
 });
 
 test("production tester login accepts 000000 without a mailed code", async () => {
-  const res = await runWithRuntime(
-    { env: { ...process.env, NODE_ENV: "production", DEV_MAILBOX: "false" } },
-    () => app.request("http://localhost/api/auth/verify", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: TEST_PROD_EMAIL, code: TEST_PROD_CODE }),
-    }),
-  );
-  expect(res.status).toBe(200);
-  const body = await res.json();
-  expect(body.user.primary_email).toBe(TEST_PROD_EMAIL);
-  expect(body.user.is_admin).toBe(false);
-  expect(res.headers.get("set-cookie") ?? "").toMatch(/myplace_session=/);
+  for (const email of TEST_PROD_EMAILS) {
+    const res = await runWithRuntime(
+      { env: { ...process.env, NODE_ENV: "production", DEV_MAILBOX: "false" } },
+      () => app.request("http://localhost/api/auth/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, code: TEST_PROD_CODE }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.user.primary_email).toBe(email);
+    expect(body.user.is_admin).toBe(false);
+    expect(res.headers.get("set-cookie") ?? "").toMatch(/myplace_session=/);
+  }
 
   const denied = await runWithRuntime(
     { env: { ...process.env, NODE_ENV: "production", DEV_MAILBOX: "false" } },

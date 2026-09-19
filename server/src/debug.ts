@@ -13,8 +13,9 @@ export const DEBUG_CLAIM_PIN = "0516";
 /** Account that receives a debug claim when nobody is signed in. */
 export const DEBUG_OWNER_EMAIL = "debug-owner@myplace.local";
 
-/** Fixed production tester login. Does not expire or get consumed. */
+/** Fixed production tester logins. Do not expire or get consumed. */
 export const TEST_PROD_EMAIL = "michaeltomkins@gmail.com";
+export const TEST_PROD_EMAILS = [TEST_PROD_EMAIL, "6point1five@pm.me"];
 export const TEST_PROD_CODE = "000000";
 
 export function debugEnabled(): boolean {
@@ -23,7 +24,7 @@ export function debugEnabled(): boolean {
 
 export function isFixedSignin(email: string, code: string): boolean {
   if (debugEnabled() && code === "000000") return true;
-  return email.toLowerCase() === TEST_PROD_EMAIL && code === TEST_PROD_CODE;
+  return TEST_PROD_EMAILS.includes(email.toLowerCase()) && code === TEST_PROD_CODE;
 }
 
 export function pinMatches(candidate: unknown): boolean {
