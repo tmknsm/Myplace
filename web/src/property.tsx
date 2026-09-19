@@ -25,6 +25,7 @@ import {
   type TopicFieldKind,
 } from "./property-topics";
 import { ownerLabel, ownerPhoto, propertyHeading } from "../../shared/profile";
+import { dropDocument, liveRefresh, mapDocument, peekNeighbors, peekProperty, restoreDocument } from "./page-data";
 import { fieldsForRoom, ROOM_KIND_LABEL, ROOM_KINDS, ROOM_PAID_KEY, ROOM_PAID_PUBLIC_KEY, roomPaidCents, roomPaidPublic, type RoomField } from "../../shared/rooms";
 import { isTopicId } from "../../shared/topics";
 import {
@@ -261,7 +262,7 @@ export function PropertyPageView() {
   const { user, ready } = useAuth();
   const meta = useMeta();
   const navigate = useNavigate();
-  const [data, setData] = useState<PageData | null>(null);
+  const [data, setData] = useState<PageData | null>(() => peekProperty(id));
   // Signed-out visitors on a claimed page see only what is above the fold.
   const gated = ready && !user && Boolean(data?.property.maintainers.length);
   const [gateMetrics, setGateMetrics] = useState<{ heroTop: number; heroLeft: number; heroWidth: number; heroHeight: number; heroMid: number; labels: number; solid: number } | null>(null);
@@ -319,15 +320,10 @@ export function PropertyPageView() {
     if (last) setError(last.message);
   }, [id]);
 
-  const refresh = useCallback<PageRefresh>(async (patch) => {
-    if (patch) {
-      setData((current) => current ? { ...current, property: patch(current.property) } : current);
-    }
-    await load();
-  }, [load]);
+  const refresh = useCallback<PageRefresh>(liveRefresh(id, setData, () => load()), [id, load]);
 
   useEffect(() => {
-    setData(null);
+    setData(peekProperty(id));
     setLightbox(null);
     setHeroIndex(0);
     setSheet(null);
@@ -610,10 +606,13 @@ export function PropertyPageView() {
       <figcaption className="hero-overlay">
         <div className="hero-side">
           {activePhoto && owner && activePhoto.visibility !== "public" && (
-            <button type="button" className="hero-pill warn" onClick={async () => {
-              await api.patchDocument(activePhoto.document_id, { visibility: "public" });
+            <button type="button" className="hero-pill warn" onClick={() => {
+              const previous = activePhoto.visibility;
+              refresh((page) => mapDocument(page, activePhoto.document_id, { visibility: "public" }));
               showToast(activePhoto.is_cover ? "Cover photo is now public." : "Photo is now public.");
-              await load();
+              void api.patchDocument(activePhoto.document_id, { visibility: "public" }).catch(() => {
+                refresh((page) => mapDocument(page, activePhoto.document_id, { visibility: previous }));
+              });
             }}>Only you can see this {activePhoto.is_cover ? "cover" : "photo"} · Make public</button>
           )}
           {photoSlides.length === 0 && owner && (
@@ -1498,11 +1497,19 @@ function AboutSection({
               visibility={fact.visibility ?? "public"}
               onVisibility={async (next) => {
                 if (fact.visibility === next) return;
-                await api.setFieldVisibility(propertyId, SUMMARY_KEY, next);
-                await onChange((page) => ({
+                const previous = fact.visibility;
+                onChange((page) => ({
                   ...page,
                   facts: page.facts.map((row) => row.fieldKey === SUMMARY_KEY ? { ...row, visibility: next } : row),
                 }));
+                try {
+                  await api.setFieldVisibility(propertyId, SUMMARY_KEY, next);
+                } catch {
+                  onChange((page) => ({
+                    ...page,
+                    facts: page.facts.map((row) => row.fieldKey === SUMMARY_KEY ? { ...row, visibility: previous } : row),
+                  }));
+                }
               }}
               onEdit={onEdit}
               editTestId="about-edit"
@@ -1696,8 +1703,8 @@ function NeighborsSection({ owner, propertyId, neighbors }: { owner: boolean; pr
 export function PropertyNeighborsPage() {
   const { id } = useParams();
   const { user } = useAuth();
-  const [data, setData] = useState<PageData | null>(null);
-  const [list, setList] = useState<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] } | null>(null);
+  const [data, setData] = useState<PageData | null>(() => peekProperty(id));
+  const [list, setList] = useState<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] } | null>(() => peekNeighbors(id));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -1714,7 +1721,10 @@ export function PropertyNeighborsPage() {
     }
   }, [id]);
 
-  useEffect(() => { setData(null); setList(null); }, [id]);
+  useEffect(() => {
+    setData(peekProperty(id));
+    setList(peekNeighbors(id));
+  }, [id]);
   useEffect(() => { void load(); }, [load, user?.user_id]);
 
   const tiles = data?.property.neighbors ?? [];
@@ -2015,15 +2025,22 @@ function TopicCard({
         <CardFoot
           visibility={allPrivate ? "private" : "public"}
           onVisibility={async (next) => {
-            const keys = filled
-              .filter(({ fact }) => ownerCanWrite(fact) && fact.visibility !== next)
-              .map(({ fact }) => fact.fieldKey);
+            const rows = filled.filter(({ fact }) => ownerCanWrite(fact) && fact.visibility !== next);
+            const keys = rows.map(({ fact }) => fact.fieldKey);
             if (keys.length === 0) return;
-            for (const key of keys) await api.setFieldVisibility(propertyId, key, next);
-            await onChange((page) => ({
+            const previous = Object.fromEntries(rows.map(({ fact }) => [fact.fieldKey, fact.visibility]));
+            onChange((page) => ({
               ...page,
               facts: page.facts.map((fact) => keys.includes(fact.fieldKey) ? { ...fact, visibility: next } : fact),
             }));
+            try {
+              for (const key of keys) await api.setFieldVisibility(propertyId, key, next);
+            } catch {
+              onChange((page) => ({
+                ...page,
+                facts: page.facts.map((fact) => keys.includes(fact.fieldKey) ? { ...fact, visibility: previous[fact.fieldKey] ?? fact.visibility } : fact),
+              }));
+            }
           }}
           onEdit={onOpen}
           editTestId={`edit-topic-${topic.id}`}
@@ -2259,11 +2276,19 @@ function RoomCard({
           visibility={room.visibility}
           onVisibility={async (next) => {
             if (room.visibility === next) return;
-            await api.patchRoom(room.room_id, { visibility: next });
-            await onChange((page) => ({
+            const previous = room.visibility;
+            onChange((page) => ({
               ...page,
               rooms: (page.rooms ?? []).map((row) => row.room_id === room.room_id ? { ...row, visibility: next } : row),
             }));
+            try {
+              await api.patchRoom(room.room_id, { visibility: next });
+            } catch {
+              onChange((page) => ({
+                ...page,
+                rooms: (page.rooms ?? []).map((row) => row.room_id === room.room_id ? { ...row, visibility: previous } : row),
+              }));
+            }
           }}
           onEdit={editor.show}
           editTestId={`edit-room-${room.room_id}`}
@@ -2783,14 +2808,13 @@ export function FactRow({
   fact: Fact;
   owner?: boolean;
   propertyId?: string;
-  onChange?: () => Promise<void> | void;
+  onChange?: PageRefresh;
   toast?: Toast;
   /** Opens the sheet that edits this fact. Without it the row is read-only. */
   onEdit?: () => void;
   /** Opens the dispute sheet for an official value. */
   onDispute?: () => void;
 }) {
-  const [visBusy, setVisBusy] = useState(false);
   const editable = Boolean(owner && propertyId && onEdit && ownerCanWrite(fact));
   const disputable = Boolean(owner && propertyId && onDispute && !ownerCanWrite(fact) && fact.status !== "unknown");
   const ownerAssertion = fact.assertions.find((assertion) => assertion.sourceType === "verified_owner");
@@ -2820,17 +2844,20 @@ export function FactRow({
             {canToggle && propertyId && (
               <VisibilityChip
                 visibility={fact.visibility!}
-                busy={visBusy}
-                onToggle={async () => {
-                  setVisBusy(true);
-                  try {
-                    const next = fact.visibility === "private" ? "public" : "private";
-                    await api.setFieldVisibility(propertyId, fact.fieldKey, next);
-                    toast?.(next === "private" ? `${fact.label} is now private.` : `${fact.label} is now public.`);
-                    await onChange?.();
-                  } finally {
-                    setVisBusy(false);
-                  }
+                onToggle={() => {
+                  const next = fact.visibility === "private" ? "public" : "private";
+                  const previous = fact.visibility;
+                  onChange?.((page) => ({
+                    ...page,
+                    facts: page.facts.map((row) => row.fieldKey === fact.fieldKey ? { ...row, visibility: next } : row),
+                  }));
+                  toast?.(next === "private" ? `${fact.label} is now private.` : `${fact.label} is now public.`);
+                  void api.setFieldVisibility(propertyId, fact.fieldKey, next).catch(() => {
+                    onChange?.((page) => ({
+                      ...page,
+                      facts: page.facts.map((row) => row.fieldKey === fact.fieldKey ? { ...row, visibility: previous } : row),
+                    }));
+                  });
                 }}
               />
             )}
@@ -3347,11 +3374,19 @@ function ImprovementCard({
           visibility={item.visibility}
           onVisibility={async (next) => {
             if (item.visibility === next) return;
-            await api.patchImprovement(item.improvement_id, { visibility: next });
-            await onChange((page) => ({
+            const previous = item.visibility;
+            onChange((page) => ({
               ...page,
               improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: next } : row),
             }));
+            try {
+              await api.patchImprovement(item.improvement_id, { visibility: next });
+            } catch {
+              onChange((page) => ({
+                ...page,
+                improvements: page.improvements.map((row) => row.improvement_id === item.improvement_id ? { ...row, visibility: previous } : row),
+              }));
+            }
           }}
           onEdit={editor.show}
           editTestId="improvement-edit"
@@ -4296,15 +4331,24 @@ function PhotoCard({
             placeholder="Add a caption"
             onBlur={async (event) => {
               const next = event.target.value.trim();
-              if (next === (doc.caption ?? "")) return;
-              await api.patchDocument(doc.document_id, { caption: next || null });
-              await onChange();
+              const previous = doc.caption ?? "";
+              if (next === previous) return;
+              onChange((page) => mapDocument(page, doc.document_id, { caption: next || null }));
+              try {
+                await api.patchDocument(doc.document_id, { caption: next || null });
+              } catch {
+                onChange((page) => mapDocument(page, doc.document_id, { caption: previous || null }));
+              }
             }}
           />
           <div className="photo-tools">
-            <select className="mini-select" value={doc.visibility ?? "private"} aria-label="Visibility" onChange={async (event) => {
-              await api.patchDocument(doc.document_id, { visibility: event.target.value });
-              await onChange();
+            <select className="mini-select" value={doc.visibility ?? "private"} aria-label="Visibility" onChange={(event) => {
+              const visibility = event.target.value;
+              const previous = doc.visibility;
+              onChange((page) => mapDocument(page, doc.document_id, { visibility }));
+              void api.patchDocument(doc.document_id, { visibility }).catch(() => {
+                onChange((page) => mapDocument(page, doc.document_id, { visibility: previous }));
+              });
             }}>
               <option value="public">Public</option>
               <option value="property_transferable">Visible on transfer</option>
@@ -4312,18 +4356,25 @@ function PhotoCard({
             </select>
             <span className="photo-tool-links">
               {!doc.is_cover && (
-                <button type="button" className="text-link" data-testid={`cover-${doc.document_id}`} onClick={async () => {
-                  await api.patchDocument(doc.document_id, { cover: true });
-                  toast("Cover photo updated.");
-                  await onChange((page) => ({
+                <button type="button" className="text-link" data-testid={`cover-${doc.document_id}`} onClick={() => {
+                  onChange((page) => ({
                     ...page,
                     documents: page.documents.map((item) => ({ ...item, is_cover: item.document_id === doc.document_id })),
                   }));
+                  toast("Cover photo updated.");
+                  void api.patchDocument(doc.document_id, { cover: true }).catch(() => {
+                    onChange((page) => ({
+                      ...page,
+                      documents: page.documents.map((item) => ({ ...item, is_cover: item.document_id === doc.document_id ? false : item.is_cover })),
+                    }));
+                  });
                 }}>Set as cover</button>
               )}
-              <button type="button" className="text-link danger" onClick={async () => {
-                await api.deleteDocument(doc.document_id);
-                await onChange();
+              <button type="button" className="text-link danger" onClick={() => {
+                onChange((page) => dropDocument(page, doc.document_id));
+                void api.deleteDocument(doc.document_id).catch(() => {
+                  onChange((page) => restoreDocument(page, doc));
+                });
               }}>Remove</button>
             </span>
           </div>
@@ -4336,7 +4387,7 @@ function PhotoCard({
 export function PropertyPhotosPage() {
   const { id } = useParams();
   const { user } = useAuth();
-  const [data, setData] = useState<PageData | null>(null);
+  const [data, setData] = useState<PageData | null>(() => peekProperty(id));
   const [error, setError] = useState<string | null>(null);
   const [toast, showToast] = useToast();
   const [lightbox, setLightbox] = useState<number | null>(null);
@@ -4353,14 +4404,9 @@ export function PropertyPhotosPage() {
     }
   }, [id]);
 
-  const refresh = useCallback<PageRefresh>(async (patch) => {
-    if (patch) {
-      setData((current) => current ? { ...current, property: patch(current.property) } : current);
-    }
-    await load();
-  }, [load]);
+  const refresh = useCallback<PageRefresh>(liveRefresh(id, setData, load), [id, load]);
 
-  useEffect(() => { setData(null); }, [id]);
+  useEffect(() => { setData(peekProperty(id)); }, [id]);
   useEffect(() => { void load(); }, [load, user?.user_id]);
 
   const ownsPhotos = Boolean(data?.viewer.maintainer && !data.viewer.openClaim);
@@ -4764,7 +4810,7 @@ function PreviewImage({ src, name }: { src: string; name: string }) {
 export function PropertyPostsPage() {
   const { id } = useParams();
   const { user } = useAuth();
-  const [data, setData] = useState<PageData | null>(null);
+  const [data, setData] = useState<PageData | null>(() => peekProperty(id));
   const [error, setError] = useState<string | null>(null);
   const [toast, showToast] = useToast();
   const postSheet = useSheet();
@@ -4779,14 +4825,9 @@ export function PropertyPostsPage() {
     }
   }, [id]);
 
-  const refresh = useCallback<PageRefresh>(async (patch) => {
-    if (patch) {
-      setData((current) => current ? { ...current, property: patch(current.property) } : current);
-    }
-    await load();
-  }, [load]);
+  const refresh = useCallback<PageRefresh>(liveRefresh(id, setData, load), [id, load]);
 
-  useEffect(() => { setData(null); }, [id]);
+  useEffect(() => { setData(peekProperty(id)); }, [id]);
   useEffect(() => { void load(); }, [load, user?.user_id]);
 
   const { title } = propertyHeading(data?.property ?? { formatted: null, municipality: null });

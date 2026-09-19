@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api, type User } from "./api";
+import { cacheClear } from "./query-cache";
 
 interface AuthState {
   user: User | null;
@@ -30,6 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refresh,
     signOut: async () => {
       await api.signOut();
+      cacheClear();
       setUser(null);
     },
   }), [user, ready]);

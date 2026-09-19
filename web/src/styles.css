@@ -3857,6 +3857,11 @@ html.peek-gated body {
 .feed-empty .meta-line a { color: var(--ink-soft); font-weight: 500; }
 .feed-search { position: relative; }
 .feed-more { justify-content: center; margin-top: 32px; }
+.feed-pending {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
+}
 /* Reading down the feed, the header and its glass slide up out of the way
    together; scrolling back up returns the brand row alone, and the search
    row only once you are back at the top. Driven by `useRetractingChrome`. */

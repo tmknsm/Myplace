@@ -247,7 +247,7 @@ export function VisibilityCard({
   onProperty: (patch: Pick<MaintainedProperty, "property_id"> & Partial<MaintainedProperty>) => void;
   showToast: Toast;
 }) {
-  const [busy, setBusy] = useState<"anonymize" | "handle" | "street" | null>(null);
+  const [busy, setBusy] = useState<"handle" | null>(null);
   const [handleDraft, setHandleDraft] = useState((user.handle ?? "").replace(/^@+/, ""));
   const [availability, setAvailability] = useState<"idle" | "checking" | "available" | "unavailable" | "invalid">("idle");
   const [handleHint, setHandleHint] = useState<string | null>(null);
@@ -309,6 +309,19 @@ export function VisibilityCard({
   const hideStreet = Boolean(property?.hide_street);
   const anonymize = Boolean(property?.anonymize);
   const where = property ? shortAddress(property) : null;
+
+  const flipVisibility = (field: "anonymize" | "hide_street", next: boolean, ok: (value: boolean) => string) => {
+    if (!property) return;
+    const previous = field === "anonymize" ? anonymize : hideStreet;
+    onProperty({ property_id: property.property_id, [field]: next });
+    void api.setPropertyVisibility(property.property_id, { [field]: next }).then((saved) => {
+      onProperty(saved.property);
+      showToast(ok(field === "anonymize" ? saved.property.anonymize : saved.property.hide_street));
+    }).catch((err) => {
+      onProperty({ property_id: property.property_id, [field]: previous });
+      showToast(err instanceof Error ? err.message : "Could not update that.");
+    });
+  };
   const canSaveHandle = availability === "available";
   const hintClass = availability === "available"
     ? " is-ok"
@@ -323,24 +336,18 @@ export function VisibilityCard({
 
   const flipName = () => {
     if (!property) return;
-    void run("anonymize", async () => {
-      const saved = await api.setPropertyVisibility(property.property_id, { anonymize: !anonymize });
-      onProperty(saved.property);
-      return saved.property.anonymize
+    flipVisibility("anonymize", !anonymize, (on) => (
+      on
         ? (user.handle ? `${where} shows ${formatHandle(user.handle)} instead of your name.` : `Your name is hidden on ${where}. Add an alias below.`)
-        : `${where} shows your real name again.`;
-    }, "Could not update that.");
+        : `${where} shows your real name again.`
+    ));
   };
 
   const flipStreet = () => {
     if (!property) return;
-    void run("street", async () => {
-      const saved = await api.setPropertyVisibility(property.property_id, { hide_street: !hideStreet });
-      onProperty(saved.property);
-      return saved.property.hide_street
-        ? `${where} now shows only the town.`
-        : `${where} shows its street address again.`;
-    }, "Could not update that.");
+    flipVisibility("hide_street", !hideStreet, (on) => (
+      on ? `${where} now shows only the town.` : `${where} shows its street address again.`
+    ));
   };
 
   const saveHandle = () => {
@@ -373,7 +380,6 @@ export function VisibilityCard({
                 role="switch"
                 aria-checked={hideStreet}
                 aria-label={`Hide my address on ${where}`}
-                disabled={busy !== null}
                 data-testid="hide-street-toggle"
                 onClick={flipStreet}
               >
@@ -393,7 +399,6 @@ export function VisibilityCard({
                 role="switch"
                 aria-checked={anonymize}
                 aria-label={`Hide my name on ${where}`}
-                disabled={busy !== null}
                 data-testid="anonymize-toggle"
                 onClick={flipName}
               >
@@ -467,25 +472,21 @@ export function ManageCard({
   onProperty: (patch: Pick<MaintainedProperty, "property_id"> & Partial<MaintainedProperty>) => void;
   showToast: Toast;
 }) {
-  const [busy, setBusy] = useState(false);
   const where = property ? shortAddress(property) : null;
 
   const flipRemoved = () => {
-    if (busy || !property) return;
-    setBusy(true);
-    void (async () => {
-      try {
-        const saved = await api.setPropertyRemoved(property.property_id, !property.removed);
-        onProperty(saved.property);
-        showToast(saved.property.removed
-          ? `${where} is off Myplace. Turn this off to bring it back.`
-          : `${where} is on Myplace again.`);
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : "Could not update that.");
-      } finally {
-        setBusy(false);
-      }
-    })();
+    if (!property) return;
+    const next = !property.removed;
+    onProperty({ property_id: property.property_id, removed: next });
+    void api.setPropertyRemoved(property.property_id, next).then((saved) => {
+      onProperty(saved.property);
+      showToast(saved.property.removed
+        ? `${where} is off Myplace. Turn this off to bring it back.`
+        : `${where} is on Myplace again.`);
+    }).catch((err) => {
+      onProperty({ property_id: property.property_id, removed: !next });
+      showToast(err instanceof Error ? err.message : "Could not update that.");
+    });
   };
 
   return (
@@ -509,7 +510,6 @@ export function ManageCard({
                 role="switch"
                 aria-checked={property.removed}
                 aria-label={`Remove ${where}`}
-                disabled={busy}
                 data-testid="remove-property-toggle"
                 onClick={flipRemoved}
               >

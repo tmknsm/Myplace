@@ -1,3 +1,5 @@
+import { cacheSet, queryKeys } from "./query-cache";
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -68,7 +70,11 @@ export const api = {
   parcels: (bbox: string) => request<ParcelCollection>(`/api/parcels?bbox=${bbox}`),
   mapHomes: (bbox: [number, number, number, number], init?: RequestInit) =>
     request<MapHomesResponse>(`/api/map/homes?bbox=${bbox.map((n) => n.toFixed(6)).join(",")}`, init),
-  property: (id: string) => request<{ property: PropertyPage; viewer: Viewer }>(`/api/properties/${id}`),
+  property: async (id: string) => {
+    const data = await request<{ property: PropertyPage; viewer: Viewer }>(`/api/properties/${id}`);
+    cacheSet(queryKeys.property(id), data);
+    return data;
+  },
   createClaim: (id: string, body: { method: string; notes?: string; attestationAccepted: boolean }) =>
     request<{ claimId: string; status: string }>(`/api/properties/${id}/claims`, {
       method: "POST",
@@ -76,7 +82,11 @@ export const api = {
     }),
   claim: (id: string) => request<{ claim: Claim; documents: Doc[] }>(`/api/claims/${id}`),
   myClaims: () => request<{ claims: Claim[] }>("/api/me/claims"),
-  myProperties: () => request<{ properties: MaintainedProperty[] }>("/api/me/properties"),
+  myProperties: async () => {
+    const data = await request<{ properties: MaintainedProperty[] }>("/api/me/properties");
+    cacheSet(queryKeys.meProperties(), data.properties);
+    return data;
+  },
   setPropertyRemoved: (id: string, removed: boolean) =>
     request<{ property: { property_id: string; removed: boolean } }>(`/api/properties/${id}/removed`, {
       method: "PATCH",
@@ -88,14 +98,20 @@ export const api = {
       body: JSON.stringify(body),
     }),
   myNeighbors: () => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>("/api/me/neighbors"),
-  feed: (opts: { scope?: FeedScope; before?: string | null } = {}) => {
+  feed: async (opts: { scope?: FeedScope; before?: string | null } = {}) => {
     const query = new URLSearchParams();
     if (opts.scope === "neighbors") query.set("scope", "neighbors");
     if (opts.before) query.set("before", opts.before);
     const search = query.toString();
-    return request<Feed>(`/api/me/feed${search ? `?${search}` : ""}`);
+    const data = await request<Feed>(`/api/me/feed${search ? `?${search}` : ""}`);
+    if (!opts.before) cacheSet(queryKeys.feed(opts.scope === "neighbors" ? "neighbors" : "all"), data);
+    return data;
   },
-  propertyNeighbors: (id: string) => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>(`/api/properties/${id}/neighbors`),
+  propertyNeighbors: async (id: string) => {
+    const data = await request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>(`/api/properties/${id}/neighbors`);
+    cacheSet(queryKeys.neighbors(id), data);
+    return data;
+  },
   neighborStatus: (id: string) => request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`),
   neighborProperty: (id: string, fromPropertyId?: string) =>
     request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`, {

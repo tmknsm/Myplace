@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, Navigate, useLocation, useParams } from "react-router-dom";
-import { api, type InboxItem, type PageRefresh, type PropertyPage, type Viewer } from "./api";
+import { api, type InboxItem, type PageRefresh } from "./api";
 import { useAuth } from "./auth";
 import { PageSpinner, Spinner } from "./components";
 import { useMeta } from "./meta";
 import { DocumentsSection, HandoffSection, MaintainersSection, NotificationsSection } from "./property-owner";
 import { propertyHeading } from "../../shared/profile";
 import { DOCUMENT_TYPE_LABEL, dateLabel, useToast, type Toast } from "./property-shared";
+import { liveRefresh, peekProperty, type PageData } from "./page-data";
 
 /**
  * Owner tools live on their own pages, reached from the settings button
@@ -15,11 +16,9 @@ import { DOCUMENT_TYPE_LABEL, dateLabel, useToast, type Toast } from "./property
  * inbox of neighbor requests, change requests, and notices for that property.
  */
 
-type PageData = { property: PropertyPage; viewer: Viewer };
-
 function useOwnerRecord(id: string | undefined) {
   const { user, ready } = useAuth();
-  const [data, setData] = useState<PageData | null>(null);
+  const [data, setData] = useState<PageData | null>(() => peekProperty(id));
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -32,14 +31,9 @@ function useOwnerRecord(id: string | undefined) {
     }
   }, [id]);
 
-  const refresh = useCallback<PageRefresh>(async (patch) => {
-    if (patch) {
-      setData((current) => current ? { ...current, property: patch(current.property) } : current);
-    }
-    await load();
-  }, [load]);
+  const refresh = useCallback<PageRefresh>(liveRefresh(id, setData, load), [id, load]);
 
-  useEffect(() => { setData(null); }, [id]);
+  useEffect(() => { setData(peekProperty(id)); }, [id]);
   useEffect(() => { if (ready && user) void load(); }, [load, ready, user?.user_id]);
 
   return { data, error, refresh, user, ready };

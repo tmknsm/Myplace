@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Doc, type PageRefresh, type PropertyPage, type Viewer } from "./api";
+import { dropDocument, mapDocument, restoreDocument } from "./page-data";
 import { dateLabel, DOCUMENT_TYPE_LABEL, fileSize, fileUrl, isImage, type Toast } from "./property-shared";
 
 /**
@@ -74,25 +75,52 @@ export function DocumentsSection({
                 <small className="meta-line">{fileSize(doc.byte_size)}{doc.created_at ? ` · ${dateLabel(doc.created_at)}` : ""}</small>
               </td>
               <td>
-                <select className="mini-select" value={doc.document_type} onChange={async (event) => { await api.patchDocument(doc.document_id, { documentType: event.target.value }); await onChange(); }}>
+                <select className="mini-select" value={doc.document_type} onChange={(event) => {
+                  const documentType = event.target.value;
+                  const previous = doc.document_type;
+                  onChange((page) => mapDocument(page, doc.document_id, { document_type: documentType }));
+                  void api.patchDocument(doc.document_id, { documentType }).catch(() => {
+                    onChange((page) => mapDocument(page, doc.document_id, { document_type: previous }));
+                  });
+                }}>
                   {documentTypes.filter((key) => key !== "photo").map((key) => <option key={key} value={key}>{DOCUMENT_TYPE_LABEL[key] ?? key}</option>)}
                 </select>
               </td>
               <td>
-                <select className="mini-select" value={doc.visibility ?? "private"} onChange={async (event) => { await api.patchDocument(doc.document_id, { visibility: event.target.value }); await onChange(); }}>
+                <select className="mini-select" value={doc.visibility ?? "private"} onChange={(event) => {
+                  const visibility = event.target.value;
+                  const previous = doc.visibility;
+                  onChange((page) => mapDocument(page, doc.document_id, { visibility }));
+                  void api.patchDocument(doc.document_id, { visibility }).catch(() => {
+                    onChange((page) => mapDocument(page, doc.document_id, { visibility: previous }));
+                  });
+                }}>
                   <option value="private">Private</option>
                   <option value="property_transferable">Visible on transfer</option>
                   <option value="public">Public</option>
                 </select>
               </td>
               <td>
-                <select className="mini-select" value={doc.transferability ?? "personal"} onChange={async (event) => { await api.patchDocument(doc.document_id, { transferability: event.target.value }); await onChange(); }}>
+                <select className="mini-select" value={doc.transferability ?? "personal"} onChange={(event) => {
+                  const transferability = event.target.value;
+                  const previous = doc.transferability;
+                  onChange((page) => mapDocument(page, doc.document_id, { transferability }));
+                  void api.patchDocument(doc.document_id, { transferability }).catch(() => {
+                    onChange((page) => mapDocument(page, doc.document_id, { transferability: previous }));
+                  });
+                }}>
                   <option value="property_transferable">Goes with the property</option>
                   <option value="personal">Stays with me</option>
                 </select>
               </td>
               <td>
-                <button type="button" className="text-link danger" onClick={async () => { await api.deleteDocument(doc.document_id); await onChange(); }}>Remove</button>
+                <button type="button" className="text-link danger" onClick={() => {
+                  onChange((page) => dropDocument(page, doc.document_id));
+                  void api.deleteDocument(doc.document_id).catch(() => {
+                    onChange((page) => restoreDocument(page, doc));
+                    toast("Could not remove that document.");
+                  });
+                }}>Remove</button>
               </td>
             </tr>
           ))}

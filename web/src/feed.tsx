@@ -2,13 +2,18 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Feed, type FeedScope } from "./api";
 import { useAuth } from "./auth";
-import { PageSpinner, SearchBox } from "./components";
+import { SearchBox, Spinner } from "./components";
 import { PostCard } from "./property";
 import { useToast } from "./property-shared";
+import { cacheGet, cacheSet, queryKeys } from "./query-cache";
 import { useRetractingChrome } from "./retracting-chrome";
 
 function parseTab(raw: string | null): FeedScope {
   return raw === "neighbors" ? "neighbors" : "all";
+}
+
+function peekFeed(scope: FeedScope): Feed | null {
+  return cacheGet<Feed>(queryKeys.feed(scope)) ?? null;
 }
 
 /**
@@ -19,24 +24,38 @@ export function FeedPage() {
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
   const scope = parseTab(params.get("tab"));
-  const [feed, setFeed] = useState<Feed | null>(null);
+  const [feed, setFeed] = useState<Feed | null>(() => peekFeed(scope));
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(() => !peekFeed(scope));
   const [loadingMore, setLoadingMore] = useState(false);
   const [toast, showToast] = useToast();
   // Reading down the feed, the header gets out of the way; a scroll up brings it back.
   useRetractingChrome(Boolean(feed && feed.posts.length > 0));
 
+  const remember = (next: Feed) => {
+    cacheSet(queryKeys.feed(scope), next);
+    return next;
+  };
+
   const load = useCallback(async () => {
     try {
-      setFeed(await api.feed({ scope }));
+      const next = await api.feed({ scope });
+      setFeed(next);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load posts.");
+    } finally {
+      setPending(false);
     }
   }, [scope]);
 
-  useEffect(() => { setFeed(null); }, [scope]);
-  useEffect(() => { void load(); }, [load, user?.user_id]);
+  useEffect(() => {
+    const cached = peekFeed(scope);
+    setFeed(cached);
+    setPending(!cached);
+    setError(null);
+    void load();
+  }, [load, user?.user_id]);
 
   const setTab = (next: FeedScope) => {
     if (next === scope) return;
@@ -52,9 +71,9 @@ export function FeedPage() {
     try {
       const next = await api.feed({ scope, before: feed.nextBefore });
       setFeed((current) => {
-        if (!current) return next;
+        if (!current) return remember(next);
         const seen = new Set(current.posts.map((post) => post.post_id));
-        return { ...next, posts: [...current.posts, ...next.posts.filter((post) => !seen.has(post.post_id))] };
+        return remember({ ...next, posts: [...current.posts, ...next.posts.filter((post) => !seen.has(post.post_id))] });
       });
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Couldn't load older posts.");
@@ -62,9 +81,6 @@ export function FeedPage() {
       setLoadingMore(false);
     }
   };
-
-  if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!feed) return <PageSpinner label={scope === "neighbors" ? "Loading your street" : "Loading posts"} />;
 
   return (
     <div className="page property-page feed-page" data-testid="feed-page">
@@ -75,16 +91,33 @@ export function FeedPage() {
         </div>
       </header>
       {toast && <div className="toast" role="status">{toast}</div>}
-      {feed.posts.length === 0 ? (
-        <FeedEmpty feed={feed} scope={scope} />
-      ) : (
+      {error && !feed && <p className="error">{error}</p>}
+      {!feed && pending && (
+        <div className="feed-pending" role="status" aria-label={scope === "neighbors" ? "Loading your street" : "Loading posts"}>
+          <Spinner />
+        </div>
+      )}
+      {feed && feed.posts.length === 0 && <FeedEmpty feed={feed} scope={scope} />}
+      {feed && feed.posts.length > 0 && (
         <div className="post-list feed-list">
           {feed.posts.map((post) => (
-            <PostCard key={post.post_id} post={post} house={post.house} owner={post.mine} onChange={load} toast={showToast} />
+            <PostCard
+              key={post.post_id}
+              post={post}
+              house={post.house}
+              owner={post.mine}
+              onChange={() => {
+                setFeed((current) => {
+                  if (!current) return current;
+                  return remember({ ...current, posts: current.posts.filter((row) => row.post_id !== post.post_id) });
+                });
+              }}
+              toast={showToast}
+            />
           ))}
         </div>
       )}
-      {feed.nextBefore && (
+      {feed?.nextBefore && (
         <div className="action-row feed-more">
           <button type="button" className="btn secondary" disabled={loadingMore} onClick={() => void loadMore()} data-testid="feed-more">
             {loadingMore ? "Loading…" : "Older posts"}

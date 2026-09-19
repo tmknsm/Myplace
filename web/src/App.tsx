@@ -13,6 +13,7 @@ import { useMeta } from "./meta";
 import { PropertyNeighborsPage, PropertyPageView, PropertyPhotosPage, PropertyPostsPage } from "./property";
 import { NotificationsRedirect, PropertyInboxPage, PropertyManagePage } from "./property-manage";
 import { useToast } from "./property-shared";
+import { cacheGet, cacheSet, queryKeys } from "./query-cache";
 
 function Layout({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
@@ -606,7 +607,7 @@ function EyeIcon() {
 
 function AccountPage() {
   const { user, signOut, refresh } = useAuth();
-  const [properties, setProperties] = useState<MaintainedProperty[] | null>(null);
+  const [properties, setProperties] = useState<MaintainedProperty[] | null>(() => cacheGet(queryKeys.meProperties()) ?? null);
   const [claims, setClaims] = useState<Claim[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [toast, showToast] = useToast();
@@ -624,9 +625,13 @@ function AccountPage() {
   // The first house is selected until they pick another; a stale pick falls back.
   const selected = homes.find((property) => property.property_id === selectedId) ?? homes[0] ?? null;
   const patchProperty = (patch: Pick<MaintainedProperty, "property_id"> & Partial<MaintainedProperty>) => {
-    setProperties((current) => current?.map((property) => (
-      property.property_id === patch.property_id ? { ...property, ...patch } : property
-    )) ?? current);
+    setProperties((current) => {
+      const next = current?.map((property) => (
+        property.property_id === patch.property_id ? { ...property, ...patch } : property
+      )) ?? current;
+      if (next) cacheSet(queryKeys.meProperties(), next);
+      return next;
+    });
   };
   const ownedIds = new Set(homes.map((property) => property.property_id));
   const openClaims = claims.filter((claim) => (
