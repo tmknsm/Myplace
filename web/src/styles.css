@@ -949,6 +949,345 @@ input[type="file"] {
 label.stack { display: block; margin: 14px 0; }
 label.stack span { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); font-weight: 500; }
 
+/* ---- Onboarding: identity and hero photo while claiming ------------------
+   Same frame as sign-up (serif headline, fixed action bar on phones) so the
+   claim reads as one continuous flow from the email code onward. */
+.onboard-page { --onboard-ease: cubic-bezier(0.2, 0.8, 0.2, 1); }
+.onboard-step { animation: onboard-in 440ms var(--onboard-ease, ease) both; }
+@keyframes onboard-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.onboard-progress {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0 0 22px;
+}
+.onboard-progress span {
+  height: 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  overflow: hidden;
+  position: relative;
+}
+.onboard-progress span.is-done { background: var(--ink); }
+.onboard-progress span.is-on::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: onboard-fill 520ms var(--onboard-ease, ease) 120ms both;
+}
+@keyframes onboard-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.onboard-verify .onboard-progress { max-width: 420px; margin-top: 4px; }
+.onboard-lede { margin-bottom: 22px; }
+.onboard-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 26px 0 10px 2px;
+}
+.onboard-field-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.onboard-hint { display: block; margin-top: 6px; font-size: 13px; }
+.onboard-hint.is-ok { color: var(--ok); }
+.onboard-hint.is-error { color: var(--danger); }
+.onboard-alias .profile-handle { margin-top: 0; }
+
+/* Live preview of the owner chip the property page will show. */
+.onboard-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  min-height: 72px;
+}
+.onboard-preview-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.onboard-preview-text { display: grid; gap: 3px; min-width: 0; }
+.onboard-preview-name {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  animation: onboard-swap 320ms var(--onboard-ease, ease) both;
+}
+.onboard-preview-address {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  animation: onboard-swap 320ms var(--onboard-ease, ease) both;
+}
+.onboard-preview-address svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.onboard-preview-address.is-hidden { font-style: italic; }
+@keyframes onboard-swap {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Two big choice cards. */
+.onboard-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.onboard-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 16px 16px 15px;
+  min-height: 118px;
+  text-align: left;
+  background: var(--surface);
+  border: 0;
+  border-radius: 18px;
+  box-shadow: var(--shadow), inset 0 0 0 1px transparent;
+  color: var(--ink);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: box-shadow 200ms var(--onboard-ease, ease), transform 200ms var(--onboard-ease, ease);
+}
+.onboard-card:active { transform: scale(0.985); }
+.onboard-card.is-on { box-shadow: var(--shadow), inset 0 0 0 1.5px var(--ink); }
+.onboard-card-icon {
+  width: 24px;
+  height: 24px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  transition: color 200ms ease;
+}
+.onboard-card.is-on .onboard-card-icon { color: var(--accent); }
+.onboard-card strong { font-size: 15px; font-weight: 600; }
+.onboard-card span { font-size: 13px; line-height: 1.4; color: var(--muted); }
+
+/* Whatever the card reveals slides open beneath it. */
+.onboard-reveal { animation: onboard-in 360ms var(--onboard-ease, ease) both; margin-top: 12px; }
+.onboard-reveal .auth-names .stack { margin-bottom: 0; }
+
+/* Stacked radio rows for where the house sits. */
+.onboard-options {
+  display: grid;
+  gap: 8px;
+}
+.onboard-option {
+  display: grid;
+  grid-template-columns: 24px 1fr 24px;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 13px 14px 13px 16px;
+  min-height: 60px;
+  text-align: left;
+  background: var(--surface);
+  border: 0;
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: box-shadow 200ms var(--onboard-ease, ease), transform 200ms var(--onboard-ease, ease);
+}
+.onboard-option:active { transform: scale(0.99); }
+.onboard-option.is-on { box-shadow: var(--shadow), inset 0 0 0 1.5px var(--ink); }
+.onboard-option-icon { display: flex; color: var(--muted); transition: color 200ms ease; }
+.onboard-option-icon svg { width: 22px; height: 22px; }
+.onboard-option.is-on .onboard-option-icon { color: var(--accent); }
+.onboard-option-text { display: grid; gap: 2px; min-width: 0; }
+.onboard-option-text strong { font-size: 15px; font-weight: 600; }
+.onboard-option-text span { font-size: 13px; line-height: 1.4; color: var(--muted); overflow-wrap: anywhere; }
+.onboard-option-check {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: var(--ink);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 180ms ease, transform 240ms var(--onboard-ease, ease);
+}
+.onboard-option-check svg { width: 14px; height: 14px; }
+.onboard-option.is-on .onboard-option-check { opacity: 1; transform: none; }
+
+/* Hero photo drop zone. */
+.hero-drop {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  margin-top: 4px;
+}
+.hero-drop-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 24px;
+  text-align: center;
+  border-radius: inherit;
+  border: 1.5px dashed color-mix(in srgb, var(--ink) 20%, transparent);
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease;
+}
+.hero-drop-empty:hover { background: var(--surface-2); border-color: color-mix(in srgb, var(--ink) 34%, transparent); }
+.hero-drop-empty:has(input:focus-visible) { border-color: var(--accent); }
+.hero-drop-empty input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  padding: 0;
+}
+.hero-drop-glyph {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+  background: var(--canvas);
+  color: var(--accent);
+}
+.hero-drop-glyph svg { width: 26px; height: 26px; }
+.hero-drop-empty strong { font-size: 16px; font-weight: 600; }
+.hero-drop-empty span:not(.hero-drop-glyph) { font-size: 13px; color: var(--muted); max-width: 26ch; line-height: 1.4; }
+.hero-drop img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  animation: onboard-photo-in 520ms var(--onboard-ease, ease) both;
+}
+@keyframes onboard-photo-in {
+  from { opacity: 0; transform: scale(1.04); }
+  to { opacity: 1; transform: none; }
+}
+.hero-drop-tools {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 8px;
+}
+.hero-tool {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 100px;
+  font-size: 13px;
+  font-weight: 560;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+}
+.hero-tool:disabled { opacity: 0.6; cursor: default; }
+.hero-drop-busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.hero-drop-busy .spinner { width: 24px; height: 24px; color: var(--ink); }
+.hero-drop.is-uploading img { filter: saturate(0.85); }
+
+/* Caption and post toggle appear once there is a photo. */
+.onboard-hero-details {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  margin-top: 0;
+  transition: grid-template-rows 360ms var(--onboard-ease, ease), opacity 260ms ease, margin-top 360ms var(--onboard-ease, ease);
+}
+.onboard-hero-details-slot { min-height: 0; overflow: hidden; }
+.onboard-hero-details.is-open { grid-template-rows: 1fr; opacity: 1; margin-top: 8px; }
+.onboard-hero-details .stack { margin: 6px 0 12px; }
+.hero-caption { resize: none; min-height: 84px; }
+.onboard-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+.onboard-toggle-text { display: grid; gap: 2px; min-width: 0; }
+.onboard-toggle-text strong { font-size: 15px; font-weight: 600; }
+.onboard-toggle-text span { font-size: 13px; line-height: 1.4; color: var(--muted); }
+
+.onboard-cta { gap: 10px; }
+.onboard-cta .onboard-back { flex: 0 0 auto; margin: 0; min-width: 92px; }
+.onboard-cta .btn:not(.onboard-back) { margin: 0; }
+
+/* Claim status: the hero waits here until a reviewer says yes. */
+.claim-hero-wait {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 16px;
+  align-items: center;
+  padding: 14px;
+  background: var(--surface);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+.claim-hero-wait img {
+  width: 112px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+.claim-hero-wait h2 { margin: 0 0 4px; color: var(--ink); font-size: 15px; }
+.claim-hero-wait .meta-line { margin: 0; }
+.claim-hero-caption { margin: 8px 0 0; font-size: 14px; color: var(--ink-soft); font-style: italic; }
+
+@media (prefers-reduced-motion: reduce) {
+  .onboard-step, .onboard-reveal, .onboard-preview-name, .onboard-preview-address, .hero-drop img,
+  .onboard-progress span.is-on::after { animation: none; }
+  .onboard-hero-details, .onboard-card, .onboard-option, .onboard-option-check { transition: none; }
+}
+
 .status-rail {
   display: grid;
   gap: 0;

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ManageCard, ProfileCard, PropertyPicker, shortAddress, VisibilityCard } from "./account-profile";
-import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type MailSummary, type MaintainedProperty, type MapHome } from "./api";
+import { api, type AdminClaim, type Claim, type ClaimHero, type Doc, type MailMessage, type MailSummary, type MaintainedProperty, type MapHome } from "./api";
 import { useAuth } from "./auth";
+import { HeroStep, IdentityStep, OnboardingProgress } from "./claim-onboarding";
 import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, SettingsButton, ShareButton, type MapView } from "./components";
 import { DebugSheet } from "./debug";
 import { FeedPage } from "./feed";
@@ -199,10 +200,18 @@ const METHODS = [
   { id: "utility_and_id", title: "Utility bill and ID", body: "A utility bill at this address plus a government photo ID." },
 ];
 
+/**
+ * Claiming is the front door of the account, so it doubles as onboarding:
+ * how you appear, a photo of the house, then the evidence a reviewer needs.
+ * A draft claim opens as soon as you arrive so the first two steps have
+ * somewhere to live; submitting the evidence turns that same draft in.
+ */
 function ClaimPage() {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const navigate = useNavigate();
+  const [phase, setPhase] = useState<"identity" | "photo" | "verify">("identity");
+  const [claim, setClaim] = useState<Claim | null>(null);
   const [step, setStep] = useState(1);
   const [method, setMethod] = useState("tax_bill");
   const [files, setFiles] = useState<File[]>([]);
@@ -210,22 +219,31 @@ function ClaimPage() {
   const [attested, setAttested] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [address, setAddress] = useState("this property");
+  const [place, setPlace] = useState<{ formatted: string | null; municipality: string | null; county: string } | null>(null);
   const [blocked, setBlocked] = useState<string | null>(null);
 
+  const userId = user?.user_id ?? null;
   useEffect(() => {
-    if (!id) return;
-    api.property(id).then((d) => {
-      setAddress(d.property.formatted ?? "this property");
-      const alreadyOwned = d.property.maintainers.length > 0;
-      const invited = d.viewer.invitation?.role === "owner";
-      if (alreadyOwned && !invited && !d.viewer.maintainer) {
-        setBlocked("This property already has a verified owner. A transfer starts when they invite you from the handoff section.");
+    if (!id || !userId) return;
+    let cancelled = false;
+    void Promise.all([api.property(id), api.startClaim(id)]).then(([d, started]) => {
+      if (cancelled) return;
+      setPlace({ formatted: d.property.formatted, municipality: d.property.municipality, county: d.property.county });
+      if (started.claim.status === "pending") {
+        navigate(`/property/${id}/claim/${started.claim.claim_id}`, { replace: true });
+        return;
       }
+      setClaim(started.claim);
+    }).catch((err) => {
+      if (cancelled) return;
+      setBlocked(err instanceof Error ? err.message : "Could not start a claim.");
     });
-  }, [id]);
+    return () => { cancelled = true; };
+  }, [id, userId, navigate]);
 
   if (!user) return <Navigate to={`/signup?next=/property/${id}/claim`} replace />;
+
+  const address = place?.formatted ?? "this property";
 
   const submit = async () => {
     if (!id) return;
@@ -244,30 +262,65 @@ function ClaimPage() {
     }
   };
 
+  if (blocked) {
+    return (
+      <div className="page wizard">
+        <div className="kicker">Claim</div>
+        <h1 className="display">Claim this property</h1>
+        <p className="meta-line">{address}</p>
+        <p>{blocked}</p>
+        <p><Link className="btn secondary" to={`/property/${id}`}>Back to the property</Link></p>
+      </div>
+    );
+  }
+  if (!claim || !place) return <PageSpinner label="Starting your claim" />;
+
+  if (phase === "identity") {
+    return (
+      <div className="page wizard auth-page onboard-page" data-testid="onboard-identity">
+        <IdentityStep
+          key={claim.claim_id}
+          user={user}
+          claim={claim}
+          property={place}
+          onUser={refresh}
+          onDone={(saved) => { setClaim(saved); setPhase("photo"); }}
+        />
+      </div>
+    );
+  }
+  if (phase === "photo") {
+    return (
+      <div className="page wizard auth-page onboard-page" data-testid="onboard-photo">
+        <HeroStep
+          key={claim.claim_id}
+          claim={claim}
+          onBack={() => setPhase("identity")}
+          onDone={(saved) => { setClaim(saved); setPhase("verify"); }}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="page wizard">
-      <div className="kicker">Claim</div>
-      <h1 className="display">Claim this property</h1>
+    <div className="page wizard onboard-verify" data-testid="onboard-verify">
+      <OnboardingProgress step={3} />
+      <div className="kicker">Step 3 of 3</div>
+      <h1 className="display">Verify it's yours</h1>
       <p className="meta-line">{address}</p>
-      {!blocked && (
-        <div className="steps">
-          {["Property", "Method", "Evidence", "Attest"].map((label, i) => (
-            <span key={label} className={step === i + 1 ? "on" : ""}>{i + 1}. {label}</span>
-          ))}
-        </div>
-      )}
+      <div className="steps">
+        {["Property", "Method", "Evidence", "Attest"].map((label, i) => (
+          <span key={label} className={step === i + 1 ? "on" : ""}>{i + 1}. {label}</span>
+        ))}
+      </div>
 
-      {blocked && (
-        <>
-          <p>{blocked}</p>
-          <p><Link className="btn secondary" to={`/property/${id}`}>Back to the property</Link></p>
-        </>
-      )}
-
-      {!blocked && step === 1 && (
+      {step === 1 && (
         <>
           <p>You are asking to become the owner maintainer of this record. Official government facts stay public. You will control the owner-maintained layer and documents.</p>
-          <button type="button" className="btn" data-testid="claim-confirm" onClick={() => setStep(2)}>This is my property</button>
+          <div className="action-row">
+            <button type="button" className="btn secondary" onClick={() => setPhase("photo")}>Back</button>
+            <button type="button" className="btn" data-testid="claim-confirm" onClick={() => setStep(2)}>This is my property</button>
+          </div>
         </>
       )}
       {!blocked && step === 2 && (
@@ -327,6 +380,7 @@ function ClaimStatusPage() {
   const { id, claimId } = useParams();
   const [claim, setClaim] = useState<Claim | null>(null);
   const [docs, setDocs] = useState<Doc[]>([]);
+  const [hero, setHero] = useState<ClaimHero | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -334,6 +388,7 @@ function ClaimStatusPage() {
     api.claim(claimId).then((d) => {
       setClaim(d.claim);
       setDocs(d.documents);
+      setHero(d.hero);
     }).catch((err) => setError(err.message));
   }, [claimId]);
 
@@ -362,6 +417,20 @@ function ClaimStatusPage() {
         <p><Link className="btn" to={`/property/${id}`}>Open the owner record</Link></p>
       )}
       {status === "rejected" && claim.reviewer_note && <p>{claim.reviewer_note}</p>}
+      {hero && status === "pending" && (
+        <section className="section claim-hero-wait">
+          <img src={`/api/documents/${hero.document_id}/file`} alt="Your home" />
+          <div>
+            <h2>Your photo is ready</h2>
+            <p className="meta-line">
+              {claim.hero_as_post === false
+                ? "It becomes the cover of your page the moment you're verified."
+                : "It becomes the cover of your page and your first post the moment you're verified."}
+            </p>
+            {claim.hero_caption && <p className="claim-hero-caption">“{claim.hero_caption}”</p>}
+          </div>
+        </section>
+      )}
       <section className="section">
         <h2>Evidence on file</h2>
         {docs.length === 0 && <p className="meta-line">No documents uploaded.</p>}
@@ -382,8 +451,6 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
   const { refresh, user } = useAuth();
   const [params] = useSearchParams();
   const navigate = useNavigate();
-  const [firstName, setFirstName] = useState(params.get("first") ?? "");
-  const [lastName, setLastName] = useState(params.get("last") ?? "");
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [code, setCode] = useState("");
   const [sent, setSent] = useState(false);
@@ -391,6 +458,9 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
   const [error, setError] = useState<string | null>(null);
   const next = params.get("next") || "/account";
   const signup = mode === "signup";
+  // Arriving from a Claim button: the account is the first step of claiming,
+  // so say so, and let the claim page carry on with identity and photo.
+  const claiming = /^\/property\/[^/]+\/claim\/?$/.test(next);
   const codeRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -408,7 +478,7 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
     return search ? `${path}?${search}` : path;
   };
 
-  const readyToSend = Boolean(email.trim() && (!signup || firstName.trim()));
+  const readyToSend = Boolean(email.trim());
   const sendCode = async () => {
     if (!readyToSend || busy) return;
     setBusy(true);
@@ -424,13 +494,9 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
   };
   const verify = async () => {
     if (code.length < 6 || busy) return;
-    if (signup && !firstName.trim()) {
-      setError("Enter your first name.");
-      return;
-    }
     setBusy(true);
     try {
-      await api.verify(email.trim(), code, signup ? { firstName: firstName.trim(), lastName: lastName.trim() } : undefined);
+      await api.verify(email.trim(), code);
       await refresh();
       navigate(next);
     } catch (err) {
@@ -444,9 +510,13 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
     <div className="page wizard auth-page" data-testid={signup ? "signup-page" : "signin-page"}>
       <form className="auth-form" onSubmit={(event) => { event.preventDefault(); void (sent ? verify() : sendCode()); }}>
         <div className="auth-body">
-          <div className="kicker">{signup ? "Free account" : "Welcome back"}</div>
-          <h1 className="display">{signup ? "Create your account" : "Sign in"}</h1>
-          <p className="meta-line auth-lede">We'll send you a six-digit code to your email.</p>
+          <div className="kicker">{signup ? (claiming ? "Claim your home" : "Free account") : "Welcome back"}</div>
+          <h1 className="display">{signup ? (claiming ? "Start with your email" : "Create your account") : "Sign in"}</h1>
+          <p className="meta-line auth-lede">
+            {claiming && signup
+              ? "We'll send a six-digit code. Then you'll choose how you appear and add a photo of your home."
+              : "We'll send you a six-digit code to your email."}
+          </p>
           <p className="auth-switch">
             {signup ? (
               <>Already have an account? <Link to={otherHref("/signin")}>Sign in</Link></>
@@ -477,55 +547,21 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
           )}
 
           {!sent ? (
-            <>
-              {signup && (
-                <div className="auth-names">
-                  <label className="stack">
-                    <span>First name</span>
-                    <input
-                      className="field"
-                      type="text"
-                      autoComplete="given-name"
-                      autoCapitalize="words"
-                      autoCorrect="off"
-                      autoFocus
-                      required
-                      maxLength={80}
-                      value={firstName}
-                      onChange={(e) => setFirstName(e.target.value)}
-                    />
-                  </label>
-                  <label className="stack">
-                    <span>Last name</span>
-                    <input
-                      className="field"
-                      type="text"
-                      autoComplete="family-name"
-                      autoCapitalize="words"
-                      autoCorrect="off"
-                      maxLength={80}
-                      value={lastName}
-                      onChange={(e) => setLastName(e.target.value)}
-                    />
-                  </label>
-                </div>
-              )}
-              <label className="stack">
-                <span>Email</span>
-                <input
-                  className="field"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  autoFocus={!signup}
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </label>
-            </>
+            <label className="stack">
+              <span>Email</span>
+              <input
+                className="field"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                autoFocus
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </label>
           ) : (
             <>
               <div className="auth-sent">
@@ -557,7 +593,7 @@ function AuthPage({ mode }: { mode: "signin" | "signup" }) {
         <div className="manage-cta">
           <button type="submit" className="btn" disabled={busy || (sent ? code.length < 6 : !readyToSend)}>
             {sent
-              ? (signup ? "Create account" : "Verify and continue")
+              ? (signup ? (claiming ? "Continue" : "Create account") : "Verify and continue")
               : "Continue with email"}
           </button>
         </div>

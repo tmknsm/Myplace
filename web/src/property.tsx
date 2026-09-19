@@ -494,10 +494,17 @@ export function PropertyPageView() {
     }
     navigate(user ? `/property/${id}/claim` : `/signup?next=/property/${id}/claim`);
   };
+  // A draft is onboarding left half-done: send them back into it. Pending
+  // means the evidence is in, so the door leads to the review status.
+  const claimDraft = viewer.openClaim?.status === "draft";
+  const openClaimHref = viewer.openClaim
+    ? (claimDraft ? `/property/${id}/claim` : `/property/${id}/claim/${viewer.openClaim.claim_id}`)
+    : null;
+  const openClaimLabel = claimDraft ? "Finish claiming" : "Claim under review";
   /** Where the preview's doors lead: into the claim flow, or to the claim already under review. */
   const goClaim = () => {
-    if (viewer.openClaim) {
-      navigate(`/property/${id}/claim/${viewer.openClaim.claim_id}`);
+    if (openClaimHref) {
+      navigate(openClaimHref);
       return;
     }
     startClaim();
@@ -681,8 +688,8 @@ export function PropertyPageView() {
               <>
                 {(!maintained || viewer.openClaim || viewer.invitation?.role === "owner") && (
                   <div className="action-row compact">
-                    {viewer.openClaim ? (
-                      <Link className="btn secondary" to={`/property/${id}/claim/${viewer.openClaim.claim_id}`}>Claim under review</Link>
+                    {openClaimHref ? (
+                      <Link className={`btn${claimDraft ? "" : " secondary"}`} to={openClaimHref}>{openClaimLabel}</Link>
                     ) : (
                       <button type="button" className="btn" data-testid="claim-button" onClick={startClaim}>
                         {viewer.invitation?.role === "owner" ? "Continue handoff" : "Claim this address"}
@@ -891,7 +898,8 @@ export function PropertyPageView() {
           {previewCards.length > 0 && (
             <ClaimPreview
               cards={previewCards}
-              openClaim={viewer.openClaim ? `/property/${id}/claim/${viewer.openClaim.claim_id}` : null}
+              openClaim={openClaimHref}
+              openClaimLabel={openClaimLabel}
               onClaim={goClaim}
             />
           )}
@@ -1033,11 +1041,13 @@ function VaultCard({ propertyId, count, maintainers }: { propertyId: string; cou
 function ClaimPreview({
   cards,
   openClaim,
+  openClaimLabel,
   onClaim,
 }: {
   cards: typeof PREVIEW_CARDS;
-  /** Link to the claim under review, when the viewer already has one open. */
+  /** Link to the claim already open (its onboarding, or its review), when the viewer has one. */
   openClaim: string | null;
+  openClaimLabel: string;
   onClaim: () => void;
 }) {
   return (
@@ -1058,13 +1068,13 @@ function ClaimPreview({
           >
             <span className="preview-card-title">{card.title}</span>
             <span className="meta-line">{card.body}</span>
-            <span className="preview-card-cta">{openClaim ? "Claim under review" : "Claim to add"}</span>
+            <span className="preview-card-cta">{openClaim ? openClaimLabel : "Claim to add"}</span>
           </button>
         ))}
       </div>
       <div className="claim-preview-foot">
         {openClaim ? (
-          <Link className="btn secondary" to={openClaim}>Claim under review</Link>
+          <Link className="btn secondary" to={openClaim}>{openClaimLabel}</Link>
         ) : (
           <button type="button" className="btn" data-testid="claim-preview-button" onClick={onClaim}>Claim this address</button>
         )}

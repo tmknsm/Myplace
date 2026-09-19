@@ -55,7 +55,7 @@ export const api = {
   verify: (email: string, code: string, names?: { firstName?: string; lastName?: string }) =>
     request<{ user: User }>("/api/auth/verify", { method: "POST", body: JSON.stringify({ email, code, ...names }) }),
   signOut: () => request<{ ok: boolean }>("/api/auth/sign-out", { method: "POST" }),
-  updateMe: (body: { handle?: string; avatar?: "abstract" | "default" }) =>
+  updateMe: (body: { handle?: string; avatar?: "abstract" | "default"; firstName?: string; lastName?: string }) =>
     request<{ user: User }>("/api/me", { method: "PATCH", body: JSON.stringify(body) }),
   handleAvailable: (handle: string) =>
     request<{ available: boolean; handle: string }>(`/api/handles/${encodeURIComponent(handle)}`),
@@ -80,7 +80,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  claim: (id: string) => request<{ claim: Claim; documents: Doc[] }>(`/api/claims/${id}`),
+  startClaim: (id: string) => request<{ claim: Claim }>(`/api/properties/${id}/claims/start`, { method: "POST" }),
+  patchClaim: (claimId: string, body: ClaimChoices) =>
+    request<{ claim: Claim }>(`/api/claims/${claimId}`, { method: "PATCH", body: JSON.stringify(body) }),
+  claim: (id: string) => request<{ claim: Claim; documents: Doc[]; hero: ClaimHero | null }>(`/api/claims/${id}`),
   myClaims: () => request<{ claims: Claim[] }>("/api/me/claims"),
   myProperties: async () => {
     const data = await request<{ properties: MaintainedProperty[] }>("/api/me/properties");
@@ -569,6 +572,32 @@ export interface Claim {
   submitted_at: string | null;
   reviewer_note?: string | null;
   formatted?: string | null;
+  municipality?: string | null;
+  anonymize?: boolean;
+  hide_street?: boolean;
+  hide_listing?: boolean;
+  hero_document_id?: string | null;
+  hero_caption?: string | null;
+  hero_as_post?: boolean;
+}
+
+/** Onboarding choices kept on an open claim until it is verified. */
+export interface ClaimChoices {
+  anonymize?: boolean;
+  hide_street?: boolean;
+  hide_listing?: boolean;
+  hero_caption?: string | null;
+  hero_as_post?: boolean;
+  /** Only null is accepted: drop the hero photo. Uploads set it through `upload` with `hero: "true"`. */
+  hero_document_id?: null;
+}
+
+export interface ClaimHero {
+  document_id: string;
+  original_filename: string | null;
+  mime_type: string | null;
+  byte_size: number;
+  created_at: string;
 }
 
 export interface AdminClaim extends Claim {

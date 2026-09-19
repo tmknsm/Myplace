@@ -2321,3 +2321,158 @@ test("neighbors: a property page lists every confirmed house, including past eig
   expect(page.property.neighbors[0].formatted).toMatch(/Neighbor Street/);
 });
 
+
+test("onboarding: choices and the hero photo wait on the draft claim, then land on verification", async () => {
+  await seedProperty();
+  const cookie = await signIn("newcomer@example.com");
+  const json = (body: unknown) => ({ "content-type": "application/json", cookie });
+
+  // Sign-up took only an email; the identity step fills the name in.
+  const named = await app.request("http://localhost/api/me", {
+    method: "PATCH", headers: json({}), body: JSON.stringify({ firstName: " Jane ", lastName: "Doe" }),
+  });
+  expect(named.status).toBe(200);
+  expect((await named.json()).user).toEqual(expect.objectContaining({ first_name: "Jane", last_name: "Doe", display_name: "Jane Doe" }));
+
+  // Starting twice returns the same draft. Drafts stay off the person's claim list.
+  const started = await app.request("http://localhost/api/properties/prop_test/claims/start", { method: "POST", headers: { cookie } });
+  expect(started.status).toBe(201);
+  const draft = (await started.json()).claim;
+  expect(draft.status).toBe("draft");
+  const again = await app.request("http://localhost/api/properties/prop_test/claims/start", { method: "POST", headers: { cookie } });
+  expect(again.status).toBe(200);
+  expect((await again.json()).claim.claim_id).toBe(draft.claim_id);
+  expect((await (await app.request("http://localhost/api/me/claims", { headers: { cookie } })).json()).claims).toEqual([]);
+
+  const chose = await app.request(`http://localhost/api/claims/${draft.claim_id}`, {
+    method: "PATCH", headers: json({}), body: JSON.stringify({ anonymize: true, hide_street: true, hide_listing: false }),
+  });
+  expect(chose.status).toBe(200);
+  expect((await chose.json()).claim).toEqual(expect.objectContaining({ anonymize: true, hide_street: true, hide_listing: false }));
+
+  // The hero rides on the claim, private, and is not evidence.
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const upload = async (name: string, extra: Record<string, string>) => {
+    const form = new FormData();
+    form.append("file", new File([png], name, { type: "image/png" }));
+    form.append("claimId", draft.claim_id);
+    for (const [key, value] of Object.entries(extra)) form.append(key, value);
+    return app.request("http://localhost/api/properties/prop_test/documents", { method: "POST", headers: { cookie }, body: form });
+  };
+  const firstHero = await upload("porch.png", { hero: "true", caption: "Our porch in June" });
+  expect(firstHero.status).toBe(201);
+  const firstHeroId = (await firstHero.json()).documentId as string;
+  const secondHero = await upload("front.png", { hero: "true" });
+  expect(secondHero.status).toBe(201);
+  const heroId = (await secondHero.json()).documentId as string;
+  const replaced = await sql<{ removed_at: string | null }[]>`SELECT removed_at FROM documents WHERE document_id = ${firstHeroId}`;
+  expect(replaced[0]?.removed_at).not.toBeNull();
+
+  const visitorBefore = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(visitorBefore.property.documents).toEqual([]);
+  expect(visitorBefore.property.posts).toEqual([]);
+
+  const captioned = await app.request(`http://localhost/api/claims/${draft.claim_id}`, {
+    method: "PATCH", headers: json({}), body: JSON.stringify({ hero_caption: "  Home, finally.  ", hero_as_post: true }),
+  });
+  expect((await captioned.json()).claim).toEqual(expect.objectContaining({ hero_document_id: heroId, hero_caption: "Home, finally." }));
+
+  // Submitting the evidence turns the same draft in rather than opening a second claim.
+  const submitted = await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST", headers: json({}), body: JSON.stringify({ method: "tax_bill", attestationAccepted: true }),
+  });
+  expect(submitted.status).toBe(201);
+  expect((await submitted.json()).claimId).toBe(draft.claim_id);
+  const evidence = await upload("bill.png", { documentType: "tax_bill", visibility: "private" });
+  expect(evidence.status).toBe(201);
+  const status = await (await app.request(`http://localhost/api/claims/${draft.claim_id}`, { headers: { cookie } })).json();
+  expect(status.claim.status).toBe("pending");
+  expect(status.hero.document_id).toBe(heroId);
+  expect(status.documents.map((d: { original_filename: string }) => d.original_filename)).toEqual(["bill.png"]);
+  const openCount = await sql<{ n: string }[]>`SELECT count(*) AS n FROM ownership_claims WHERE user_id = ${draft.user_id}`;
+  expect(Number(openCount[0]?.n)).toBe(1);
+
+  const adminCookie = await signIn("admin@example.com", true);
+  const review = await app.request(`http://localhost/api/admin/claims/${draft.claim_id}/review`, {
+    method: "POST", headers: { "content-type": "application/json", cookie: adminCookie }, body: JSON.stringify({ decision: "verified" }),
+  });
+  expect(review.status).toBe(200);
+
+  // Verified: alias and town-only on the maintainer row, hero public as cover and first post.
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(page.property.hide_street).toBe(true);
+  expect(page.property.maintainers[0]).toEqual(expect.objectContaining({ anonymize: true, label: "Owner" }));
+  expect(page.property.documents).toEqual([
+    expect.objectContaining({ document_id: heroId, is_cover: true, visibility: "public", caption: "Home, finally." }),
+  ]);
+  expect(page.property.posts).toHaveLength(1);
+  expect(page.property.posts[0].body).toBe("Home, finally.");
+  expect(page.property.posts[0].documents.map((d: { document_id: string }) => d.document_id)).toEqual([heroId]);
+  expect(page.property.events.some((e: { event_type: string }) => e.event_type === "post.added")).toBe(true);
+  const file = await app.request(`http://localhost/api/documents/${heroId}/file`);
+  expect(file.status).toBe(200);
+});
+
+test("onboarding: hiding the listing takes the house off the map when verified; a hero can be dropped or kept out of the feed", async () => {
+  await seedProperty();
+  const cookie = await signIn("quiet@example.com");
+  const started = await app.request("http://localhost/api/properties/prop_test/claims/start", { method: "POST", headers: { cookie } });
+  const draft = (await started.json()).claim;
+
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const upload = async () => {
+    const form = new FormData();
+    form.append("file", new File([png], "house.png", { type: "image/png" }));
+    form.append("claimId", draft.claim_id);
+    form.append("hero", "true");
+    return app.request("http://localhost/api/properties/prop_test/documents", { method: "POST", headers: { cookie }, body: form });
+  };
+  const dropped = (await (await upload()).json()).documentId as string;
+  const removed = await app.request(`http://localhost/api/claims/${draft.claim_id}`, {
+    method: "PATCH", headers: { "content-type": "application/json", cookie }, body: JSON.stringify({ hero_document_id: null }),
+  });
+  expect((await removed.json()).claim.hero_document_id).toBeNull();
+  expect((await sql<{ removed_at: string | null }[]>`SELECT removed_at FROM documents WHERE document_id = ${dropped}`)[0]?.removed_at).not.toBeNull();
+
+  const heroId = (await (await upload()).json()).documentId as string;
+  await app.request(`http://localhost/api/claims/${draft.claim_id}`, {
+    method: "PATCH", headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ hide_listing: true, hide_street: true, hero_as_post: false }),
+  });
+  const submitted = await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST", headers: { "content-type": "application/json", cookie }, body: JSON.stringify({ method: "deed", attestationAccepted: true }),
+  });
+  expect(submitted.status).toBe(201);
+
+  // A stranger cannot touch someone else's claim.
+  const stranger = await signIn("stranger@example.com");
+  const meddle = await app.request(`http://localhost/api/claims/${draft.claim_id}`, {
+    method: "PATCH", headers: { "content-type": "application/json", cookie: stranger }, body: JSON.stringify({ anonymize: true }),
+  });
+  expect(meddle.status).toBe(403);
+
+  const adminCookie = await signIn("admin@example.com", true);
+  await app.request(`http://localhost/api/admin/claims/${draft.claim_id}/review`, {
+    method: "POST", headers: { "content-type": "application/json", cookie: adminCookie }, body: JSON.stringify({ decision: "verified" }),
+  });
+
+  const removedFlag = await sql<{ removed: boolean }[]>`SELECT removed FROM properties WHERE property_id = 'prop_test'`;
+  expect(removedFlag[0]?.removed).toBe(true);
+  const search = await (await app.request("http://localhost/api/search?q=Warren")).json();
+  expect(search.results).toEqual([]);
+  // Off Myplace means off for everyone, owner included; the account page is the way back.
+  expect((await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).status).toBe(404);
+  const hero = await sql<{ is_cover: boolean; post_id: string | null; visibility: string; claim_id: string | null }[]>`
+    SELECT is_cover, post_id, visibility, claim_id FROM documents WHERE document_id = ${heroId}
+  `;
+  expect(hero[0]).toEqual({ is_cover: true, post_id: null, visibility: "public", claim_id: null });
+  expect(Number((await sql<{ n: string }[]>`SELECT count(*) AS n FROM property_posts WHERE property_id = 'prop_test'`)[0]?.n)).toBe(0);
+  const maintainer = await sql<{ anonymize: boolean; hide_street: boolean }[]>`
+    SELECT anonymize, hide_street FROM property_maintainers WHERE property_id = 'prop_test' AND revoked_at IS NULL
+  `;
+  expect(maintainer[0]).toEqual({ anonymize: false, hide_street: true });
+  const events = await sql<{ event_type: string }[]>`SELECT event_type FROM property_events WHERE property_id = 'prop_test'`;
+  expect(events.some((e) => e.event_type === "photo.added")).toBe(true);
+  const mine = await (await app.request("http://localhost/api/me/properties", { headers: { cookie } })).json();
+  expect(mine.properties[0]).toEqual(expect.objectContaining({ property_id: "prop_test", removed: true }));
+});

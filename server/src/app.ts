@@ -276,15 +276,28 @@ app.post("/api/auth/verify", async (c) => {
 
 app.patch("/api/me", async (c) => {
   const user = requireUser(c);
-  const body = await c.req.json<{ handle?: string; avatar?: string }>();
+  const body = await c.req.json<{ handle?: string; avatar?: string; firstName?: string; lastName?: string }>();
   if (body.avatar !== undefined && !isAvatarPreset(body.avatar)) {
     return c.json({ error: "Unknown photo." }, 400);
   }
-  if (body.handle === undefined && body.avatar === undefined) {
+  const renaming = body.firstName !== undefined || body.lastName !== undefined;
+  if (body.handle === undefined && body.avatar === undefined && !renaming) {
     return c.json({ error: "Say what to change." }, 400);
   }
 
   const sql = getSql();
+  if (renaming) {
+    const firstName = (body.firstName ?? user.first_name ?? "").replace(/\s+/g, " ").trim();
+    const lastName = (body.lastName ?? user.last_name ?? "").replace(/\s+/g, " ").trim();
+    if (!firstName) return c.json({ error: "Enter your first name." }, 400);
+    if (firstName.length > 80 || lastName.length > 80) return c.json({ error: "That name is too long." }, 400);
+    await sql`
+      UPDATE users
+      SET first_name = ${firstName}, last_name = ${lastName || null},
+          display_name = ${[firstName, lastName].filter(Boolean).join(" ")}
+      WHERE user_id = ${user.user_id}
+    `;
+  }
   let handle = user.handle;
   if (body.handle !== undefined && body.handle !== "") {
     const parsed = parseHandle(body.handle);
@@ -295,7 +308,7 @@ app.patch("/api/me", async (c) => {
     if (taken[0]) return c.json({ error: "That handle is already taken." }, 409);
     handle = parsed.handle;
   }
-  await sql`UPDATE users SET handle = ${handle} WHERE user_id = ${user.user_id}`;
+  if (body.handle !== undefined) await sql`UPDATE users SET handle = ${handle} WHERE user_id = ${user.user_id}`;
   if (body.avatar !== undefined) {
     await setAvatar(user, AVATAR_PRESETS[body.avatar as AvatarPreset], null);
   }
@@ -618,6 +631,140 @@ async function addressOf(propertyId: string): Promise<string> {
   return core?.formatted ?? "this property";
 }
 
+interface ClaimRow {
+  claim_id: string;
+  property_id: string;
+  user_id: string;
+  method: string;
+  status: string;
+  notes: string | null;
+  reviewer_note: string | null;
+  submitted_at: string | null;
+  verified_at: string | null;
+  created_at: string;
+  anonymize: boolean;
+  hide_street: boolean;
+  hide_listing: boolean;
+  hero_document_id: string | null;
+  hero_caption: string | null;
+  hero_as_post: boolean;
+  formatted: string | null;
+  municipality: string | null;
+}
+
+async function loadClaim(claimId: string): Promise<ClaimRow | null> {
+  const sql = getSql();
+  const rows = await sql<ClaimRow[]>`
+    SELECT c.claim_id, c.property_id, c.user_id, c.method, c.status, c.notes, c.reviewer_note,
+           c.submitted_at, c.verified_at, c.created_at,
+           c.anonymize, c.hide_street, c.hide_listing, c.hero_document_id, c.hero_caption, c.hero_as_post,
+           p.municipality, a.formatted
+    FROM ownership_claims c
+    JOIN properties p ON p.property_id = c.property_id
+    LEFT JOIN property_addresses a ON a.property_id = c.property_id AND a.is_current
+    WHERE c.claim_id = ${claimId}
+  `;
+  return rows[0] ?? null;
+}
+
+/** The one claim this person has in progress on a property, draft or awaiting review. */
+async function openClaimFor(userId: string, propertyId: string): Promise<ClaimRow | null> {
+  const sql = getSql();
+  const rows = await sql<ClaimRow[]>`
+    SELECT c.claim_id, c.property_id, c.user_id, c.method, c.status, c.notes, c.reviewer_note,
+           c.submitted_at, c.verified_at, c.created_at,
+           c.anonymize, c.hide_street, c.hide_listing, c.hero_document_id, c.hero_caption, c.hero_as_post,
+           p.municipality, a.formatted
+    FROM ownership_claims c
+    JOIN properties p ON p.property_id = c.property_id
+    LEFT JOIN property_addresses a ON a.property_id = c.property_id AND a.is_current
+    WHERE c.property_id = ${propertyId} AND c.user_id = ${userId} AND c.status IN ('draft', 'pending')
+    ORDER BY c.created_at DESC
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
+/** Why this person may not start a claim here, or null when the door is open. */
+async function claimBlocker(user: AuthedUser, propertyId: string): Promise<string | null> {
+  const sql = getSql();
+  const alreadyOwned = await sql`
+    SELECT 1 FROM property_maintainers
+    WHERE property_id = ${propertyId} AND revoked_at IS NULL
+    LIMIT 1
+  `;
+  if (!alreadyOwned[0]) return null;
+  const invite = await pendingInvitationFor(propertyId, user.primary_email);
+  if (invite?.role === "owner") return null;
+  return "This property already has a verified owner. A transfer starts when they invite you from the handoff section.";
+}
+
+/**
+ * Open (or pick up) a claim so onboarding has somewhere to keep its choices
+ * and the hero photo before the evidence is in. A draft is private to its
+ * owner and invisible everywhere else until they submit it.
+ */
+app.post("/api/properties/:id/claims/start", async (c) => {
+  const user = requireUser(c);
+  const propertyId = c.req.param("id");
+  const core = await loadPropertyCore(propertyId);
+  if (!core) return c.json({ error: "Property not found" }, 404);
+  const existing = await openClaimFor(user.user_id, propertyId);
+  if (existing) return c.json({ claim: existing });
+  const blocked = await claimBlocker(user, propertyId);
+  if (blocked) return c.json({ error: blocked }, 409);
+  const claimId = id("clm");
+  await getSql()`
+    INSERT INTO ownership_claims (claim_id, property_id, user_id, method, status)
+    VALUES (${claimId}, ${propertyId}, ${user.user_id}, '', 'draft')
+  `;
+  return c.json({ claim: await loadClaim(claimId) }, 201);
+});
+
+/** Onboarding choices on an open claim. Applied to the house when the claim is verified. */
+app.patch("/api/claims/:id", async (c) => {
+  const user = requireUser(c);
+  const claim = await loadClaim(c.req.param("id"));
+  if (!claim) return c.json({ error: "Claim not found" }, 404);
+  if (claim.user_id !== user.user_id) return c.json({ error: "Forbidden" }, 403);
+  if (claim.status !== "draft" && claim.status !== "pending") {
+    return c.json({ error: "This claim is closed." }, 400);
+  }
+  const body = await c.req.json<{
+    anonymize?: boolean;
+    hide_street?: boolean;
+    hide_listing?: boolean;
+    hero_caption?: string | null;
+    hero_as_post?: boolean;
+    hero_document_id?: null;
+  }>();
+  for (const key of ["anonymize", "hide_street", "hide_listing", "hero_as_post"] as const) {
+    if (body[key] !== undefined && typeof body[key] !== "boolean") return c.json({ error: `Say yes or no for ${key}.` }, 400);
+  }
+  if (body.hero_caption !== undefined && body.hero_caption !== null && typeof body.hero_caption !== "string") {
+    return c.json({ error: "Captions are text." }, 400);
+  }
+  const caption = typeof body.hero_caption === "string" ? body.hero_caption.trim() : body.hero_caption;
+  if (caption && caption.length > POST_BODY_MAX) {
+    return c.json({ error: `Keep the caption under ${POST_BODY_MAX} characters.` }, 400);
+  }
+  const sql = getSql();
+  if (body.hero_document_id === null && claim.hero_document_id) {
+    await sql`UPDATE documents SET removed_at = now() WHERE document_id = ${claim.hero_document_id} AND removed_at IS NULL`;
+    await sql`UPDATE ownership_claims SET hero_document_id = NULL, hero_caption = NULL WHERE claim_id = ${claim.claim_id}`;
+  }
+  await sql`
+    UPDATE ownership_claims
+    SET anonymize = COALESCE(${body.anonymize ?? null}, anonymize),
+        hide_street = COALESCE(${body.hide_street ?? null}, hide_street),
+        hide_listing = COALESCE(${body.hide_listing ?? null}, hide_listing),
+        hero_as_post = COALESCE(${body.hero_as_post ?? null}, hero_as_post),
+        hero_caption = CASE WHEN ${caption === undefined} THEN hero_caption ELSE ${caption || null} END
+    WHERE claim_id = ${claim.claim_id}
+  `;
+  return c.json({ claim: await loadClaim(claim.claim_id) });
+});
+
 app.post("/api/properties/:id/claims", async (c) => {
   const user = requireUser(c);
   const propertyId = c.req.param("id");
@@ -638,33 +785,32 @@ app.post("/api/properties/:id/claims", async (c) => {
   }
 
   const sql = getSql();
-  const existing = await sql`
-    SELECT claim_id FROM ownership_claims
-    WHERE property_id = ${propertyId} AND user_id = ${user.user_id}
-      AND status IN ('draft', 'pending')
-  `;
-  if (existing[0]) return c.json({ error: "You already have an open claim for this property.", claimId: existing[0].claim_id }, 409);
-
-  const alreadyOwned = await sql`
-    SELECT 1 FROM property_maintainers
-    WHERE property_id = ${propertyId} AND revoked_at IS NULL
-    LIMIT 1
-  `;
-  if (alreadyOwned[0]) {
-    const invite = await pendingInvitationFor(propertyId, user.primary_email);
-    if (invite?.role !== "owner") {
-      return c.json({ error: "This property already has a verified owner. A transfer starts when they invite you from the handoff section." }, 409);
-    }
+  const existing = await openClaimFor(user.user_id, propertyId);
+  if (existing?.status === "pending") {
+    return c.json({ error: "You already have an open claim for this property.", claimId: existing.claim_id }, 409);
   }
 
-  const claimId = id("clm");
-  await sql`
-    INSERT INTO ownership_claims (
-      claim_id, property_id, user_id, method, status, attestation_accepted, notes, submitted_at
-    ) VALUES (
-      ${claimId}, ${propertyId}, ${user.user_id}, ${method}, 'pending', true, ${body.notes ?? null}, now()
-    )
-  `;
+  const blocked = await claimBlocker(user, propertyId);
+  if (blocked) return c.json({ error: blocked }, 409);
+
+  // Onboarding opened a draft ahead of this; submitting fills it in rather than
+  // starting a second record, so its choices and hero photo come along.
+  const claimId = existing?.claim_id ?? id("clm");
+  if (existing) {
+    await sql`
+      UPDATE ownership_claims
+      SET method = ${method}, status = 'pending', attestation_accepted = true, notes = ${body.notes ?? null}, submitted_at = now()
+      WHERE claim_id = ${claimId}
+    `;
+  } else {
+    await sql`
+      INSERT INTO ownership_claims (
+        claim_id, property_id, user_id, method, status, attestation_accepted, notes, submitted_at
+      ) VALUES (
+        ${claimId}, ${propertyId}, ${user.user_id}, ${method}, 'pending', true, ${body.notes ?? null}, now()
+      )
+    `;
+  }
   await emitEvent({
     propertyId,
     eventType: "ownership.claim_submitted",
@@ -718,11 +864,20 @@ app.get("/api/claims/:id", async (c) => {
   const claim = rows[0];
   if (!claim) return c.json({ error: "Claim not found" }, 404);
   if (claim.user_id !== user.user_id && !user.is_admin) return c.json({ error: "Forbidden" }, 403);
+  // The hero photo rides on the claim but is not evidence; it is listed on its own.
   const documents = await sql`
     SELECT document_id, original_filename, document_type, mime_type, byte_size, created_at
-    FROM documents WHERE claim_id = ${claim.claim_id}
+    FROM documents
+    WHERE claim_id = ${claim.claim_id} AND removed_at IS NULL
+      AND document_id IS DISTINCT FROM ${claim.hero_document_id}
   `;
-  return c.json({ claim, documents });
+  const hero = claim.hero_document_id
+    ? (await sql`
+        SELECT document_id, original_filename, mime_type, byte_size, created_at
+        FROM documents WHERE document_id = ${claim.hero_document_id} AND removed_at IS NULL
+      `)[0] ?? null
+    : null;
+  return c.json({ claim, documents, hero });
 });
 
 app.get("/api/me/claims", async (c) => {
@@ -732,7 +887,7 @@ app.get("/api/me/claims", async (c) => {
     SELECT c.claim_id, c.property_id, c.method, c.status, c.submitted_at, a.formatted
     FROM ownership_claims c
     LEFT JOIN property_addresses a ON a.property_id = c.property_id AND a.is_current
-    WHERE c.user_id = ${user.user_id}
+    WHERE c.user_id = ${user.user_id} AND c.status <> 'draft'
     ORDER BY c.created_at DESC
   `;
   return c.json({ claims });
@@ -797,15 +952,23 @@ app.post("/api/properties/:id/documents", async (c) => {
   const caption = typeof form.caption === "string" && form.caption.trim() ? form.caption.trim() : null;
   const isImage = file.type.startsWith("image/");
   if (postId && !isImage) return c.json({ error: "Posts take photos only." }, 400);
+  // The hero photo chosen while claiming. It stays private on the claim until
+  // the claim is verified, then becomes the cover (and usually the first post).
+  const asHero = form.hero === "true" && Boolean(claimId);
+  if (asHero && !isImage) return c.json({ error: "The hero photo must be an image." }, 400);
   const asCover = form.cover === "true" && isImage && !claimId && !postId;
   const requestedType = typeof form.documentType === "string" && form.documentType ? form.documentType : null;
-  const documentType = requestedType ?? (improvementId || roomId || topicId ? (isImage ? "photo" : "receipt") : isImage ? "photo" : "other");
+  const documentType = asHero
+    ? "photo"
+    : requestedType ?? (improvementId || roomId || topicId ? (isImage ? "photo" : "receipt") : isImage ? "photo" : "other");
   // A post is public by nature, so its photos are too.
   const visibility = postId
     ? "public"
-    : typeof form.visibility === "string" && form.visibility
-      ? form.visibility
-      : (documentType === "photo" || isImage ? "public" : "private");
+    : asHero
+      ? "private"
+      : typeof form.visibility === "string" && form.visibility
+        ? form.visibility
+        : (documentType === "photo" || isImage ? "public" : "private");
   const transferability = typeof form.transferability === "string" && form.transferability
     ? form.transferability
     : TRANSFERABLE_TYPES.has(documentType) ? "property_transferable" : "personal";
@@ -816,12 +979,17 @@ app.post("/api/properties/:id/documents", async (c) => {
     return c.json({ error: "Unknown transferability." }, 400);
   }
 
+  let previousHero: string | null = null;
   if (claimId) {
-    const claim = await sql`
-      SELECT claim_id FROM ownership_claims
+    const claim = await sql<{ claim_id: string; status: string; hero_document_id: string | null }[]>`
+      SELECT claim_id, status, hero_document_id FROM ownership_claims
       WHERE claim_id = ${claimId} AND user_id = ${user.user_id} AND property_id = ${propertyId}
     `;
     if (!claim[0]) return c.json({ error: "Claim not found" }, 404);
+    if (asHero && claim[0].status !== "draft" && claim[0].status !== "pending") {
+      return c.json({ error: "This claim is closed." }, 400);
+    }
+    previousHero = claim[0].hero_document_id;
   } else if (!(await isMaintainer(user.user_id, propertyId))) {
     return c.json({ error: "Only a current maintainer can upload to this record." }, 403);
   }
@@ -862,6 +1030,16 @@ app.post("/api/properties/:id/documents", async (c) => {
   `;
   upload.commit((optimized, optimizedKey) => recordOptimizedFile(documentId, optimized, optimizedKey));
   if (asCover) await setCoverPhoto(propertyId, documentId);
+  if (asHero) {
+    await sql`
+      UPDATE ownership_claims
+      SET hero_document_id = ${documentId}, hero_caption = COALESCE(${caption}, hero_caption)
+      WHERE claim_id = ${claimId}
+    `;
+    if (previousHero) {
+      await sql`UPDATE documents SET removed_at = now() WHERE document_id = ${previousHero} AND removed_at IS NULL`;
+    }
+  }
   // The post itself is the history entry; its photos don't each get one.
   if (!claimId && !postId) {
     await emitEvent({
