@@ -5,6 +5,7 @@ import { useAuth } from "./auth";
 import { PageSpinner, SearchBox } from "./components";
 import { PostCard } from "./property";
 import { useToast } from "./property-shared";
+import { useRetractingChrome } from "./retracting-chrome";
 
 function parseTab(raw: string | null): FeedScope {
   return raw === "neighbors" ? "neighbors" : "all";
@@ -22,6 +23,8 @@ export function FeedPage() {
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [toast, showToast] = useToast();
+  // Reading down the feed, the header gets out of the way; a scroll up brings it back.
+  useRetractingChrome(Boolean(feed && feed.posts.length > 0));
 
   const load = useCallback(async () => {
     try {

@@ -3857,6 +3857,17 @@ html.peek-gated body {
 .feed-empty .meta-line a { color: var(--ink-soft); font-weight: 500; }
 .feed-search { position: relative; }
 .feed-more { justify-content: center; margin-top: 32px; }
+/* Reading down the feed, the header and its glass slide up out of the way
+   together; scrolling back up returns them. Driven by `useRetractingChrome`. */
+.topbar,
+.chrome-glass::before {
+  transition: transform var(--sheet-out) var(--sheet-settle);
+}
+html.chrome-retracted .topbar,
+html.chrome-retracted .chrome-glass::before {
+  transform: translateY(-100%);
+}
+html.chrome-retracted .topbar { pointer-events: none; }
 
 /* New post sheet: the photos go up top in the same mosaic, then the caption. */
 .post-form-photos { margin: 4px 0 12px; }
@@ -4834,6 +4845,7 @@ html.home-search-docked .topbar .home-handoff {
 @media (prefers-reduced-motion: reduce) {
   .header-share, .header-neighbor, .header-settings, .share-btn { animation: none; }
   .header-add, .header-add-btn { transition: none; }
+  .topbar, .chrome-glass::before { transition-duration: 0.01ms; }
   .home-hero-copy > * { animation: none; }
   .home-chapter,
   .home-scene,
