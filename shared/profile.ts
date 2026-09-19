@@ -22,7 +22,8 @@ export const AVATAR_PRESETS = {
   abstract: ABSTRACT_AVATAR_URL,
 } as const;
 
-const STOCK_AVATARS = new Set<string>(DEFAULT_AVATAR_URLS);
+/** Stock Unsplash faces and the abstract preset. None of these are the person. */
+const STOCK_AVATARS = new Set<string>([...DEFAULT_AVATAR_URLS, ABSTRACT_AVATAR_URL]);
 
 function hashUserId(userId: string): number {
   let hash = 2166136261;
@@ -137,13 +138,12 @@ export function propertyHeading(
   };
 }
 
-/** True only when they uploaded a photo or picked the abstract preset. Stock faces do not count. */
+/** True only when they uploaded their own photo. Stock faces and the abstract preset do not count. */
 export function hasOwnPhoto(input: { avatar_url: string | null | undefined }): boolean {
   return Boolean(input.avatar_url && !STOCK_AVATARS.has(input.avatar_url));
 }
 
-/** The one photo on the account. Anonymize does not change it. */
-export function ownerPhoto(input: { avatar_url: string | null; user_id?: string | null }): string {
-  if (hasOwnPhoto(input)) return input.avatar_url!;
-  return defaultAvatarFor(input.user_id);
+/** Their uploaded photo, or null. Never a stock face or anyone else's picture. */
+export function ownerPhoto(input: { avatar_url: string | null; user_id?: string | null }): string | null {
+  return hasOwnPhoto(input) ? input.avatar_url! : null;
 }

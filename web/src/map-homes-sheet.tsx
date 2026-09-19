@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import type { MapHome } from "./api";
-import { NeighborHouseIcon, QUALITY_COLORS } from "./components";
+import { NeighborHouseIcon, PersonAvatar, QUALITY_COLORS } from "./components";
 import { DISMISS_MS, bindPressDrag, sampleVelocity, scrollChainAtTop } from "./dismiss-gesture";
 import {
   detentHeights,
@@ -273,7 +273,7 @@ function HomeCard({ home }: { home: MapHome }) {
           <div className="owner-bylines">
             {home.owners.map((person) => (
               <span key={person.user_id} className="owner-byline">
-                <img src={person.photo_url} alt="" width={16} height={16} />
+                <PersonAvatar src={person.photo_url} size={16} />
                 <span>{person.label}</span>
               </span>
             ))}

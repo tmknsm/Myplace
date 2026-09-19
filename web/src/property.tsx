@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, type DebugClaimResult, type Doc, type Engagement, type Fact, type FeedHouse, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PhotoComment, type PhotoPerson, type PhotoPost, type Post, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
-import { actorLabel, eventLabel, NeighborHouseIcon, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
+import { actorLabel, eventLabel, NeighborHouseIcon, PageSpinner, ParcelMap, PersonAvatar, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
 import { useMeta } from "./meta";
 import { DisputesSection } from "./property-owner";
@@ -649,7 +649,7 @@ export function PropertyPageView() {
                   className="owner-byline"
                   data-testid={person.role === "co_owner" ? "co-owner-byline" : "owner-byline"}
                 >
-                  <img src={person.photo_url} alt="" width={16} height={16} />
+                  <PersonAvatar src={person.photo_url} size={16} />
                   <span>{person.label}</span>
                 </div>
               ))}
@@ -1562,7 +1562,7 @@ function NeighborOwnerBadges({ owners }: { owners: NeighborPerson["owners"] }) {
     <div className="owner-bylines">
       {owners.map((person) => (
         <div key={person.user_id} className="owner-byline" data-testid="neighbor-owner-badge">
-          <img src={person.photo_url} alt="" width={16} height={16} />
+          <PersonAvatar src={person.photo_url} size={16} />
           <span>{person.label}</span>
         </div>
       ))}
@@ -3895,7 +3895,7 @@ function PhotoComments({
           <article className="comment-post" data-testid="photo-post">
             {post?.author && (
               <div className="comment-post-byline">
-                <span className="neighbor-avatar comment-post-avatar"><img src={post.author.photo_url} alt="" /></span>
+                <PersonAvatar className="neighbor-avatar comment-post-avatar" src={post.author.photo_url} />
                 <div className="comment-post-who">
                   <strong>{post.author.label}</strong>
                   {post.author.handle && <span>{post.author.handle}</span>}
@@ -3920,7 +3920,7 @@ function PhotoComments({
             comments.map((comment) => (
               <div key={comment.comment_id} className="comment-row" data-testid="photo-comment">
                 <CommentHouseLink person={comment.author} mine={comment.mine} className="neighbor-avatar">
-                  <img src={comment.author.photo_url} alt="" />
+                  <PersonAvatar src={comment.author.photo_url} />
                 </CommentHouseLink>
                 <div className="comment-copy">
                   <div className="comment-meta">
@@ -4546,7 +4546,7 @@ function PostByline({ post, house }: { post: Post; house?: FeedHouse }) {
   const where = house ? propertyHeading(house).title : null;
   return (
     <div className="post-byline">
-      {post.author && <img src={post.author.photo_url} alt="" width={28} height={28} />}
+      {post.author && <PersonAvatar src={post.author.photo_url} size={28} />}
       <div className="post-who">
         <strong>{post.author?.label ?? "Owner"}</strong>
         <span className="post-when">

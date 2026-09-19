@@ -17,7 +17,7 @@ interface NeighborUserRow {
 export interface NeighborOwner {
   user_id: string;
   label: string;
-  photo_url: string;
+  photo_url: string | null;
 }
 
 export interface NeighborPerson {

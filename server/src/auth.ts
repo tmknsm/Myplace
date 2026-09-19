@@ -1,7 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Context, Next } from "hono";
-import { DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
 import { config } from "./config.ts";
 import { getSql } from "./db.ts";
 import { id } from "./ids.ts";
@@ -140,8 +139,7 @@ export async function upsertUser(email: string, names?: { firstName?: string; la
           first_name = COALESCE(first_name, ${nextFirst}),
           last_name = COALESCE(last_name, ${nextLast}),
           display_name = COALESCE(display_name, ${nextDisplay}),
-          handle = COALESCE(handle, ${nextHandle}),
-          avatar_url = COALESCE(avatar_url, ${DEFAULT_AVATAR_URL})
+          handle = COALESCE(handle, ${nextHandle})
       WHERE user_id = ${current.user_id}
     `;
     return {
@@ -150,7 +148,6 @@ export async function upsertUser(email: string, names?: { firstName?: string; la
       last_name: nextLast,
       display_name: nextDisplay,
       handle: nextHandle,
-      avatar_url: current.avatar_url || DEFAULT_AVATAR_URL,
     };
   }
   const userId = id("usr");
@@ -158,11 +155,11 @@ export async function upsertUser(email: string, names?: { firstName?: string; la
   await sql`
     INSERT INTO users (
       user_id, primary_email, email_verified_at, display_name, first_name, last_name,
-      handle, avatar_url
+      handle
     )
     VALUES (
       ${userId}, ${normalized}, now(), ${displayName}, ${firstName}, ${lastName},
-      ${handle}, ${DEFAULT_AVATAR_URL}
+      ${handle}
     )
   `;
   await sql`
@@ -176,7 +173,7 @@ export async function upsertUser(email: string, names?: { firstName?: string; la
     first_name: firstName,
     last_name: lastName,
     handle,
-    avatar_url: DEFAULT_AVATAR_URL,
+    avatar_url: null,
     avatar_key: null,
     is_admin: false,
   };

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { formatHandle, ownerLabel, ownerPhoto, parseHandle } from "../../shared/profile";
+import { formatHandle, hasOwnPhoto, ownerLabel, ownerPhoto, parseHandle } from "../../shared/profile";
 import { api, type MaintainedProperty, type User } from "./api";
-import { Spinner } from "./components";
+import { PersonAvatar, Spinner } from "./components";
 import { snapshotPhotoFile } from "./optimize-photo";
 import { type Toast } from "./property-shared";
 
@@ -41,10 +41,18 @@ export function ProfileCard({ user, onUser, showToast }: { user: User; onUser: (
     <>
       <section className="profile-card" data-testid="profile-card">
         <label className={`profile-card-avatar file-btn${busy ? " is-busy" : ""}`} aria-label="Change photo" aria-busy={busy}>
-          <img src={ownerPhoto(user)} alt="" width={96} height={96} data-testid="profile-avatar" />
-          <span className="profile-card-avatar-cam" aria-hidden="true">
-            <CameraIcon />
-          </span>
+          {hasOwnPhoto(user) ? (
+            <img src={ownerPhoto(user)!} alt="" width={96} height={96} data-testid="profile-avatar" />
+          ) : (
+            <span className="profile-card-avatar-empty" data-testid="profile-avatar" aria-hidden="true">
+              <CameraIcon />
+            </span>
+          )}
+          {hasOwnPhoto(user) && (
+            <span className="profile-card-avatar-cam" aria-hidden="true">
+              <CameraIcon />
+            </span>
+          )}
           {busy && <span className="profile-card-avatar-busy"><Spinner /></span>}
           <input
             type="file"
@@ -200,7 +208,7 @@ export function PropertyPicker({
                   {property.maintainers.length > 0 && !property.removed && (
                     <span className="row-avatars">
                       {property.maintainers.map((person) => (
-                        <img key={person.user_id} src={person.photo_url} alt={person.label} />
+                        <PersonAvatar key={person.user_id} src={person.photo_url} alt={person.label} />
                       ))}
                     </span>
                   )}

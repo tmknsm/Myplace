@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { defaultAvatarFor, hasOwnPhoto, ownerLabel, ownerPhoto, parseHandle, propertyHeading, publicAddress, DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
+import { ABSTRACT_AVATAR_URL, defaultAvatarFor, hasOwnPhoto, ownerLabel, ownerPhoto, parseHandle, propertyHeading, publicAddress, DEFAULT_AVATAR_URL } from "../../shared/profile.ts";
 
 test("parseHandle strips @ and rejects junk", () => {
   expect(parseHandle("@Sam_Ellison")).toEqual({ handle: "sam_ellison" });
@@ -18,7 +18,7 @@ test("ownerLabel switches to the handle when anonymized; the photo stays put", (
   expect(ownerLabel({ ...base, anonymize: false })).toBe("Sam Ellison");
   expect(ownerLabel({ ...base, anonymize: true })).toBe("@samellison");
   expect(ownerPhoto(base)).toBe("https://example.com/face.jpg");
-  expect(ownerPhoto({ avatar_url: null })).toBe(DEFAULT_AVATAR_URL);
+  expect(ownerPhoto({ avatar_url: null })).toBeNull();
 });
 
 test("ownerLabel never uses a street address as the badge", () => {
@@ -82,17 +82,17 @@ test("propertyHeading uses the town when the street is hidden, including for the
   });
 });
 
-test("ownerPhoto picks a stable face per person when they have not set one", () => {
-  const a = ownerPhoto({ avatar_url: null, user_id: "usr_aaa" });
-  const b = ownerPhoto({ avatar_url: DEFAULT_AVATAR_URL, user_id: "usr_zzz" });
-  expect(a).toBe(defaultAvatarFor("usr_aaa"));
-  expect(b).toBe(defaultAvatarFor("usr_zzz"));
-  expect(a).not.toBe(b);
+test("ownerPhoto is empty until they upload their own picture", () => {
+  expect(ownerPhoto({ avatar_url: null, user_id: "usr_aaa" })).toBeNull();
+  expect(ownerPhoto({ avatar_url: DEFAULT_AVATAR_URL, user_id: "usr_zzz" })).toBeNull();
+  expect(ownerPhoto({ avatar_url: ABSTRACT_AVATAR_URL })).toBeNull();
+  expect(ownerPhoto({ avatar_url: "https://example.com/me.jpg" })).toBe("https://example.com/me.jpg");
 });
 
 test("hasOwnPhoto is false for a fresh account and the stock defaults", () => {
   expect(hasOwnPhoto({ avatar_url: null })).toBe(false);
   expect(hasOwnPhoto({ avatar_url: DEFAULT_AVATAR_URL })).toBe(false);
   expect(hasOwnPhoto({ avatar_url: defaultAvatarFor("usr_zzz") })).toBe(false);
+  expect(hasOwnPhoto({ avatar_url: ABSTRACT_AVATAR_URL })).toBe(false);
   expect(hasOwnPhoto({ avatar_url: "https://example.com/me.jpg" })).toBe(true);
 });

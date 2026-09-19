@@ -271,7 +271,7 @@ export interface Maintainer {
   handle: string | null;
   anonymize: boolean;
   label: string;
-  photo_url: string;
+  photo_url: string | null;
   display_name?: string | null;
   first_name?: string | null;
   last_name?: string | null;
@@ -309,7 +309,7 @@ export interface NeighborState {
 export interface NeighborOwner {
   user_id: string;
   label: string;
-  photo_url: string;
+  photo_url: string | null;
 }
 
 export interface MapHomeFact {
@@ -536,7 +536,7 @@ export interface Post {
   created_by: string | null;
   body: string | null;
   created_at: string;
-  author: { user_id: string; label: string; photo_url: string } | null;
+  author: { user_id: string; label: string; photo_url: string | null } | null;
   documents: Doc[];
 }
 
@@ -634,7 +634,7 @@ export interface PhotoPerson {
   user_id: string;
   label: string;
   handle: string | null;
-  photo_url: string;
+  photo_url: string | null;
   property_id: string | null;
 }
 

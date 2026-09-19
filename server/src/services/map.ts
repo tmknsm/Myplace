@@ -5,7 +5,7 @@ import { FIELD_BY_KEY, formatFieldValue } from "../vocab.ts";
 export interface MapHomeOwner {
   user_id: string;
   label: string;
-  photo_url: string;
+  photo_url: string | null;
 }
 
 export interface MapHomeFact {

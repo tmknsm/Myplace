@@ -8,6 +8,35 @@ import { useMeta } from "./meta";
 import { useToast } from "./property-shared";
 import { Sheet } from "./sheet";
 
+/** Gray circle until they upload a photo of themselves. Never a stock face. */
+export function PersonAvatar({
+  src,
+  className,
+  alt = "",
+  size,
+}: {
+  src: string | null | undefined;
+  className?: string;
+  alt?: string;
+  size?: number;
+}) {
+  const dims = size ? { width: size, height: size } : undefined;
+  if (src) return <img className={className} src={src} alt={alt} {...dims} />;
+  return (
+    <span
+      className={className ? `${className} is-empty` : "is-empty"}
+      aria-hidden={alt ? undefined : true}
+      role={alt ? "img" : undefined}
+      aria-label={alt || undefined}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="8.2" r="3.4" />
+        <path d="M4.8 19.5c.7-3.4 3.5-5.3 7.2-5.3s6.5 1.9 7.2 5.3" />
+      </svg>
+    </span>
+  );
+}
+
 /** The same ring used in busy buttons, photo tiles, and full-page waits. */
 export function Spinner() {
   return <span className="spinner" aria-hidden="true" />;

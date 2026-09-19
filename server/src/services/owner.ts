@@ -214,7 +214,7 @@ export interface PostAuthorRow {
 }
 
 export interface PostView extends PostRow {
-  author: { user_id: string; label: string; photo_url: string } | null;
+  author: { user_id: string; label: string; photo_url: string | null } | null;
   documents: DocumentRow[];
 }
 

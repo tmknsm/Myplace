@@ -288,7 +288,7 @@ test("search, property page, and claim review", async () => {
   const mineBody = await mine.json();
   expect(mineBody.properties[0].property_id).toBe("prop_test");
   expect(mineBody.properties[0].maintainers).toEqual([
-    expect.objectContaining({ role: "owner", photo_url: expect.any(String) }),
+    expect.objectContaining({ role: "owner", photo_url: null }),
   ]);
 
   const update = await app.request("http://localhost/api/properties/prop_test/owner-fields", {
@@ -1326,14 +1326,13 @@ test("anonymize swaps the name, never the photo; the photo is its own change", a
   await sql`UPDATE users SET handle = 'hudsonowner', first_name = 'Sam', last_name = 'Ellison', display_name = 'Sam Ellison' WHERE primary_email = 'owner@example.com'`;
 
   const before = await (await app.request("http://localhost/api/properties/prop_test")).json();
-  const facePhoto = before.property.maintainers[0].photo_url as string;
-  expect(facePhoto).toMatch(/^https:\/\/images\.unsplash\.com\//);
+  expect(before.property.maintainers[0].photo_url).toBeNull();
 
   const hide = await setVisibility(cookie, "prop_test", { anonymize: true });
   expect(hide.status).toBe(200);
   const hidden = await (await app.request("http://localhost/api/properties/prop_test")).json();
   expect(hidden.property.maintainers[0].label).toBe("@hudsonowner");
-  expect(hidden.property.maintainers[0].photo_url).toBe(facePhoto);
+  expect(hidden.property.maintainers[0].photo_url).toBeNull();
 
   const abstract = await app.request("http://localhost/api/me", {
     method: "PATCH",
@@ -1343,7 +1342,7 @@ test("anonymize swaps the name, never the photo; the photo is its own change", a
   expect(abstract.status).toBe(200);
   expect((await abstract.json()).user.avatar_url).toBe(ABSTRACT_AVATAR_URL);
   const marked = await (await app.request("http://localhost/api/properties/prop_test")).json();
-  expect(marked.property.maintainers[0].photo_url).toBe(ABSTRACT_AVATAR_URL);
+  expect(marked.property.maintainers[0].photo_url).toBeNull();
 
   const bogus = await app.request("http://localhost/api/me", {
     method: "PATCH",
@@ -1456,7 +1455,7 @@ test("each maintainer anonymizes independently", async () => {
 
   const mine = await (await app.request("http://localhost/api/me/properties", { headers: { cookie: ownerCookie } })).json();
   expect(mine.properties[0].maintainers.map((row: { role: string }) => row.role)).toEqual(["owner", "co_owner"]);
-  expect(mine.properties[0].maintainers.every((row: { photo_url: string }) => row.photo_url)).toBe(true);
+  expect(mine.properties[0].maintainers.every((row: { photo_url: string | null }) => row.photo_url === null)).toBe(true);
 
   const hideCo = await setVisibility(coCookie, "prop_test", { anonymize: true });
   expect(hideCo.status).toBe(200);

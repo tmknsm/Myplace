@@ -192,7 +192,7 @@ export function IdentityStep({
     >
       <div className="onboard-preview" aria-live="polite">
         {hasOwnPhoto(user) ? (
-          <img className="onboard-preview-avatar" src={ownerPhoto(user)} alt="" />
+          <img className="onboard-preview-avatar" src={ownerPhoto(user) ?? undefined} alt="" />
         ) : (
           <span className="onboard-preview-avatar is-empty" aria-hidden="true">
             <CameraIcon />

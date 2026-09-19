@@ -18,7 +18,7 @@ export interface PhotoPerson {
   user_id: string;
   label: string;
   handle: string | null;
-  photo_url: string;
+  photo_url: string | null;
   /** The house they are neighbors with this photo's property through. */
   property_id: string | null;
 }
