@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from "react-router-dom";
 import { ManageCard, ProfileCard, PropertyPicker, shortAddress, VisibilityCard } from "./account-profile";
 import { api, type AdminClaim, type Claim, type ClaimHero, type Doc, type MailMessage, type MailSummary, type MaintainedProperty, type MapHome } from "./api";
 import { useAuth } from "./auth";
@@ -27,12 +27,13 @@ function Layout({ children }: { children: React.ReactNode }) {
   const onAuth = /^\/(signin|signup)/.test(location.pathname);
   // Claiming is a focused flow (identity, photo, proof, review): no search bar.
   const onboarding = /^\/property\/[^/]+\/claim(\/|$)/.test(location.pathname);
-  const searchOnThisPage = !isLanding && !onAuth && !onboarding && !/^\/(dev|admin)/.test(location.pathname);
-  // Keep the search row in the layout on auth if the page you left had one,
-  // so the bar does not shrink. Hidden visually, still occupies its height.
-  const searchOnArrival = useRef(false);
-  if (!onAuth) searchOnArrival.current = searchOnThisPage;
-  const headerSearch = onAuth ? searchOnArrival.current : searchOnThisPage;
+  const headerSearch = !isLanding && !onAuth && !onboarding && !/^\/(dev|admin)/.test(location.pathname);
+  // A new page opens from the top. Back and forward keep the browser's own
+  // restored position; a query-only change (feed tabs) is the same page.
+  const navigationType = useNavigationType();
+  useLayoutEffect(() => {
+    if (navigationType !== "POP") window.scrollTo(0, 0);
+  }, [location.pathname, navigationType]);
   // Share, then settings (your houses) or neighbor (everyone else's), ride
   // beside the search on the property page itself. Keyed on the id so the
   // slots re-open on page load, not after the record arrives. The empty slot
