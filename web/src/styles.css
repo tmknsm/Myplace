@@ -4335,6 +4335,9 @@ html.peek-gated body {
 }
 .posts-page .posts-body { flex: 1 0 auto; }
 .post-cta .btn { max-width: 480px; }
+/* Above the docked section tabs (21), which otherwise slide over the bar on
+   their way up to the header. Below the sheets and toasts (30, 40). */
+.post-cta { z-index: 22; }
 
 /* ---- Feed: the signed-in landing page --------------------------------- */
 /* One narrow column of posts, same mosaic and byline as a property page. */
