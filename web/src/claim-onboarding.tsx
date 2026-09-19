@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { hasOwnPhoto, ownerPhoto, parseHandle, publicAddress } from "../../shared/profile";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { ownerPhoto, parseHandle, publicAddress } from "../../shared/profile";
 import { api, type Claim, type User } from "./api";
 import { Spinner } from "./components";
+import { snapshotPhotoFile } from "./optimize-photo";
 
 /**
  * The two steps between "your email works" and "prove you own it". Both write
@@ -109,6 +110,93 @@ function useHandleCheck(handle: string, own: string | null) {
   return { state, hint };
 }
 
+const DOCK_CLASS = "onboard-docked";
+
+/**
+ * Docks the preview under the header the way the property page docks its
+ * section tabs: the chip sticks, and the header's glass sheet grows to cover
+ * it so both read as one piece of chrome. Until the class lands the wrapper
+ * frosts itself, so the swap changes no pixels.
+ */
+function useDockedPreview(ref: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const root = document.documentElement;
+    let stickyTop = 0;
+    const measure = () => {
+      stickyTop = Number.parseFloat(getComputedStyle(node).top) || 0;
+      root.style.setProperty("--onboard-dock-height", `${node.getBoundingClientRect().height}px`);
+    };
+    const check = () => {
+      root.classList.toggle(DOCK_CLASS, node.getBoundingClientRect().top <= stickyTop + 0.5);
+    };
+    const remeasure = () => { measure(); check(); };
+    remeasure();
+    // --topbar-height is written by the layout's effect, which runs after this one.
+    const frame = requestAnimationFrame(remeasure);
+    const observer = new ResizeObserver(remeasure);
+    observer.observe(node);
+    window.addEventListener("scroll", check, { passive: true });
+    window.addEventListener("resize", remeasure);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("scroll", check);
+      window.removeEventListener("resize", remeasure);
+      root.classList.remove(DOCK_CLASS);
+      root.style.removeProperty("--onboard-dock-height");
+    };
+  }, [ref]);
+}
+
+/** The avatar in the preview chip doubles as the place to add or change your photo. */
+function PreviewAvatar({ user, onUser, onError }: { user: User; onUser: () => Promise<unknown>; onError: (message: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const photo = ownerPhoto(user);
+  const upload = async (file: File) => {
+    setBusy(true);
+    try {
+      await api.uploadAvatar(file);
+      await onUser();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "That photo could not be uploaded.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <label
+      className={`onboard-preview-avatar file-btn${photo ? "" : " is-empty"}${busy ? " is-busy" : ""}`}
+      aria-label={photo ? "Change your photo" : "Add your photo"}
+      aria-busy={busy}
+      data-testid="onboard-avatar"
+    >
+      {photo ? <img src={photo} alt="" /> : <CameraIcon />}
+      {!busy && (
+        <span className="onboard-preview-avatar-add" aria-hidden="true">
+          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <path d="M6 2.5v7M2.5 6h7" />
+          </svg>
+        </span>
+      )}
+      {busy && <span className="onboard-preview-avatar-busy"><Spinner /></span>}
+      <input
+        type="file"
+        accept="image/*"
+        disabled={busy}
+        data-testid="onboard-avatar-input"
+        onChange={(event) => {
+          const picked = event.target.files?.[0];
+          event.target.value = "";
+          if (!picked) return;
+          void snapshotPhotoFile(picked).then(upload).catch((err) => onError(err instanceof Error ? err.message : "That photo could not be read."));
+        }}
+      />
+    </label>
+  );
+}
+
 export function IdentityStep({
   user,
   claim,
@@ -130,6 +218,8 @@ export function IdentityStep({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const check = useHandleCheck(mode === "alias" ? handle : "", user.handle);
+  const dockRef = useRef<HTMLDivElement | null>(null);
+  useDockedPreview(dockRef);
 
   const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
   const label = mode === "alias" ? (handle ? `@${handle}` : "@yourname") : fullName || "Your name";
@@ -190,20 +280,16 @@ export function IdentityStep({
         </button>
       }
     >
-      <div className="onboard-preview" aria-live="polite">
-        {hasOwnPhoto(user) ? (
-          <img className="onboard-preview-avatar" src={ownerPhoto(user) ?? undefined} alt="" />
-        ) : (
-          <span className="onboard-preview-avatar is-empty" aria-hidden="true">
-            <CameraIcon />
-          </span>
-        )}
-        <div className="onboard-preview-text">
-          <strong key={label} className="onboard-preview-name">{label}</strong>
-          <span key={addressLine} className={`onboard-preview-address${placement === "hidden" ? " is-hidden" : ""}`}>
-            {placement === "hidden" && <HiddenIcon />}
-            {addressLine}
-          </span>
+      <div className="onboard-preview-dock" ref={dockRef}>
+        <div className="onboard-preview" aria-live="polite">
+          <PreviewAvatar user={user} onUser={onUser} onError={setError} />
+          <div className="onboard-preview-text">
+            <strong key={label} className="onboard-preview-name">{label}</strong>
+            <span key={addressLine} className={`onboard-preview-address${placement === "hidden" ? " is-hidden" : ""}`}>
+              {placement === "hidden" && <HiddenIcon />}
+              {addressLine}
+            </span>
+          </div>
         </div>
       </div>
 
