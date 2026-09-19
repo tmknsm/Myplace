@@ -86,6 +86,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   myNeighbors: () => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>("/api/me/neighbors"),
+  feed: (before?: string | null) => request<Feed>(`/api/me/feed${before ? `?before=${encodeURIComponent(before)}` : ""}`),
   propertyNeighbors: (id: string) => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>(`/api/properties/${id}/neighbors`),
   neighborStatus: (id: string) => request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`),
   neighborProperty: (id: string, fromPropertyId?: string) =>
@@ -481,6 +482,28 @@ export interface Post {
   created_at: string;
   author: { user_id: string; label: string; photo_url: string } | null;
   documents: Doc[];
+}
+
+export interface FeedHouse {
+  property_id: string;
+  formatted: string | null;
+  municipality: string | null;
+  county: string;
+  hide_street: boolean;
+  photo_url: string | null;
+}
+
+export interface FeedPost extends Post {
+  house: FeedHouse;
+  /** From one of your own houses. */
+  mine: boolean;
+}
+
+export interface Feed {
+  posts: FeedPost[];
+  nextBefore: string | null;
+  homeCount: number;
+  neighborCount: number;
 }
 
 export interface Claim {

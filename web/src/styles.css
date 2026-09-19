@@ -3594,6 +3594,19 @@ html.peek-gated body {
   white-space: nowrap;
 }
 .post-who time { font-size: 12px; color: var(--muted); }
+/* Away from its own page a post also says which house it is from. */
+.post-when { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--muted); }
+.post-house {
+  color: var(--ink-soft);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.post-house:hover { color: var(--ink); text-decoration: underline; }
+.post-house + time { flex-shrink: 0; }
+.post-house + time::before { content: "·"; margin-right: 6px; }
 .post-body {
   margin: 12px 4px 0;
   font-size: 15px;
@@ -3626,6 +3639,35 @@ html.peek-gated body {
 }
 .posts-page .posts-body { flex: 1 0 auto; }
 .post-cta .btn { max-width: 480px; }
+
+/* ---- Feed: the signed-in landing page --------------------------------- */
+/* One narrow column of posts, same mosaic and byline as a property page. */
+.page.feed-page { max-width: min(680px, 100%); }
+.feed-head { align-items: flex-end; margin-bottom: 20px; }
+.feed-head .kicker { font-size: 13px; }
+.feed-head h1 {
+  font-size: 28px;
+  letter-spacing: -0.02em;
+  font-weight: 650;
+  margin-top: 2px;
+}
+.feed-empty { padding: 24px 20px 20px; }
+.feed-empty h2 {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+}
+.feed-empty p {
+  margin: 0 0 16px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.feed-empty .meta-line { margin: 12px 0 0; }
+.feed-empty .meta-line a { color: var(--ink-soft); font-weight: 500; }
+.feed-search { position: relative; }
+.feed-more { justify-content: center; margin-top: 32px; }
 
 /* New post sheet: the photos go up top in the same mosaic, then the caption. */
 .post-form-photos { margin: 4px 0 12px; }

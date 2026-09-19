@@ -5,6 +5,7 @@ import { api, type AdminClaim, type Claim, type Doc, type MailMessage, type Mail
 import { useAuth } from "./auth";
 import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, SettingsButton, ShareButton } from "./components";
 import { DebugSheet } from "./debug";
+import { FeedPage } from "./feed";
 import { HomePage } from "./home";
 import { useMeta } from "./meta";
 import { PropertyNeighborsPage, PropertyPageView, PropertyPhotosPage, PropertyPostsPage } from "./property";
@@ -16,9 +17,11 @@ function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const meta = useMeta();
   const [debugOpen, setDebugOpen] = useState(false);
-  const isHome = location.pathname === "/";
+  // Signed in, "/" is the feed and behaves like any other page in the app.
+  // Signed out it is the landing page, which hands its own search to the bar.
+  const isLanding = location.pathname === "/" && !user;
   const onAuth = /^\/(signin|signup)/.test(location.pathname);
-  const searchOnThisPage = !isHome && !onAuth && !/^\/(dev|admin)/.test(location.pathname);
+  const searchOnThisPage = !isLanding && !onAuth && !/^\/(dev|admin)/.test(location.pathname);
   // Keep the search row in the layout on auth if the page you left had one,
   // so the bar does not shrink. Hidden visually, still occupies its height.
   const searchOnArrival = useRef(false);
@@ -85,7 +88,7 @@ function Layout({ children }: { children: React.ReactNode }) {
               <SearchBox compact />
             </div>
           )}
-          {(isHome || onAuth) && !headerSearch && (
+          {(isLanding || onAuth) && !headerSearch && (
             // Same reserved search slot the landing page keeps in the bar.
             // Auth uses it so the row does not shrink when you leave home.
             <div className="header-search wide-only home-handoff" aria-hidden="true">
@@ -123,6 +126,13 @@ function Layout({ children }: { children: React.ReactNode }) {
       {meta?.debug && debugOpen && <DebugSheet onClose={() => setDebugOpen(false)} />}
     </>
   );
+}
+
+/** Signed in, the front door is the neighbors' feed; signed out, the landing page. */
+function RootPage() {
+  const { user, ready } = useAuth();
+  if (!ready) return <PageSpinner />;
+  return user ? <FeedPage /> : <HomePage />;
 }
 
 function MapPage() {
@@ -760,7 +770,7 @@ export function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<RootPage />} />
         <Route path="/map" element={<MapPage />} />
         <Route path="/property/:id" element={<PropertyPageView />} />
         <Route path="/property/:id/photos" element={<PropertyPhotosPage />} />

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
-import { ApiError, api, type DebugClaimResult, type Doc, type Engagement, type Fact, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PhotoComment, type PhotoPerson, type PhotoPost, type Post, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
+import { ApiError, api, type DebugClaimResult, type Doc, type Engagement, type Fact, type FeedHouse, type FieldVisibility, type Improvement, type NeighborPerson, type PageRefresh, type PhotoComment, type PhotoPerson, type PhotoPost, type Post, type PropertyNeighbor, type PropertyPage, type Room, type Viewer } from "./api";
 import { useAuth } from "./auth";
 import { actorLabel, eventLabel, NeighborHouseIcon, PageSpinner, ParcelMap, Spinner, STATUS_LABEL, unknownHint } from "./components";
 import { PinClaimModal, useOwnershipChanges } from "./debug";
@@ -4484,26 +4484,36 @@ function PostMosaic({ count, children }: { count: number; children: ReactNode })
   );
 }
 
-function PostByline({ post }: { post: Post }) {
+/** Who posted and when. Off the property page, also which house it is from. */
+function PostByline({ post, house }: { post: Post; house?: FeedHouse }) {
   const when = dateLabel(post.created_at) ?? "";
+  const where = house ? propertyHeading(house).title : null;
   return (
     <div className="post-byline">
       {post.author && <img src={post.author.photo_url} alt="" width={28} height={28} />}
       <div className="post-who">
         <strong>{post.author?.label ?? "Owner"}</strong>
-        <time dateTime={post.created_at}>{when}</time>
+        <span className="post-when">
+          {house && where && (
+            <Link className="post-house" to={`/property/${house.property_id}`} data-testid="post-house">{where}</Link>
+          )}
+          <time dateTime={post.created_at}>{when}</time>
+        </span>
       </div>
     </div>
   );
 }
 
-function PostCard({
+export function PostCard({
   post,
+  house,
   owner,
   onChange,
   toast,
 }: {
   post: Post;
+  /** Set when the post is shown away from its own page, e.g. the feed. */
+  house?: FeedHouse;
   owner: boolean;
   onChange: PageRefresh;
   toast: Toast;
@@ -4532,7 +4542,7 @@ function PostCard({
   return (
     <article className="post" data-testid="post-card">
       <header className="post-head">
-        <PostByline post={post} />
+        <PostByline post={post} house={house} />
         {owner && (
           <>
             <button type="button" className="text-link danger" data-testid="post-remove" onClick={() => { setError(null); setConfirm(true); }}>Remove</button>

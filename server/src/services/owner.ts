@@ -97,9 +97,9 @@ export interface DocumentRow {
   has_file: boolean;
 }
 
-type StoredDocumentRow = Omit<DocumentRow, "has_file"> & { storage_key: string };
+export type StoredDocumentRow = Omit<DocumentRow, "has_file"> & { storage_key: string };
 
-async function withFileFlags(rows: StoredDocumentRow[]): Promise<DocumentRow[]> {
+export async function withFileFlags(rows: StoredDocumentRow[]): Promise<DocumentRow[]> {
   const missing = await missingDocumentKeys(rows.map((row) => row.storage_key));
   return rows.map((row) => {
     const { storage_key, ...rest } = row;
@@ -204,7 +204,7 @@ export interface PostRow {
   created_at: string;
 }
 
-interface PostAuthorRow {
+export interface PostAuthorRow {
   user_id: string;
   display_name: string | null;
   first_name: string | null;

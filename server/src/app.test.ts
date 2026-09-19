@@ -2039,6 +2039,120 @@ test("neighbors: a connection is only for that address, not every house they own
   expect((await (await app.request("http://localhost/api/properties/prop_test/neighbors", { headers: { cookie: ownerCookie } })).json()).neighbors).toHaveLength(1);
 });
 
+test("feed: the signed-in landing shows your neighbors' posts and your own, newest first", async () => {
+  await seedProperty();
+  const ownerCookie = await verifiedOwner("owner@example.com");
+  const visitorCookie = await signIn("visitor@example.com");
+  const strangerCookie = await signIn("stranger@example.com");
+  await sql`UPDATE users SET first_name = 'Sam', last_name = 'Ellison', handle = 'samwrites' WHERE primary_email = 'owner@example.com'`;
+  await sql`UPDATE users SET first_name = 'Ada', last_name = 'Visitor' WHERE primary_email = 'visitor@example.com'`;
+  const [visitor] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'visitor@example.com'`;
+  const [stranger] = await sql<{ user_id: string }[]>`SELECT user_id FROM users WHERE primary_email = 'stranger@example.com'`;
+  if (!visitor || !stranger) throw new Error("expected both users");
+  await giveHome(visitor.user_id, "prop_home", "12 State Street, Hudson, NY 12534");
+  await giveHome(stranger.user_id, "prop_far", "9 Partition Street, Hudson, NY 12534");
+  await giveCover("prop_test", "doc_test_cover");
+
+  type FeedPost = {
+    post_id: string;
+    body: string | null;
+    created_at: string;
+    mine: boolean;
+    author: { label: string } | null;
+    house: { property_id: string; formatted: string | null; hide_street: boolean; photo_url: string | null };
+    documents: Array<{ document_id: string }>;
+  };
+  type Feed = { posts: FeedPost[]; nextBefore: string | null; homeCount: number; neighborCount: number };
+  const feedFor = async (cookie: string, before?: string) => {
+    const res = await app.request(`http://localhost/api/me/feed${before ? `?before=${encodeURIComponent(before)}` : ""}`, { headers: { cookie } });
+    expect(res.status).toBe(200);
+    return await res.json() as Feed;
+  };
+  const postAs = async (cookie: string, propertyId: string, body: string, when: string) => {
+    const res = await app.request(`http://localhost/api/properties/${propertyId}/posts`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ body }),
+    });
+    expect(res.status).toBe(201);
+    const { post } = await res.json() as { post: { post_id: string } };
+    await sql`UPDATE property_posts SET created_at = ${when} WHERE post_id = ${post.post_id}`;
+    return post.post_id;
+  };
+
+  // Signed out there is no feed; signed in without a house it is empty and says so.
+  expect((await app.request("http://localhost/api/me/feed")).status).toBe(401);
+  const nobody = await feedFor(await signIn("nobody@example.com"));
+  expect(nobody).toEqual({ posts: [], nextBefore: null, homeCount: 0, neighborCount: 0 });
+  expect((await app.request("http://localhost/api/me/feed?before=yesterday", { headers: { cookie: visitorCookie } })).status).toBe(400);
+
+  const ownerPost = await postAs(ownerCookie, "prop_test", "New porch railings went in this weekend.", "2026-09-18T12:00:00Z");
+  const visitorPost = await postAs(visitorCookie, "prop_home", "Finally painted the fence.", "2026-09-17T12:00:00Z");
+  await postAs(strangerCookie, "prop_far", "Nobody you know.", "2026-09-19T12:00:00Z");
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const form = new FormData();
+  form.append("file", new File([png], "railing.png", { type: "image/png" }));
+  form.append("postId", ownerPost);
+  const upload = await app.request("http://localhost/api/properties/prop_test/documents", { method: "POST", headers: { cookie: ownerCookie }, body: form });
+  expect(upload.status).toBe(201);
+  const { documentId } = await upload.json() as { documentId: string };
+
+  // Before anyone is neighbors, a house alone sees only its own posts.
+  const alone = await feedFor(visitorCookie);
+  expect(alone.homeCount).toBe(1);
+  expect(alone.neighborCount).toBe(0);
+  expect(alone.posts.map((post) => post.post_id)).toEqual([visitorPost]);
+  expect(alone.posts[0]?.mine).toBe(true);
+
+  // Pair 12 State Street with 441 Warren Street.
+  expect((await app.request("http://localhost/api/properties/prop_test/neighbor", { method: "POST", headers: { cookie: visitorCookie } })).status).toBe(200);
+  const inbox = await (await app.request("http://localhost/api/me/neighbors", { headers: { cookie: ownerCookie } })).json() as { incoming: Array<{ request_id: string }> };
+  expect((await app.request(`http://localhost/api/neighbors/${inbox.incoming[0]!.request_id}/review`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie: ownerCookie },
+    body: JSON.stringify({ decision: "accepted" }),
+  })).status).toBe(200);
+
+  // Newest first, the neighbor's post and your own; the stranger's house is not on this street.
+  const feed = await feedFor(visitorCookie);
+  expect(feed.homeCount).toBe(1);
+  expect(feed.neighborCount).toBe(1);
+  expect(feed.nextBefore).toBeNull();
+  expect(feed.posts.map((post) => post.post_id)).toEqual([ownerPost, visitorPost]);
+  expect(feed.posts[0]).toMatchObject({
+    mine: false,
+    body: "New porch railings went in this weekend.",
+    author: { label: "Sam Ellison" },
+    house: { property_id: "prop_test", formatted: "441 Warren Street, Hudson, NY 12534", hide_street: false, photo_url: "/api/documents/doc_test_cover/file?v=12000" },
+  });
+  expect(feed.posts[0]!.documents.map((doc) => doc.document_id)).toEqual([documentId]);
+  expect(feed.posts[1]).toMatchObject({ mine: true, author: { label: "Ada Visitor" }, house: { property_id: "prop_home" } });
+
+  // The pairing reads the same from the other house.
+  const ownerFeed = await feedFor(ownerCookie);
+  expect(ownerFeed.posts.map((post) => [post.post_id, post.mine])).toEqual([[ownerPost, true], [visitorPost, false]]);
+
+  // Older posts page by the last timestamp shown.
+  const older = await feedFor(visitorCookie, feed.posts[0]!.created_at);
+  expect(older.posts.map((post) => post.post_id)).toEqual([visitorPost]);
+
+  // The author and address are named the way that house allows.
+  expect((await setVisibility(ownerCookie, "prop_test", { anonymize: true, hide_street: true })).status).toBe(200);
+  const hidden = await feedFor(visitorCookie);
+  expect(hidden.posts[0]).toMatchObject({
+    author: { label: "@samwrites" },
+    house: { formatted: "Hudson, NY 12534", hide_street: true },
+  });
+
+  // A removed post leaves the feed; a house taken off Myplace takes its posts with it.
+  expect((await app.request(`http://localhost/api/posts/${ownerPost}`, { method: "DELETE", headers: { cookie: ownerCookie } })).status).toBe(200);
+  expect((await feedFor(visitorCookie)).posts.map((post) => post.post_id)).toEqual([visitorPost]);
+  await sql`UPDATE properties SET removed = true WHERE property_id = 'prop_test'`;
+  const gone = await feedFor(visitorCookie);
+  expect(gone.neighborCount).toBe(0);
+  expect(gone.posts.map((post) => post.post_id)).toEqual([visitorPost]);
+});
+
 test("neighbors: requester with two houses must say which one the pair is from", async () => {
   await seedProperty();
   const ownerCookie = await verifiedOwner("owner@example.com");
