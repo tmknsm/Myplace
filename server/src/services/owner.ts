@@ -479,6 +479,29 @@ export async function loadInbox(propertyId: string): Promise<InboxItem[]> {
   return items;
 }
 
+/**
+ * How many inbox items landed after this person last looked. `since` is
+ * their `inbox_seen_at`, or the day they joined the page if they never have.
+ */
+export async function countUnseenInbox(propertyId: string, since: Date | string | null): Promise<number> {
+  const items = await loadInbox(propertyId);
+  if (!since) return items.length;
+  const mark = new Date(since).getTime();
+  return items.filter((item) => new Date(item.createdAt).getTime() > mark).length;
+}
+
+/** This person has now seen everything on the house's inbox. */
+export async function markInboxSeen(userId: string, propertyId: string): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql<{ maintainer_id: string }[]>`
+    UPDATE property_maintainers
+    SET inbox_seen_at = now()
+    WHERE property_id = ${propertyId} AND user_id = ${userId} AND revoked_at IS NULL
+    RETURNING maintainer_id
+  `;
+  return rows.length > 0;
+}
+
 export async function reviewContribution(input: {
   contributionId: string;
   reviewerId: string;

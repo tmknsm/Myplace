@@ -444,6 +444,9 @@ export function PropertyPageView() {
 
   const { property, viewer } = data;
   const owner = Boolean(viewer.maintainer && !viewer.openClaim);
+  // Off Myplace: the page is down for everyone. The owner still holds the
+  // record, and lands on the settings that bring it back.
+  if (owner && property.removed) return <Navigate to={`/property/${id}/manage`} replace />;
   const locality = headingLocality;
   const address = property.hide_street
     ? (property.municipality || "this property")

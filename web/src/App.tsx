@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from "react-router-dom";
-import { ManageCard, ProfileCard, PropertyPicker, shortAddress, VisibilityCard } from "./account-profile";
-import { api, type AdminClaim, type Claim, type ClaimHero, type Doc, type MailMessage, type MailSummary, type MaintainedProperty, type MapHome } from "./api";
+import { NotificationsFeed, ProfileCard, PropertyPicker } from "./account-profile";
+import { api, type AdminClaim, type Claim, type ClaimHero, type Doc, type MailMessage, type MailSummary, type MapHome } from "./api";
 import { useAuth } from "./auth";
 import { HeroStep, IdentityStep, OnboardingProgress } from "./claim-onboarding";
 import { eventLabel, NeighborButton, PageSpinner, ParcelMap, SearchBox, SettingsButton, ShareButton, type MapView } from "./components";
@@ -11,10 +11,10 @@ import { HomePage } from "./home";
 import { type HomesDetent } from "./map-homes-detents";
 import { MapHomesSheet } from "./map-homes-sheet";
 import { useMeta } from "./meta";
+import { unseenTotal, useMyProperties } from "./my-properties";
 import { PropertyNeighborsPage, PropertyPageView, PropertyPhotosPage, PropertyPostsPage } from "./property";
 import { NotificationsRedirect, PropertyInboxPage, PropertyManagePage } from "./property-manage";
-import { useToast } from "./property-shared";
-import { cacheGet, cacheSet, queryKeys } from "./query-cache";
+import { shortAddress, useToast } from "./property-shared";
 
 function Layout({ children }: { children: React.ReactNode }) {
   const { user, signOut } = useAuth();
@@ -28,6 +28,10 @@ function Layout({ children }: { children: React.ReactNode }) {
   // Claiming is a focused flow (identity, photo, proof, review): no search bar.
   const onboarding = /^\/property\/[^/]+\/claim(\/|$)/.test(location.pathname);
   const headerSearch = !isLanding && !onAuth && !onboarding && !/^\/(dev|admin)/.test(location.pathname);
+  // Notifications waiting on any house light a count on the name. Re-checked
+  // as you move around the app, not more than every half minute.
+  const { homes } = useMyProperties(location.pathname);
+  const unseen = unseenTotal(homes);
   // A new page opens from the top. Back and forward keep the browser's own
   // restored position; a query-only change (feed tabs) is the same page.
   const navigationType = useNavigationType();
@@ -111,7 +115,10 @@ function Layout({ children }: { children: React.ReactNode }) {
               )}
               {user ? (
                 <>
-                  <Link to="/account">{user.first_name || user.display_name?.split(" ")[0] || "Account"}</Link>
+                  <Link to="/account" className="account-link" aria-label={unseen ? `Account, ${unseen} new notification${unseen === 1 ? "" : "s"}` : undefined}>
+                    {user.first_name || user.display_name?.split(" ")[0] || "Account"}
+                    {unseen > 0 && <span className="nav-badge" data-testid="nav-unseen">{unseen > 9 ? "9+" : unseen}</span>}
+                  </Link>
                   <button className="text-btn wide-only" onClick={() => signOut()}>Sign out</button>
                 </>
               ) : (
@@ -649,32 +656,20 @@ function EyeIcon() {
 
 function AccountPage() {
   const { user, signOut, refresh } = useAuth();
-  const [properties, setProperties] = useState<MaintainedProperty[] | null>(() => cacheGet(queryKeys.meProperties()) ?? null);
+  const { homes: properties, reload } = useMyProperties();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [toast, showToast] = useToast();
-  const loadHomes = async () => {
-    const [homes, mine] = await Promise.all([api.myProperties(), api.myClaims()]);
-    setProperties(homes.properties);
-    setClaims(mine.claims);
-  };
   useEffect(() => {
     if (!user) return;
-    void loadHomes();
-  }, [user]);
+    // The house list arrives fresh on every visit: the feed and badges depend on it.
+    void reload().catch(() => {});
+    api.myClaims().then((mine) => setClaims(mine.claims)).catch(() => {});
+  }, [user?.user_id, reload]);
   if (!user) return <Navigate to="/signin" replace />;
   const homes = properties ?? [];
   // The first house is selected until they pick another; a stale pick falls back.
   const selected = homes.find((property) => property.property_id === selectedId) ?? homes[0] ?? null;
-  const patchProperty = (patch: Pick<MaintainedProperty, "property_id"> & Partial<MaintainedProperty>) => {
-    setProperties((current) => {
-      const next = current?.map((property) => (
-        property.property_id === patch.property_id ? { ...property, ...patch } : property
-      )) ?? current;
-      if (next) cacheSet(queryKeys.meProperties(), next);
-      return next;
-    });
-  };
   const ownedIds = new Set(homes.map((property) => property.property_id));
   const openClaims = claims.filter((claim) => (
     !ownedIds.has(claim.property_id) && claim.status !== "superseded" && claim.status !== "revoked"
@@ -700,12 +695,7 @@ function AccountPage() {
             </div>
           )}
         </section>
-        {properties && (
-          <>
-            <VisibilityCard user={user} property={selected} onUser={refresh} onProperty={patchProperty} showToast={showToast} />
-            <ManageCard property={selected} onProperty={patchProperty} showToast={showToast} />
-          </>
-        )}
+        {properties && <NotificationsFeed property={selected} showToast={showToast} />}
         <div className="action-row account-signout">
           <button className="btn secondary" onClick={() => signOut()} data-testid="account-signout">Sign out</button>
         </div>
@@ -713,15 +703,15 @@ function AccountPage() {
       {selected && (
         <div className="manage-cta">
           {selected.removed ? (
-            <button
-              type="button"
+            // Off Myplace: the page is gone, but its settings (and the way back) are not.
+            <Link
               className="btn"
-              disabled
+              to={`/property/${selected.property_id}/manage`}
               data-testid="go-to-property"
-              aria-label={`${shortAddress(selected)} is off Myplace`}
+              aria-label={`${shortAddress(selected)} is off Myplace. Open its settings`}
             >
-              Go to property
-            </button>
+              Property settings
+            </Link>
           ) : (
             <Link
               className="btn"

@@ -2794,6 +2794,37 @@ body:has(.map-page) { overflow: hidden; }
   line-height: 16px;
   text-align: center;
 }
+/* Unseen notifications: a count on the name in the nav, a dot on the house's card. */
+.top-links .account-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.nav-badge {
+  display: inline-block;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  letter-spacing: 0;
+}
+.picker-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 2px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.section-head-actions .section-scope { flex: 0 1 auto; }
 .inbox-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .inbox-row { align-items: flex-start; }
 .inbox-row-copy {

@@ -5,6 +5,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { api, type Fact, type MaintainedProperty, type NeighborStatus, type SearchHit } from "./api";
 import { useAuth } from "./auth";
 import { useMeta } from "./meta";
+import { useMyHome } from "./my-properties";
 import { useToast } from "./property-shared";
 import { Sheet } from "./sheet";
 
@@ -140,25 +141,9 @@ function SettingsIcon() {
  * the route so the slot opens on page load, not after the property record.
  */
 export function SettingsButton({ propertyId }: { propertyId: string }) {
-  const { user } = useAuth();
-  const [mine, setMine] = useState<boolean | null>(null);
+  const home = useMyHome(propertyId);
 
-  useEffect(() => {
-    let cancelled = false;
-    setMine(null);
-    if (!user) {
-      setMine(false);
-      return;
-    }
-    api.myProperties().then((data) => {
-      if (!cancelled) setMine(data.properties.some((property) => property.property_id === propertyId));
-    }).catch(() => {
-      if (!cancelled) setMine(false);
-    });
-    return () => { cancelled = true; };
-  }, [propertyId, user?.user_id]);
-
-  if (!mine) return null;
+  if (!home) return null;
 
   return (
     <div className="header-settings">

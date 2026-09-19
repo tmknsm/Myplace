@@ -2,6 +2,7 @@ import { ownerLabel, ownerPhoto, publicAddress } from "../../../shared/profile.t
 import { geometryNotice, isGeometryQuality, QUALITY_LABEL } from "../counties.ts";
 import { getSql } from "../db.ts";
 import { assembleFacts, loadAssertionRows } from "./assertions.ts";
+import { countUnseenInbox } from "./owner.ts";
 
 interface MaintainerRow {
   maintainer_id: string;
@@ -167,9 +168,10 @@ export async function loadMyProperties(userId: string) {
     removed: boolean;
     anonymize: boolean;
     hide_street: boolean;
+    inbox_seen_at: Date | string | null;
   }[]>`
     SELECT p.property_id, p.municipality, a.formatted, m.role, m.verified_at, p.removed,
-           m.anonymize, m.hide_street
+           m.anonymize, m.hide_street, m.inbox_seen_at
     FROM property_maintainers m
     JOIN properties p ON p.property_id = m.property_id
     LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
@@ -195,10 +197,15 @@ export async function loadMyProperties(userId: string) {
     byProperty.set(row.property_id, list);
   }
 
-  return mine.map((row) => ({
+  const unseen = await Promise.all(
+    mine.map((row) => countUnseenInbox(row.property_id, row.inbox_seen_at ?? row.verified_at)),
+  );
+
+  return mine.map(({ inbox_seen_at: _seen, ...row }, index) => ({
     ...row,
     anonymize: Boolean(row.anonymize),
     hide_street: Boolean(row.hide_street),
+    unseen: unseen[index] ?? 0,
     maintainers: sortMaintainers(byProperty.get(row.property_id) ?? []),
   }));
 }

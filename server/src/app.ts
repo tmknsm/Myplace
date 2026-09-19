@@ -46,6 +46,7 @@ import {
   loadRooms,
   loadInbox,
   loadOpenDisputes,
+  markInboxSeen,
   loadPendingInvitations,
   loadPreferences,
   openDispute,
@@ -128,7 +129,10 @@ app.onError((error, c) => {
   return c.json({ error: message }, status as 500);
 });
 
-/** The account settings for a house stay reachable while it is off Myplace. */
+/**
+ * A house that is off Myplace is gone for everyone except the people on it:
+ * their settings for it (and the switch that brings it back) stay reachable.
+ */
 const OWNER_SETTINGS_PATH = /\/(removed|visibility)$/;
 
 async function rejectRemovedProperty(c: Context<AppEnv>, next: Next) {
@@ -145,7 +149,12 @@ async function rejectRemovedProperty(c: Context<AppEnv>, next: Next) {
   const rows = await sql<{ removed: boolean }[]>`
     SELECT removed FROM properties WHERE property_id = ${propertyId}
   `;
-  if (rows[0]?.removed) return c.json({ error: "Property not found" }, 404);
+  if (rows[0]?.removed) {
+    const user = c.get("user");
+    if (!user || !(await isMaintainer(user.user_id, propertyId))) {
+      return c.json({ error: "Property not found" }, 404);
+    }
+  }
   await next();
 }
 
@@ -1532,6 +1541,14 @@ app.get("/api/properties/:id/inbox", async (c) => {
   const propertyId = c.req.param("id");
   await requireMaintainer(c, propertyId);
   return c.json({ items: await loadInbox(propertyId) });
+});
+
+/** The viewer has looked at this house's notifications; its badge clears. */
+app.post("/api/properties/:id/inbox/seen", async (c) => {
+  const propertyId = c.req.param("id");
+  const user = await requireMaintainer(c, propertyId);
+  await markInboxSeen(user.user_id, propertyId);
+  return c.json({ ok: true });
 });
 
 app.post("/api/contributions/:id/review", async (c) => {

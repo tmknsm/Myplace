@@ -181,6 +181,7 @@ export const api = {
     request<{ contributionId: string }>(`/api/properties/${id}/disputes`, { method: "POST", body: JSON.stringify(body) }),
   withdrawContribution: (id: string) => request<{ ok: boolean }>(`/api/contributions/${id}`, { method: "DELETE" }),
   inbox: (id: string) => request<{ items: InboxItem[] }>(`/api/properties/${id}/inbox`),
+  markInboxSeen: (id: string) => request<{ ok: boolean }>(`/api/properties/${id}/inbox/seen`, { method: "POST" }),
   reviewContribution: (id: string, decision: "accepted" | "rejected") =>
     request<{ ok: boolean; propertyId: string }>(`/api/contributions/${id}/review`, {
       method: "POST",
@@ -504,6 +505,8 @@ export interface PropertyPage {
   county: string;
   formatted: string | null;
   hide_street?: boolean;
+  /** Off Myplace. Only the people on the house still receive its record. */
+  removed?: boolean;
   sbl: string | null;
   swis: string | null;
   geojson: { type: string; coordinates: number[][][] | number[][][][] } | null;
@@ -666,6 +669,8 @@ export interface MaintainedProperty {
   /** This viewer's own choices for this house. */
   anonymize: boolean;
   hide_street: boolean;
+  /** Notifications that landed since this viewer last looked at the house's feed. */
+  unseen: number;
   maintainers: Maintainer[];
 }
 

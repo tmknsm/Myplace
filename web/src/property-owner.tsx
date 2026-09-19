@@ -1,14 +1,303 @@
-import { useEffect, useMemo, useState } from "react";
-import { api, type Doc, type PageRefresh, type PropertyPage, type Viewer } from "./api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { formatHandle, parseHandle } from "../../shared/profile";
+import { api, type Doc, type MaintainedProperty, type PageRefresh, type PropertyPage, type Viewer } from "./api";
+import { useAuth } from "./auth";
+import { patchMyProperty } from "./my-properties";
 import { dropDocument, mapDocument, restoreDocument } from "./page-data";
-import { dateLabel, DOCUMENT_TYPE_LABEL, fileSize, fileUrl, isImage, type Toast } from "./property-shared";
+import { dateLabel, DOCUMENT_TYPE_LABEL, fileSize, fileUrl, isImage, shortAddress, type Toast } from "./property-shared";
 
 /**
  * Sections only a maintainer sees. Open disputes stay on the profile next to
- * the facts they contest. The document vault, co-maintainers, email
- * preferences, and handoff live on the owner tools page. Incoming neighbor
- * requests, change requests, and notices sit in the inbox behind the bell.
+ * the facts they contest. How the house shows you, the switch that takes it
+ * off Myplace, the document vault, co-maintainers, email preferences, and
+ * handoff live on the owner tools page. Incoming neighbor requests, change
+ * requests, and notices are the notifications feed on the account page.
  */
+
+// ---------------------------------------------------------------------------
+// Visibility: how this house shows you
+// ---------------------------------------------------------------------------
+
+/**
+ * Hide my address and Hide my name are each set per property; the alias is
+ * one per account and appears when this house hides your name. `home` is the
+ * viewer's own record of the house from the account list; null until it loads.
+ */
+export function VisibilitySection({
+  home,
+  onChange,
+  toast,
+}: {
+  home: MaintainedProperty | null;
+  onChange: PageRefresh;
+  toast: Toast;
+}) {
+  const { user, refresh: refreshUser } = useAuth();
+  const [busy, setBusy] = useState<"handle" | null>(null);
+  const [handleDraft, setHandleDraft] = useState((user?.handle ?? "").replace(/^@+/, ""));
+  const [availability, setAvailability] = useState<"idle" | "checking" | "available" | "unavailable" | "invalid">("idle");
+  const [handleHint, setHandleHint] = useState<string | null>(null);
+  const checkGen = useRef(0);
+  useEffect(() => {
+    setHandleDraft((user?.handle ?? "").replace(/^@+/, ""));
+    setAvailability("idle");
+    setHandleHint(null);
+  }, [user?.handle]);
+
+  useEffect(() => {
+    const raw = handleDraft.trim();
+    const current = user?.handle ?? "";
+    if (!raw || raw.toLowerCase() === current) {
+      setAvailability("idle");
+      setHandleHint(null);
+      return;
+    }
+    const parsed = parseHandle(raw);
+    if ("error" in parsed) {
+      setAvailability("invalid");
+      setHandleHint(parsed.error);
+      return;
+    }
+    const gen = ++checkGen.current;
+    setAvailability("checking");
+    setHandleHint(null);
+    const timer = window.setTimeout(() => {
+      void api.handleAvailable(parsed.handle).then((res) => {
+        if (gen !== checkGen.current) return;
+        setAvailability(res.available ? "available" : "unavailable");
+        setHandleHint(null);
+      }).catch(() => {
+        if (gen !== checkGen.current) return;
+        setAvailability("invalid");
+        setHandleHint("Could not check that handle.");
+      });
+    }, 280);
+    return () => window.clearTimeout(timer);
+  }, [handleDraft, user?.handle]);
+
+  if (!user) return null;
+
+  const hideStreet = Boolean(home?.hide_street);
+  const anonymize = Boolean(home?.anonymize);
+  const where = home ? shortAddress(home) : "this property";
+
+  const flipVisibility = (field: "anonymize" | "hide_street", next: boolean, ok: (value: boolean) => string) => {
+    if (!home) return;
+    const previous = field === "anonymize" ? anonymize : hideStreet;
+    patchMyProperty({ property_id: home.property_id, [field]: next });
+    void api.setPropertyVisibility(home.property_id, { [field]: next }).then((saved) => {
+      patchMyProperty(saved.property);
+      toast(ok(field === "anonymize" ? saved.property.anonymize : saved.property.hide_street));
+      void onChange();
+    }).catch((err) => {
+      patchMyProperty({ property_id: home.property_id, [field]: previous });
+      toast(err instanceof Error ? err.message : "Could not update that.");
+    });
+  };
+  const canSaveHandle = availability === "available";
+  const hintClass = availability === "available"
+    ? " is-ok"
+    : availability === "unavailable" || availability === "invalid"
+      ? " is-error"
+      : "";
+  const hintText = availability === "available"
+    ? "Available"
+    : availability === "unavailable"
+      ? "Unavailable"
+      : handleHint ?? (user.handle ? "One alias for your account, used wherever your name is hidden." : "Letters, numbers, and underscores. Starts with a letter.");
+
+  const flipName = () => {
+    flipVisibility("anonymize", !anonymize, (on) => (
+      on
+        ? (user.handle ? `${where} shows ${formatHandle(user.handle)} instead of your name.` : `Your name is hidden on ${where}. Add an alias below.`)
+        : `${where} shows your real name again.`
+    ));
+  };
+
+  const flipStreet = () => {
+    flipVisibility("hide_street", !hideStreet, (on) => (
+      on ? `${where} now shows only the town.` : `${where} shows its street address again.`
+    ));
+  };
+
+  const saveHandle = async () => {
+    if (busy || !canSaveHandle) return;
+    setBusy("handle");
+    try {
+      const saved = await api.updateMe({ handle: handleDraft.trim() });
+      await refreshUser();
+      toast(`Alias is now ${formatHandle(saved.user.handle)}.`);
+      void onChange();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not save that handle.";
+      setAvailability("unavailable");
+      setHandleHint(message);
+      toast(message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <section className="section" id="visibility" data-testid="visibility-section">
+      <div className="section-head">
+        <h2>Visibility</h2>
+      </div>
+      <div className="group profile-card-settings" aria-busy={!home}>
+        <div className="row">
+          <div>
+            <strong>Hide my address</strong>
+            <div className="meta-line">Show only the town on this property's page.</div>
+          </div>
+          <button
+            type="button"
+            className={`switch${hideStreet ? " on" : ""}`}
+            role="switch"
+            aria-checked={hideStreet}
+            aria-label={`Hide my address on ${where}`}
+            disabled={!home}
+            data-testid="hide-street-toggle"
+            onClick={flipStreet}
+          >
+            <span className="visually-hidden">{hideStreet ? "On" : "Off"}</span>
+          </button>
+        </div>
+        <div className="row">
+          <div>
+            <strong>Hide my name</strong>
+            <div className="meta-line">
+              Use an alias instead of your real name on this page and with its neighbors.
+            </div>
+          </div>
+          <button
+            type="button"
+            className={`switch${anonymize ? " on" : ""}`}
+            role="switch"
+            aria-checked={anonymize}
+            aria-label={`Hide my name on ${where}`}
+            disabled={!home}
+            data-testid="anonymize-toggle"
+            onClick={flipName}
+          >
+            <span className="visually-hidden">{anonymize ? "On" : "Off"}</span>
+          </button>
+        </div>
+        {anonymize && (
+          <form
+            className="row profile-handle-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveHandle();
+            }}
+          >
+            <label className="profile-handle-label">
+              <strong>Alias</strong>
+              <span className={`profile-handle${availability === "unavailable" || availability === "invalid" ? " is-error" : availability === "available" ? " is-ok" : ""}`}>
+                <span className="profile-handle-at" aria-hidden="true">@</span>
+                <input
+                  className="field"
+                  type="text"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  maxLength={24}
+                  value={handleDraft}
+                  onChange={(event) => setHandleDraft(event.target.value.replace(/^@+/, "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 24))}
+                  placeholder="yourname"
+                  aria-invalid={availability === "unavailable" || availability === "invalid"}
+                  data-testid="profile-handle"
+                />
+              </span>
+              <span className={`meta-line${hintClass}`} data-testid="profile-handle-hint">
+                {hintText}
+              </span>
+            </label>
+            <div className={`profile-handle-accept${canSaveHandle ? " is-on" : ""}`}>
+              <div className="profile-handle-accept-slot">
+                <button
+                  type="submit"
+                  className="btn profile-handle-accept-btn"
+                  disabled={!canSaveHandle || busy !== null}
+                  tabIndex={canSaveHandle ? 0 : -1}
+                  data-testid="profile-handle-accept"
+                >
+                  {busy === "handle" ? "Saving…" : "Accept"}
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Manage: take the house off Myplace
+// ---------------------------------------------------------------------------
+
+/**
+ * Off by default. When on, the parcel disappears from search, the map, and
+ * every public URL until it is turned back off. These settings stay reachable
+ * the whole time, so this is also the way back.
+ */
+export function ManageSection({
+  home,
+  onChange,
+  toast,
+}: {
+  home: MaintainedProperty | null;
+  onChange: PageRefresh;
+  toast: Toast;
+}) {
+  const where = home ? shortAddress(home) : "this property";
+  const removed = Boolean(home?.removed);
+
+  const flipRemoved = () => {
+    if (!home) return;
+    const next = !home.removed;
+    patchMyProperty({ property_id: home.property_id, removed: next });
+    void api.setPropertyRemoved(home.property_id, next).then((saved) => {
+      patchMyProperty(saved.property);
+      toast(saved.property.removed
+        ? `${where} is off Myplace. Turn this off to bring it back.`
+        : `${where} is on Myplace again.`);
+      void onChange();
+    }).catch((err) => {
+      patchMyProperty({ property_id: home.property_id, removed: !next });
+      toast(err instanceof Error ? err.message : "Could not update that.");
+    });
+  };
+
+  return (
+    <section className="section" id="manage" data-testid="manage-section">
+      <div className="section-head">
+        <h2>Manage</h2>
+      </div>
+      <div className="group profile-card-settings" aria-busy={!home}>
+        <div className="row">
+          <div>
+            <strong>Remove my property</strong>
+            <div className="meta-line">Off the map, out of search, and gone from every public page.</div>
+          </div>
+          <button
+            type="button"
+            className={`switch${removed ? " on" : ""}`}
+            role="switch"
+            aria-checked={removed}
+            aria-label={`Remove ${where}`}
+            disabled={!home}
+            data-testid="remove-property-toggle"
+            onClick={flipRemoved}
+          >
+            <span className="visually-hidden">{removed ? "On" : "Off"}</span>
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 const PREFERENCE_LABEL: Record<string, { label: string; help: string }> = {
   contribution_requests: { label: "Change requests", help: "Someone proposes a change to this page." },

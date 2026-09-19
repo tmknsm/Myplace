@@ -4,16 +4,18 @@ import { api, type InboxItem, type PageRefresh } from "./api";
 import { useAuth } from "./auth";
 import { PageSpinner, Spinner } from "./components";
 import { useMeta } from "./meta";
-import { DocumentsSection, HandoffSection, MaintainersSection, NotificationsSection } from "./property-owner";
+import { loadMyProperties, markNotificationsSeen, useMyHome } from "./my-properties";
+import { DocumentsSection, HandoffSection, MaintainersSection, ManageSection, NotificationsSection, VisibilitySection } from "./property-owner";
 import { propertyHeading } from "../../shared/profile";
 import { DOCUMENT_TYPE_LABEL, dateLabel, useToast, type Toast } from "./property-shared";
 import { liveRefresh, peekProperty, type PageData } from "./page-data";
 
 /**
- * Owner tools live on their own pages, reached from the settings button
- * beside Share on a house you maintain: the vault, maintainers, email
- * preferences, and handoff at /property/:id/manage. The bell opens the
- * inbox of neighbor requests, change requests, and notices for that property.
+ * Owner tools live on their own page, reached from the settings button
+ * beside Share on a house you maintain: how the house shows you, the switch
+ * that takes it off Myplace, the vault, maintainers, email preferences, and
+ * handoff at /property/:id/manage. The full notifications list for one house
+ * is at /property/:id/manage/inbox, behind View all on the account page.
  */
 
 function useOwnerRecord(id: string | undefined) {
@@ -50,15 +52,6 @@ function useOwnerTitle(data: PageData | null, suffix: string) {
   return title;
 }
 
-function BellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15L6 16.5Z" />
-      <path d="M10 20.5a2 2 0 0 0 4 0" />
-    </svg>
-  );
-}
-
 /**
  * Shared frame for the owner pages: sign-in and maintainer gates, the loading
  * and error states, and the header with the address. Children only render
@@ -69,7 +62,6 @@ function OwnerPage({
   kicker,
   suffix,
   back,
-  aside,
   footer,
   children,
 }: {
@@ -77,8 +69,7 @@ function OwnerPage({
   kicker: string;
   suffix: string;
   back?: { to: string; label: string };
-  aside?: (data: PageData) => ReactNode;
-  footer?: ReactNode;
+  footer?: (data: PageData) => ReactNode;
   children: (data: PageData, refresh: PageRefresh, toast: Toast) => ReactNode;
 }) {
   const location = useLocation();
@@ -110,12 +101,11 @@ function OwnerPage({
             <h1 className="display">{title}</h1>
             {locality && <p className="meta-line">{locality}</p>}
           </div>
-          {aside?.(data)}
         </header>
         {toast && <div className="toast" role="status">{toast}</div>}
         {children(data, refresh, showToast)}
       </div>
-      {footer}
+      {footer?.(data)}
     </div>
   );
 }
@@ -124,35 +114,27 @@ export function PropertyManagePage() {
   const { id } = useParams();
   const { user } = useAuth();
   const meta = useMeta();
+  const home = useMyHome(id);
   return (
     <OwnerPage
       id={id}
       kicker="Owner tools"
       suffix="Owner tools"
-      aside={(data) => {
-        const count = data.viewer.inboxCount ?? 0;
-        return (
-          <Link
-            className="icon-btn"
-            to={`/property/${id}/manage/inbox`}
-            aria-label={count ? `Inbox, ${count} waiting` : "Inbox"}
-            title="Inbox"
-            data-testid="inbox-link"
-          >
-            <BellIcon />
-            {count > 0 && <span className="icon-badge" data-testid="inbox-count">{count > 9 ? "9+" : count}</span>}
-          </Link>
-        );
-      }}
-      footer={(
+      footer={({ property }) => (
         <div className="manage-cta">
-          <Link className="btn" to={`/property/${id}`} data-testid="view-property">View property</Link>
+          {property.removed ? (
+            <Link className="btn" to="/account" data-testid="view-property">Back to account</Link>
+          ) : (
+            <Link className="btn" to={`/property/${id}`} data-testid="view-property">View property</Link>
+          )}
         </div>
       )}
     >
       {({ property, viewer }, refresh, toast) => (
         <>
-          <p className="meta-line manage-lede">The private half: the vault, who else can edit, how you're notified, and what happens at closing.</p>
+          <p className="meta-line manage-lede">The private half: how this page shows you, whether it is on Myplace, the vault, who else can edit, how you're notified, and what happens at closing.</p>
+          <VisibilitySection home={home} onChange={refresh} toast={toast} />
+          <ManageSection home={home} onChange={refresh} toast={toast} />
           <DocumentsSection
             propertyId={id!}
             documents={property.documents.filter((doc) => !doc.improvement_id && !doc.room_id && !doc.topic_id && !doc.post_id)}
@@ -191,38 +173,71 @@ const KIND_LABEL: Record<InboxItem["kind"], string> = {
   neighbor_request: "Neighbor",
 };
 
+/** Every notification for one house. View all on the account page lands here. */
 export function PropertyInboxPage() {
   const { id } = useParams();
   return (
     <OwnerPage
       id={id}
-      kicker="Inbox"
-      suffix="Inbox"
-      back={{ to: `/property/${id}/manage`, label: "Owner tools" }}
+      kicker="Notifications"
+      suffix="Notifications"
+      back={{ to: "/account", label: "Account" }}
     >
       {(_data, refresh, toast) => (
-        <InboxList propertyId={id!} onChange={refresh} toast={toast} />
+        <InboxFeed propertyId={id!} onChange={refresh} toast={toast} />
       )}
     </OwnerPage>
   );
 }
 
-function InboxList({ propertyId, onChange, toast }: { propertyId: string; onChange: PageRefresh; toast: Toast }) {
+function InboxFeed({ propertyId, onChange, toast }: { propertyId: string; onChange: PageRefresh; toast: Toast }) {
+  const inbox = useInbox(propertyId, onChange, toast);
+  useEffect(() => {
+    if (inbox.items) markNotificationsSeen(propertyId);
+  }, [propertyId, inbox.items]);
+  return (
+    <section className="section" id="inbox" data-testid="owner-inbox">
+      {inbox.error && <p className="error">{inbox.error}</p>}
+      {inbox.items === null && !inbox.error && (
+        <div className="group empty-card" role="status" aria-label="Loading notifications">
+          <Spinner />
+        </div>
+      )}
+      {inbox.items && inbox.items.length === 0 && (
+        <div className="group" data-testid="inbox-empty"><div className="row"><span className="meta-line">None yet</span></div></div>
+      )}
+      {inbox.items && inbox.items.length > 0 && (
+        <InboxRows propertyId={propertyId} items={inbox.items} busy={inbox.busy} onAct={inbox.act} />
+      )}
+    </section>
+  );
+}
+
+/**
+ * The house's notifications and the actions on them. Acting reloads the list,
+ * the page record it came from, and the account's house list (the badge).
+ */
+export function useInbox(propertyId: string | null, onChange: PageRefresh | undefined, toast: Toast) {
   const [items, setItems] = useState<InboxItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!propertyId) return;
     try {
       const data = await api.inbox(propertyId);
       setItems(data.items);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load inbox");
+      setError(err instanceof Error ? err.message : "Could not load notifications");
     }
   }, [propertyId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    setItems(null);
+    setError(null);
+    void load();
+  }, [load]);
 
   const act = async (item: InboxItem, action: InboxItem["actions"][number]) => {
     if (action === "view") return;
@@ -249,7 +264,7 @@ function InboxList({ propertyId, onChange, toast }: { propertyId: string; onChan
         }
       }
       await load();
-      await onChange();
+      await Promise.all([onChange?.(), loadMyProperties(true).catch(() => {})]);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not update that item.");
     } finally {
@@ -257,79 +272,74 @@ function InboxList({ propertyId, onChange, toast }: { propertyId: string; onChan
     }
   };
 
+  return { items, error, busy, act, reload: load };
+}
+
+export function InboxRows({
+  propertyId,
+  items,
+  busy,
+  onAct,
+}: {
+  propertyId: string;
+  items: InboxItem[];
+  busy: string | null;
+  onAct: (item: InboxItem, action: InboxItem["actions"][number]) => void | Promise<void>;
+}) {
   return (
-    <section className="section" id="inbox" data-testid="owner-inbox">
-      <h2>Messages</h2>
-      <p className="meta-line section-note">
-        Neighbor requests, proposed changes, disputes you've filed, and notices from official sources. Accepting a change writes it to the owner layer.
-      </p>
-      {error && <p className="error">{error}</p>}
-      {items === null && !error && (
-        <div className="group empty-card" role="status" aria-label="Loading messages">
-          <Spinner />
-        </div>
-      )}
-      {items && items.length === 0 && (
-        <div className="group empty-card" data-testid="inbox-empty">
-          Nothing waiting. Neighbor requests, changes, disputes and county updates land here.
-        </div>
-      )}
-      {items && items.length > 0 && (
-        <div className="group">
-          {items.map((item) => (
-            <div key={item.id} className="row inbox-row" data-testid={`inbox-${item.kind}`}>
-              <div className="inbox-row-copy">
-                <div className="inbox-title">
-                  <strong>{item.title}</strong>
-                  <span className={`badge ${item.kind === "contribution_request" || item.kind === "neighbor_request" ? "pending" : item.kind === "dispute" ? "disputed" : ""}`}>
-                    {KIND_LABEL[item.kind]}
-                  </span>
-                </div>
-                <div className="meta-line">{item.body}</div>
-                <div className="meta-line">{dateLabel(item.createdAt)}</div>
-                <div className="inbox-actions">
-                  {item.actions.includes("accept") && (
-                    <button
-                      type="button"
-                      className="btn small"
-                      disabled={busy !== null}
-                      data-testid="inbox-accept"
-                      onClick={() => void act(item, "accept")}
-                    >
-                      {busy === `${item.id}:accept` ? "Saving…" : item.kind === "neighbor_request" ? "Approve" : "Accept"}
-                    </button>
-                  )}
-                  {item.actions.includes("decline") && (
-                    <button
-                      type="button"
-                      className="btn secondary small"
-                      disabled={busy !== null}
-                      data-testid="inbox-decline"
-                      onClick={() => void act(item, "decline")}
-                    >
-                      {busy === `${item.id}:decline` ? "Saving…" : "Decline"}
-                    </button>
-                  )}
-                  {item.actions.includes("withdraw") && (
-                    <button
-                      type="button"
-                      className="text-link"
-                      disabled={busy !== null}
-                      onClick={() => void act(item, "withdraw")}
-                    >
-                      Withdraw
-                    </button>
-                  )}
-                  {item.actions.includes("view") && (
-                    <Link className="text-link" to={item.fromPropertyId ? `/property/${item.fromPropertyId}` : `/property/${propertyId}`}>View</Link>
-                  )}
-                </div>
-              </div>
+    <div className="group">
+      {items.map((item) => (
+        <div key={item.id} className="row inbox-row" data-testid={`inbox-${item.kind}`}>
+          <div className="inbox-row-copy">
+            <div className="inbox-title">
+              <strong>{item.title}</strong>
+              <span className={`badge ${item.kind === "contribution_request" || item.kind === "neighbor_request" ? "pending" : item.kind === "dispute" ? "disputed" : ""}`}>
+                {KIND_LABEL[item.kind]}
+              </span>
             </div>
-          ))}
+            <div className="meta-line">{item.body}</div>
+            <div className="meta-line">{dateLabel(item.createdAt)}</div>
+            <div className="inbox-actions">
+              {item.actions.includes("accept") && (
+                <button
+                  type="button"
+                  className="btn small"
+                  disabled={busy !== null}
+                  data-testid="inbox-accept"
+                  onClick={() => void onAct(item, "accept")}
+                >
+                  {busy === `${item.id}:accept` ? "Saving…" : item.kind === "neighbor_request" ? "Approve" : "Accept"}
+                </button>
+              )}
+              {item.actions.includes("decline") && (
+                <button
+                  type="button"
+                  className="btn secondary small"
+                  disabled={busy !== null}
+                  data-testid="inbox-decline"
+                  onClick={() => void onAct(item, "decline")}
+                >
+                  {busy === `${item.id}:decline` ? "Saving…" : "Decline"}
+                </button>
+              )}
+              {item.actions.includes("withdraw") && (
+                <button
+                  type="button"
+                  className="text-link"
+                  disabled={busy !== null}
+                  onClick={() => void onAct(item, "withdraw")}
+                >
+                  Withdraw
+                </button>
+              )}
+              {item.actions.includes("view") && (
+                <Link className="text-link" to={item.fromPropertyId ? `/property/${item.fromPropertyId}` : `/property/${propertyId}`}>View</Link>
+              )}
+            </div>
+          </div>
         </div>
-      )}
-    </section>
+      ))}
+    </div>
   );
 }
 

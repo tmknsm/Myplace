@@ -1275,7 +1275,12 @@ test("removing a property hides it from search, tiles, and every public URL", as
   expect((await hide.json()).property.removed).toBe(true);
 
   expect((await app.request("http://localhost/api/properties/prop_test")).status).toBe(404);
-  expect((await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).status).toBe(404);
+  expect((await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: visitor } })).status).toBe(404);
+  // The owner keeps their record so the settings that bring it back stay reachable.
+  const ownerView = await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } });
+  expect(ownerView.status).toBe(200);
+  expect((await ownerView.json()).property.removed).toBe(true);
+  expect((await app.request("http://localhost/api/properties/prop_test/inbox", { headers: { cookie } })).status).toBe(200);
   expect((await app.request("http://localhost/api/properties/prop_test/claims", {
     method: "POST",
     headers: { "content-type": "application/json", cookie: visitor },
@@ -1550,6 +1555,34 @@ test("owner inbox lists disputes and lets the owner accept or decline change req
 
   const page = await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: ownerCookie } });
   expect((await page.json()).viewer.inboxCount).toBe(2);
+
+  // Both items landed after the owner joined the page and nobody has looked yet.
+  const unseen = await (await app.request("http://localhost/api/me/properties", { headers: { cookie: ownerCookie } })).json();
+  expect(unseen.properties[0].unseen).toBe(2);
+  expect((await app.request("http://localhost/api/properties/prop_test/inbox/seen", {
+    method: "POST",
+    headers: { cookie: neighbor },
+  })).status).toBe(403);
+  const seen = await app.request("http://localhost/api/properties/prop_test/inbox/seen", {
+    method: "POST",
+    headers: { cookie: ownerCookie },
+  });
+  expect(seen.status).toBe(200);
+  const cleared = await (await app.request("http://localhost/api/me/properties", { headers: { cookie: ownerCookie } })).json();
+  expect(cleared.properties[0].unseen).toBe(0);
+  // Something new lights it again; the items already seen stay counted out.
+  await sql`
+    INSERT INTO contributions (contribution_id, property_id, contributor_user_id, contributor_type, status, summary, created_at)
+    VALUES ('con_req2', 'prop_test', ${neighborUser[0]!.user_id}, 'neighbor', 'needs_review', 'Neighbor proposed roof', now() + interval '1 second')
+  `;
+  await sql`
+    INSERT INTO contribution_assertions (contribution_assertion_id, contribution_id, field_key, value_json)
+    VALUES ('cas_req2', 'con_req2', 'roof.type', ${sql.json({ value: "Slate" } as never)})
+  `;
+  const relit = await (await app.request("http://localhost/api/me/properties", { headers: { cookie: ownerCookie } })).json();
+  expect(relit.properties[0].unseen).toBe(1);
+  await sql`DELETE FROM contribution_assertions WHERE contribution_id = 'con_req2'`;
+  await sql`DELETE FROM contributions WHERE contribution_id = 'con_req2'`;
 
   const refuseOwn = await app.request(`http://localhost/api/contributions/${disputeId}/review`, {
     method: "POST",
@@ -2461,8 +2494,11 @@ test("onboarding: hiding the listing takes the house off the map when verified; 
   expect(removedFlag[0]?.removed).toBe(true);
   const search = await (await app.request("http://localhost/api/search?q=Warren")).json();
   expect(search.results).toEqual([]);
-  // Off Myplace means off for everyone, owner included; the account page is the way back.
-  expect((await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).status).toBe(404);
+  // Off Myplace for everyone else; the owner keeps the record so its settings are the way back.
+  expect((await app.request("http://localhost/api/properties/prop_test")).status).toBe(404);
+  const ownerView = await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } });
+  expect(ownerView.status).toBe(200);
+  expect((await ownerView.json()).property.removed).toBe(true);
   const hero = await sql<{ is_cover: boolean; post_id: string | null; visibility: string; claim_id: string | null }[]>`
     SELECT is_cover, post_id, visibility, claim_id FROM documents WHERE document_id = ${heroId}
   `;

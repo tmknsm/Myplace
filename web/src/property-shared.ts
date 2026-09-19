@@ -1,6 +1,21 @@
 import { useCallback, useRef, useState } from "react";
 import type { Doc } from "./api";
 
+/** Street half of an address, for picker rows, toasts, and scope labels. */
+export function shortAddress(property: { formatted: string | null; municipality: string | null }): string {
+  const formatted = property.formatted?.trim();
+  if (formatted) return formatted.split(",")[0]!.trim() || formatted;
+  return property.municipality || "This property";
+}
+
+/** Everything after the street: "Claverack, NY". */
+export function localityOf(property: { formatted: string | null; municipality: string | null }): string | null {
+  const formatted = property.formatted?.trim();
+  if (!formatted) return null;
+  const comma = formatted.indexOf(",");
+  return comma >= 0 ? formatted.slice(comma + 1).trim() || null : null;
+}
+
 export const MULTILINE_FIELDS = new Set([
   "profile.summary", "renovations", "additions", "structures", "maintenance",
   "original_details", "garden", "interior.palette",
