@@ -2166,6 +2166,7 @@ body:has(.map-page) { overflow: hidden; }
   color: var(--ink);
   font: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 .property-picker.is-carousel .picker-card {

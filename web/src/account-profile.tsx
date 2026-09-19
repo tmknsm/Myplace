@@ -64,10 +64,10 @@ export function ProfileCard({ user, onUser, showToast }: { user: User; onUser: (
 }
 
 /**
- * The houses on the account. Choosing one scopes the notifications feed below
- * to it. One house is a full-width card; more than one is a snap carousel
- * whose focused card is the selection, with a sliver of the next house showing.
- * A red dot beside the address means notifications landed since the last look.
+ * The houses on the account. A tap opens the house (or its settings, if it is
+ * off Myplace). With more than one, the track is a snap carousel: swipe to
+ * focus a card, and the notifications feed below follows. A red dot beside
+ * the address means notifications landed since the last look.
  */
 export function PropertyPicker({
   properties,
@@ -166,27 +166,25 @@ export function PropertyPicker({
         <div
           ref={trackRef}
           className="property-picker-track"
-          role={carousel ? "radiogroup" : undefined}
-          aria-label={carousel ? "Properties" : undefined}
+          aria-label="Properties"
           onKeyDown={onKeyDown}
         >
           {properties.map((property) => {
             const selected = property.property_id === selectedId;
+            const href = property.removed
+              ? `/property/${property.property_id}/manage`
+              : `/property/${property.property_id}`;
             return (
-              <button
-                type="button"
+              <Link
                 className={`picker-card${selected ? " is-selected" : ""}`}
                 key={property.property_id}
-                role={carousel ? "radio" : undefined}
-                aria-checked={carousel ? selected : undefined}
-                aria-label={property.formatted ?? shortAddress(property)}
+                to={href}
+                aria-label={property.removed
+                  ? `${shortAddress(property)} is off Myplace. Open its settings`
+                  : property.formatted ?? shortAddress(property)}
                 data-property-id={property.property_id}
                 data-testid="owned-property"
                 data-selected={selected || undefined}
-                onClick={() => {
-                  onSelect(property.property_id);
-                  if (carousel) scrollCardIntoView(property.property_id);
-                }}
               >
                 {/* At the card's edge so it shows in the sliver of the next house too. */}
                 <span
@@ -211,7 +209,7 @@ export function PropertyPicker({
                   )}
                 </span>
                 <span className="picker-radio" aria-hidden="true" />
-              </button>
+              </Link>
             );
           })}
         </div>
