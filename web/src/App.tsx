@@ -671,9 +671,15 @@ function AccountPage() {
   // The first house is selected until they pick another; a stale pick falls back.
   const selected = homes.find((property) => property.property_id === selectedId) ?? homes[0] ?? null;
   const ownedIds = new Set(homes.map((property) => property.property_id));
-  const openClaims = claims.filter((claim) => (
-    !ownedIds.has(claim.property_id) && claim.status !== "superseded" && claim.status !== "revoked"
-  ));
+  // Verified claims are houses we already show as chips. They stay in /api/me/claims,
+  // so without this they flash as "verified" rows on refresh, before the house list
+  // arrives and ownedIds can hide them. Wait for that list too — an empty ownedIds
+  // is "still loading", not "owns nothing".
+  const openClaims = properties === undefined
+    ? []
+    : claims.filter((claim) => (
+      (claim.status === "pending" || claim.status === "rejected") && !ownedIds.has(claim.property_id)
+    ));
   return (
     <div className={`page account-page${selected ? " has-go" : ""}`}>
       <div className="account-body">
