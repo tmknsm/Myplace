@@ -169,12 +169,27 @@ export async function loadMyProperties(userId: string) {
     anonymize: boolean;
     hide_street: boolean;
     inbox_seen_at: Date | string | null;
+    geojson: unknown;
+    geometry_quality: string | null;
+    cover_id: string | null;
+    cover_bytes: number | null;
   }[]>`
     SELECT p.property_id, p.municipality, a.formatted, m.role, m.verified_at, p.removed,
-           m.anonymize, m.hide_street, m.inbox_seen_at
+           m.anonymize, m.hide_street, m.inbox_seen_at,
+           CASE WHEN g.geom IS NULL THEN NULL ELSE ST_AsGeoJSON(g.geom)::json END AS geojson,
+           g.quality AS geometry_quality,
+           d.document_id AS cover_id, d.byte_size AS cover_bytes
     FROM property_maintainers m
     JOIN properties p ON p.property_id = m.property_id
     LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
+    LEFT JOIN property_geometries g ON g.property_id = p.property_id AND g.is_current
+    LEFT JOIN LATERAL (
+      SELECT document_id, byte_size FROM documents
+      WHERE property_id = p.property_id AND removed_at IS NULL AND claim_id IS NULL
+        AND visibility = 'public' AND (mime_type LIKE 'image/%' OR document_type = 'photo')
+      ORDER BY is_cover DESC, created_at DESC
+      LIMIT 1
+    ) d ON TRUE
     WHERE m.user_id = ${userId} AND m.revoked_at IS NULL
     ORDER BY m.verified_at ASC, a.formatted
   `;
@@ -201,11 +216,13 @@ export async function loadMyProperties(userId: string) {
     mine.map((row) => countUnseenInbox(row.property_id, row.inbox_seen_at ?? row.verified_at)),
   );
 
-  return mine.map(({ inbox_seen_at: _seen, ...row }, index) => ({
+  return mine.map(({ inbox_seen_at: _seen, cover_id, cover_bytes, ...row }, index) => ({
     ...row,
     anonymize: Boolean(row.anonymize),
     hide_street: Boolean(row.hide_street),
     unseen: unseen[index] ?? 0,
+    /** The cover photo for the card, or null when the lot is drawn instead. */
+    photo_url: cover_id ? `/api/documents/${cover_id}/file?v=${cover_bytes ?? 0}` : null,
     maintainers: sortMaintainers(byProperty.get(row.property_id) ?? []),
   }));
 }

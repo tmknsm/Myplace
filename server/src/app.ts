@@ -47,6 +47,7 @@ import {
   loadInbox,
   loadOpenDisputes,
   markInboxSeen,
+  type InboxItem,
   loadPendingInvitations,
   loadPreferences,
   openDispute,
@@ -657,8 +658,18 @@ interface ClaimRow {
   hero_document_id: string | null;
   hero_caption: string | null;
   hero_as_post: boolean;
+  postcard_code: string | null;
+  postcard_sent_at: string | null;
+  code_attempts: number;
+  notice_seen_at: string | null;
   formatted: string | null;
   municipality: string | null;
+}
+
+/** The code never leaves the server except on the card (and to admins). */
+function presentClaim<T extends { postcard_code?: string | null }>(claim: T): Omit<T, "postcard_code"> {
+  const { postcard_code: _code, ...rest } = claim;
+  return rest;
 }
 
 async function loadClaim(claimId: string): Promise<ClaimRow | null> {
@@ -667,6 +678,7 @@ async function loadClaim(claimId: string): Promise<ClaimRow | null> {
     SELECT c.claim_id, c.property_id, c.user_id, c.method, c.status, c.notes, c.reviewer_note,
            c.submitted_at, c.verified_at, c.created_at,
            c.anonymize, c.hide_street, c.hide_listing, c.hero_document_id, c.hero_caption, c.hero_as_post,
+           c.postcard_code, c.postcard_sent_at, c.code_attempts, c.notice_seen_at,
            p.municipality, a.formatted
     FROM ownership_claims c
     JOIN properties p ON p.property_id = c.property_id
@@ -683,6 +695,7 @@ async function openClaimFor(userId: string, propertyId: string): Promise<ClaimRo
     SELECT c.claim_id, c.property_id, c.user_id, c.method, c.status, c.notes, c.reviewer_note,
            c.submitted_at, c.verified_at, c.created_at,
            c.anonymize, c.hide_street, c.hide_listing, c.hero_document_id, c.hero_caption, c.hero_as_post,
+           c.postcard_code, c.postcard_sent_at, c.code_attempts, c.notice_seen_at,
            p.municipality, a.formatted
     FROM ownership_claims c
     JOIN properties p ON p.property_id = c.property_id
@@ -719,7 +732,7 @@ app.post("/api/properties/:id/claims/start", async (c) => {
   const core = await loadPropertyCore(propertyId);
   if (!core) return c.json({ error: "Property not found" }, 404);
   const existing = await openClaimFor(user.user_id, propertyId);
-  if (existing?.status === "pending") return c.json({ claim: existing });
+  if (existing?.status === "pending") return c.json({ claim: presentClaim(existing) });
   const blocked = await claimBlocker(user, propertyId);
   if (blocked) {
     // Someone else finished first while this draft sat idle. Close it rather
@@ -727,13 +740,13 @@ app.post("/api/properties/:id/claims/start", async (c) => {
     if (existing) await closeDrafts([existing.claim_id]);
     return c.json({ error: blocked }, 409);
   }
-  if (existing) return c.json({ claim: existing });
+  if (existing) return c.json({ claim: presentClaim(existing) });
   const claimId = id("clm");
   await getSql()`
     INSERT INTO ownership_claims (claim_id, property_id, user_id, method, status)
     VALUES (${claimId}, ${propertyId}, ${user.user_id}, '', 'draft')
   `;
-  return c.json({ claim: await loadClaim(claimId) }, 201);
+  return c.json({ claim: presentClaim((await loadClaim(claimId))!) }, 201);
 });
 
 /** Onboarding choices on an open claim. Applied to the house when the claim is verified. */
@@ -777,7 +790,7 @@ app.patch("/api/claims/:id", async (c) => {
         hero_caption = CASE WHEN ${caption === undefined} THEN hero_caption ELSE ${caption || null} END
     WHERE claim_id = ${claim.claim_id}
   `;
-  return c.json({ claim: await loadClaim(claim.claim_id) });
+  return c.json({ claim: presentClaim((await loadClaim(claim.claim_id))!) });
 });
 
 app.post("/api/properties/:id/claims", async (c) => {
@@ -787,14 +800,11 @@ app.post("/api/properties/:id/claims", async (c) => {
   if (!core) return c.json({ error: "Property not found" }, 404);
 
   const body = await c.req.json<{
-    method?: string;
     notes?: string;
     attestationAccepted?: boolean;
-  }>();
-  const method = body.method ?? "";
-  if (!["tax_bill", "deed", "utility_and_id"].includes(method)) {
-    return c.json({ error: "Choose a verification method." }, 400);
-  }
+  }>().catch(() => ({} as { notes?: string; attestationAccepted?: boolean }));
+  // Verification is a code on a postcard mailed to the house. Nothing to choose.
+  const method = "postcard";
   if (!body.attestationAccepted) {
     return c.json({ error: "You must attest that you are the current owner." }, 400);
   }
@@ -814,18 +824,24 @@ app.post("/api/properties/:id/claims", async (c) => {
   // Onboarding opened a draft ahead of this; submitting fills it in rather than
   // starting a second record, so its choices and hero photo come along.
   const claimId = existing?.claim_id ?? id("clm");
+  // The code goes on the card and nowhere else. It is generated here, and the
+  // card is on its way the moment the claim is in.
+  const code = randomCode();
   if (existing) {
     await sql`
       UPDATE ownership_claims
-      SET method = ${method}, status = 'pending', attestation_accepted = true, notes = ${body.notes ?? null}, submitted_at = now()
+      SET method = ${method}, status = 'pending', attestation_accepted = true, notes = ${body.notes ?? null},
+          submitted_at = now(), postcard_code = ${code}, postcard_sent_at = now(), code_attempts = 0, notice_seen_at = NULL
       WHERE claim_id = ${claimId}
     `;
   } else {
     await sql`
       INSERT INTO ownership_claims (
-        claim_id, property_id, user_id, method, status, attestation_accepted, notes, submitted_at
+        claim_id, property_id, user_id, method, status, attestation_accepted, notes, submitted_at,
+        postcard_code, postcard_sent_at
       ) VALUES (
-        ${claimId}, ${propertyId}, ${user.user_id}, ${method}, 'pending', true, ${body.notes ?? null}, now()
+        ${claimId}, ${propertyId}, ${user.user_id}, ${method}, 'pending', true, ${body.notes ?? null}, now(),
+        ${code}, now()
       )
     `;
   }
@@ -869,6 +885,108 @@ app.post("/api/properties/:id/claims", async (c) => {
   return c.json({ claimId, status: "pending" }, 201);
 });
 
+const CODE_ATTEMPTS_MAX = 8;
+
+/**
+ * The code from the postcard. Right, and the house is theirs on the spot,
+ * with everything they chose during onboarding applied. Wrong a handful of
+ * times and the attempt closes; they can start again and get a new card.
+ */
+app.post("/api/claims/:id/verify", async (c) => {
+  const user = requireUser(c);
+  const claim = await loadClaim(c.req.param("id"));
+  if (!claim) return c.json({ error: "Claim not found" }, 404);
+  if (claim.user_id !== user.user_id) return c.json({ error: "Forbidden" }, 403);
+  if (claim.status !== "pending") return c.json({ error: "This claim is not waiting on a code." }, 400);
+  const body = await c.req.json<{ code?: string }>().catch(() => ({} as { code?: string }));
+  const code = String(body.code ?? "").replace(/\D/g, "");
+  if (code.length !== 6) return c.json({ error: "The code is six digits." }, 400);
+
+  const sql = getSql();
+  if (claim.code_attempts >= CODE_ATTEMPTS_MAX) {
+    return c.json({ error: "Too many tries. Start the claim again to get a new postcard." }, 429);
+  }
+  const matches = claim.postcard_code === code || (debugEnabled() && pinMatches(code));
+  if (!matches) {
+    const left = CODE_ATTEMPTS_MAX - claim.code_attempts - 1;
+    await sql`UPDATE ownership_claims SET code_attempts = code_attempts + 1 WHERE claim_id = ${claim.claim_id}`;
+    if (left <= 0) {
+      await sql`UPDATE ownership_claims SET status = 'rejected', reviewer_note = 'Too many wrong codes.' WHERE claim_id = ${claim.claim_id}`;
+      return c.json({ error: "That was the last try. Start the claim again to get a new postcard." }, 429);
+    }
+    return c.json({ error: left === 1 ? "That code does not match. One try left." : `That code does not match. ${left} tries left.` }, 400);
+  }
+
+  // Someone else may have finished while the card was in the mail.
+  if (await claimBlocker(user, claim.property_id)) {
+    await sql`UPDATE ownership_claims SET status = 'superseded' WHERE claim_id = ${claim.claim_id}`;
+    return c.json({ error: "This property was verified by someone else while your card was in the mail." }, 409);
+  }
+
+  await grantOwnership({
+    propertyId: claim.property_id,
+    userId: user.user_id,
+    claimId: claim.claim_id,
+    actorType: "postcard",
+    actorId: user.user_id,
+    reviewerNote: "Verified with the code from the postcard.",
+  });
+  const template = claimReviewedEmail(config.appOrigin, claim.formatted ?? "this property", claim.property_id, true);
+  void sendMail({
+    stream: "ownership",
+    toEmail: user.primary_email,
+    toUserId: user.user_id,
+    subject: template.subject,
+    html: template.html,
+    text: template.text,
+    templateKey: "claim_verified",
+    payload: { claimId: claim.claim_id, propertyId: claim.property_id },
+  }).catch((err) => console.error("claim_verified email failed", err));
+  return c.json({ ok: true, propertyId: claim.property_id });
+});
+
+/**
+ * What a pending house has to say: the card is in the mail. This is the feed
+ * under a pending chip on the account page, until the code turns it into a
+ * real house with a real inbox.
+ */
+app.get("/api/claims/:id/notifications", async (c) => {
+  const user = requireUser(c);
+  const claim = await loadClaim(c.req.param("id"));
+  if (!claim) return c.json({ error: "Claim not found" }, 404);
+  if (claim.user_id !== user.user_id) return c.json({ error: "Forbidden" }, 403);
+  return c.json({ items: claimNotifications(claim) });
+});
+
+app.post("/api/claims/:id/notifications/seen", async (c) => {
+  const user = requireUser(c);
+  const claim = await loadClaim(c.req.param("id"));
+  if (!claim) return c.json({ error: "Claim not found" }, 404);
+  if (claim.user_id !== user.user_id) return c.json({ error: "Forbidden" }, 403);
+  await getSql()`UPDATE ownership_claims SET notice_seen_at = now() WHERE claim_id = ${claim.claim_id}`;
+  return c.json({ ok: true });
+});
+
+function claimNotifications(claim: ClaimRow): InboxItem[] {
+  if (claim.status !== "pending" || !claim.postcard_sent_at) return [];
+  const where = claim.formatted ?? "the property";
+  return [{
+    id: `clm:${claim.claim_id}:postcard`,
+    kind: "notice",
+    title: "Your code is in the mail",
+    body: `A postcard with your six-digit verification code is on its way to ${where}. Allow about a week, then enter it above.`,
+    createdAt: claim.postcard_sent_at,
+    fieldKey: null,
+    fieldLabel: null,
+    proposedValue: null,
+    note: null,
+    contributionId: null,
+    neighborRequestId: null,
+    fromPropertyId: null,
+    actions: [],
+  }];
+}
+
 app.get("/api/claims/:id", async (c) => {
   const user = requireUser(c);
   const sql = getSql();
@@ -895,20 +1013,62 @@ app.get("/api/claims/:id", async (c) => {
         FROM documents WHERE document_id = ${claim.hero_document_id} AND removed_at IS NULL
       `)[0] ?? null
     : null;
-  return c.json({ claim, documents, hero });
+  return c.json({ claim: user.is_admin ? claim : presentClaim(claim), documents, hero });
 });
 
 app.get("/api/me/claims", async (c) => {
   const user = requireUser(c);
   const sql = getSql();
-  const claims = await sql`
-    SELECT c.claim_id, c.property_id, c.method, c.status, c.submitted_at, a.formatted
+  // A pending claim is a house-in-waiting on the account page: it needs the
+  // same address, thumbnail (their hero photo, else the house's cover, else
+  // the lot) and unseen flag a real house has.
+  const claims = await sql<Array<{
+    claim_id: string;
+    property_id: string;
+    method: string;
+    status: string;
+    submitted_at: string | null;
+    postcard_sent_at: string | null;
+    notice_seen_at: string | null;
+    formatted: string | null;
+    municipality: string | null;
+    geojson: unknown;
+    geometry_quality: string | null;
+    hero_id: string | null;
+    hero_bytes: number | null;
+    cover_id: string | null;
+    cover_bytes: number | null;
+  }>>`
+    SELECT c.claim_id, c.property_id, c.method, c.status, c.submitted_at, c.postcard_sent_at, c.notice_seen_at,
+           a.formatted, p.municipality,
+           CASE WHEN g.geom IS NULL THEN NULL ELSE ST_AsGeoJSON(g.geom)::json END AS geojson,
+           g.quality AS geometry_quality,
+           h.document_id AS hero_id, h.byte_size AS hero_bytes,
+           d.document_id AS cover_id, d.byte_size AS cover_bytes
     FROM ownership_claims c
+    JOIN properties p ON p.property_id = c.property_id
     LEFT JOIN property_addresses a ON a.property_id = c.property_id AND a.is_current
+    LEFT JOIN property_geometries g ON g.property_id = c.property_id AND g.is_current
+    LEFT JOIN documents h ON h.document_id = c.hero_document_id AND h.removed_at IS NULL
+    LEFT JOIN LATERAL (
+      SELECT document_id, byte_size FROM documents
+      WHERE property_id = c.property_id AND removed_at IS NULL AND claim_id IS NULL
+        AND visibility = 'public' AND (mime_type LIKE 'image/%' OR document_type = 'photo')
+      ORDER BY is_cover DESC, created_at DESC
+      LIMIT 1
+    ) d ON TRUE
     WHERE c.user_id = ${user.user_id} AND c.status <> 'draft'
     ORDER BY c.created_at DESC
   `;
-  return c.json({ claims });
+  return c.json({
+    claims: claims.map(({ hero_id, hero_bytes, cover_id, cover_bytes, notice_seen_at, ...claim }) => ({
+      ...claim,
+      photo_url: hero_id
+        ? `/api/documents/${hero_id}/file?v=${hero_bytes ?? 0}`
+        : cover_id ? `/api/documents/${cover_id}/file?v=${cover_bytes ?? 0}` : null,
+      unseen: claim.status === "pending" && claim.postcard_sent_at && !notice_seen_at ? 1 : 0,
+    })),
+  });
 });
 
 app.get("/api/me/properties", async (c) => {

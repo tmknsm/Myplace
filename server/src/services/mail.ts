@@ -94,17 +94,17 @@ export function authCodeEmail(appOrigin: string, email: string, code: string) {
 }
 
 export function claimReceivedEmail(appOrigin: string, address: string, claimId: string, propertyId: string) {
-  const href = `${appOrigin}/property/${propertyId}/claim/${claimId}`;
+  const href = `${appOrigin}/account?house=${propertyId}`;
   return {
-    subject: `We received your claim for ${address}`,
+    subject: `Your code for ${address} is in the mail`,
     html: shell(
-      "Claim received",
+      "Your code is in the mail",
       `<p>We received your request to claim <strong>${address}</strong>.</p>
-       <p>A reviewer will confirm that you are the current owner. This usually takes one to two business days. You will get another email when the review is complete.</p>`,
-      "View claim status",
+       <p>A postcard with a six-digit verification code is on its way to that address. Allow about a week. When it arrives, enter the code on your account page and the house is yours.</p>`,
+      "Open your account",
       href,
     ),
-    text: `We received your claim for ${address}. Track it at ${href}`,
+    text: `We received your claim for ${address} (reference ${claimId}). A postcard with your verification code is on its way there. Enter it at ${href}`,
   };
 }
 

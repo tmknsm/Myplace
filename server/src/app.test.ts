@@ -2547,3 +2547,124 @@ test("onboarding: the house goes to whoever finishes first; idle drafts on it cl
   });
   expect(submit.status).toBe(409);
 });
+
+test("postcard: submitting mails a code to the house; the right code makes the owner, wrong ones run out", async () => {
+  await seedProperty();
+  const cookie = await signIn("mailbox@example.com");
+  const json = { "content-type": "application/json", cookie };
+  const started = await app.request("http://localhost/api/properties/prop_test/claims/start", { method: "POST", headers: { cookie } });
+  const draft = (await started.json()).claim;
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const form = new FormData();
+  form.append("file", new File([png], "front.png", { type: "image/png" }));
+  form.append("claimId", draft.claim_id);
+  form.append("hero", "true");
+  const heroId = (await (await app.request("http://localhost/api/properties/prop_test/documents", { method: "POST", headers: { cookie }, body: form })).json()).documentId as string;
+
+  // No method to pick any more; the attestation is all that is asked.
+  const refused = await app.request("http://localhost/api/properties/prop_test/claims", { method: "POST", headers: json, body: JSON.stringify({}) });
+  expect(refused.status).toBe(400);
+  const submitted = await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST", headers: json, body: JSON.stringify({ attestationAccepted: true }),
+  });
+  expect(submitted.status).toBe(201);
+  const row = (await sql<{ postcard_code: string; postcard_sent_at: string | null; method: string }[]>`
+    SELECT postcard_code, postcard_sent_at, method FROM ownership_claims WHERE claim_id = ${draft.claim_id}
+  `)[0]!;
+  expect(row.method).toBe("postcard");
+  expect(row.postcard_code).toMatch(/^\d{6}$/);
+  expect(row.postcard_sent_at).not.toBeNull();
+  const mail = await sql<{ subject: string; text_body: string }[]>`SELECT subject, text_body FROM emails WHERE to_email = 'mailbox@example.com' ORDER BY sent_at DESC LIMIT 1`;
+  expect(mail[0]?.subject).toContain("in the mail");
+  expect(mail[0]?.text_body).not.toContain(row.postcard_code);
+
+  // The code never rides along on the claim as the claimant sees it.
+  const seen = await (await app.request(`http://localhost/api/claims/${draft.claim_id}`, { headers: { cookie } })).json();
+  expect(seen.claim.status).toBe("pending");
+  expect(seen.claim).not.toHaveProperty("postcard_code");
+  const restarted = await (await app.request("http://localhost/api/properties/prop_test/claims/start", { method: "POST", headers: { cookie } })).json();
+  expect(restarted.claim).not.toHaveProperty("postcard_code");
+
+  // On the account page the pending house carries their hero as its thumbnail,
+  // the lot for the fallback, and one unseen notice: the card is coming.
+  const mine = (await (await app.request("http://localhost/api/me/claims", { headers: { cookie } })).json()).claims;
+  expect(mine).toEqual([expect.objectContaining({
+    claim_id: draft.claim_id,
+    status: "pending",
+    formatted: "441 Warren Street, Hudson, NY 12534",
+    municipality: "Hudson",
+    photo_url: `/api/documents/${heroId}/file?v=12`,
+    unseen: 1,
+  })]);
+  expect(mine[0].geojson.type).toBe("Polygon");
+  expect(mine[0]).not.toHaveProperty("postcard_code");
+  const notices = (await (await app.request(`http://localhost/api/claims/${draft.claim_id}/notifications`, { headers: { cookie } })).json()).items;
+  expect(notices).toEqual([expect.objectContaining({ kind: "notice", title: "Your code is in the mail" })]);
+  expect(notices[0].body).toContain("441 Warren Street");
+  const stranger = await signIn("nosy@example.com");
+  expect((await app.request(`http://localhost/api/claims/${draft.claim_id}/notifications`, { headers: { cookie: stranger } })).status).toBe(403);
+  expect((await app.request(`http://localhost/api/claims/${draft.claim_id}/notifications/seen`, { method: "POST", headers: { cookie } })).status).toBe(200);
+  expect((await (await app.request("http://localhost/api/me/claims", { headers: { cookie } })).json()).claims[0].unseen).toBe(0);
+
+  // Wrong codes count down and say so; the claimant's own code is the only key.
+  const wrong = String(row.postcard_code === "000000" ? "111111" : "000000");
+  const miss = await app.request(`http://localhost/api/claims/${draft.claim_id}/verify`, { method: "POST", headers: json, body: JSON.stringify({ code: wrong }) });
+  expect(miss.status).toBe(400);
+  expect((await miss.json()).error).toContain("7 tries left");
+  const short = await app.request(`http://localhost/api/claims/${draft.claim_id}/verify`, { method: "POST", headers: json, body: JSON.stringify({ code: "12" }) });
+  expect(short.status).toBe(400);
+  const notMine = await app.request(`http://localhost/api/claims/${draft.claim_id}/verify`, {
+    method: "POST", headers: { "content-type": "application/json", cookie: stranger }, body: JSON.stringify({ code: row.postcard_code }),
+  });
+  expect(notMine.status).toBe(403);
+
+  const hit = await app.request(`http://localhost/api/claims/${draft.claim_id}/verify`, {
+    method: "POST", headers: json, body: JSON.stringify({ code: `${row.postcard_code.slice(0, 3)} ${row.postcard_code.slice(3)}` }),
+  });
+  expect(hit.status).toBe(200);
+  expect((await hit.json()).propertyId).toBe("prop_test");
+  const page = await (await app.request("http://localhost/api/properties/prop_test")).json();
+  expect(page.property.maintainers).toEqual([expect.objectContaining({ primary_email: "mailbox@example.com" })]);
+  expect(page.property.documents).toEqual([expect.objectContaining({ document_id: heroId, is_cover: true, visibility: "public" })]);
+  expect(page.property.events.some((e: { event_type: string; actor_type: string }) => e.event_type === "ownership.claimed" && e.actor_type === "postcard")).toBe(true);
+  const homes = (await (await app.request("http://localhost/api/me/properties", { headers: { cookie } })).json()).properties;
+  expect(homes).toEqual([expect.objectContaining({ property_id: "prop_test", photo_url: `/api/documents/${heroId}/file?v=12` })]);
+  expect(homes[0].geojson.type).toBe("Polygon");
+  expect((await (await app.request("http://localhost/api/me/claims", { headers: { cookie } })).json()).claims[0].status).toBe("verified");
+  // Verified claims have nothing left to say, and no code left to try.
+  expect((await (await app.request(`http://localhost/api/claims/${draft.claim_id}/notifications`, { headers: { cookie } })).json()).items).toEqual([]);
+  expect((await app.request(`http://localhost/api/claims/${draft.claim_id}/verify`, { method: "POST", headers: json, body: JSON.stringify({ code: row.postcard_code }) })).status).toBe(400);
+});
+
+test("postcard: eight misses close the claim; a verified rival closes it too", async () => {
+  await seedProperty();
+  const cookie = await signIn("guesser@example.com");
+  const json = { "content-type": "application/json", cookie };
+  const submitted = await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST", headers: json, body: JSON.stringify({ attestationAccepted: true }),
+  });
+  const { claimId } = await submitted.json();
+  const code = (await sql<{ postcard_code: string }[]>`SELECT postcard_code FROM ownership_claims WHERE claim_id = ${claimId}`)[0]!.postcard_code;
+  const wrong = code === "999999" ? "888888" : "999999";
+  let last: Response | null = null;
+  for (let i = 0; i < 8; i += 1) {
+    last = await app.request(`http://localhost/api/claims/${claimId}/verify`, { method: "POST", headers: json, body: JSON.stringify({ code: wrong }) });
+  }
+  expect(last?.status).toBe(429);
+  expect((await sql<{ status: string }[]>`SELECT status FROM ownership_claims WHERE claim_id = ${claimId}`)[0]?.status).toBe("rejected");
+  // Even the right code is no good now.
+  expect((await app.request(`http://localhost/api/claims/${claimId}/verify`, { method: "POST", headers: json, body: JSON.stringify({ code }) })).status).toBe(400);
+
+  // Start over: a fresh claim, a fresh card, while a rival gets verified first.
+  const again = await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST", headers: json, body: JSON.stringify({ attestationAccepted: true }),
+  });
+  expect(again.status).toBe(201);
+  const second = (await again.json()).claimId as string;
+  expect(second).not.toBe(claimId);
+  const secondCode = (await sql<{ postcard_code: string }[]>`SELECT postcard_code FROM ownership_claims WHERE claim_id = ${second}`)[0]!.postcard_code;
+  await verifiedOwner("rival@example.com");
+  const late = await app.request(`http://localhost/api/claims/${second}/verify`, { method: "POST", headers: json, body: JSON.stringify({ code: secondCode }) });
+  expect(late.status).toBe(409);
+  expect((await sql<{ status: string }[]>`SELECT status FROM ownership_claims WHERE claim_id = ${second}`)[0]?.status).toBe("superseded");
+});
