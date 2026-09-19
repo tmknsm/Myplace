@@ -1484,6 +1484,7 @@ tr:last-child td { border-bottom: 0; }
   flex-basis: calc(100% - var(--picker-peek));
   scroll-snap-align: start;
   scroll-snap-stop: always;
+  scroll-margin: var(--picker-shade);
 }
 .property-picker.is-carousel .picker-card:last-child { scroll-snap-align: end; }
 .picker-card:focus-visible {
