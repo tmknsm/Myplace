@@ -1442,7 +1442,7 @@ tr:last-child td { border-bottom: 0; }
 .profile-card-settings .meta-line.is-ok { color: var(--ok); }
 
 /* ---- Account: property picker ---------------------------------------- */
-.property-picker { --picker-peek: 22px; --picker-gap: 8px; }
+.property-picker { --picker-peek: 28px; --picker-gap: 8px; --picker-shade: 16px; }
 .property-picker-track {
   display: flex;
   gap: var(--picker-gap);
@@ -1454,7 +1454,10 @@ tr:last-child td { border-bottom: 0; }
   scroll-padding-inline: 0;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 2px;
+  /* overflow-x makes the other axis clip too; pad so the card shadow can sit
+     outside the cards, then pull the extra space back out of the layout. */
+  padding: var(--picker-shade);
+  margin: calc(-1 * var(--picker-shade));
 }
 .property-picker.is-carousel .property-picker-track::-webkit-scrollbar { display: none; }
 .picker-card {
