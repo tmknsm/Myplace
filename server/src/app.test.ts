@@ -1342,7 +1342,7 @@ test("anonymize swaps the name, never the photo; the photo is its own change", a
   expect(abstract.status).toBe(200);
   expect((await abstract.json()).user.avatar_url).toBe(ABSTRACT_AVATAR_URL);
   const marked = await (await app.request("http://localhost/api/properties/prop_test")).json();
-  expect(marked.property.maintainers[0].photo_url).toBeNull();
+  expect(marked.property.maintainers[0].photo_url).toBe(ABSTRACT_AVATAR_URL);
 
   const bogus = await app.request("http://localhost/api/me", {
     method: "PATCH",

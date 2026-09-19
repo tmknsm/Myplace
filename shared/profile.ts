@@ -22,9 +22,6 @@ export const AVATAR_PRESETS = {
   abstract: ABSTRACT_AVATAR_URL,
 } as const;
 
-/** Stock Unsplash faces and the abstract preset. None of these are the person. */
-const STOCK_AVATARS = new Set<string>([...DEFAULT_AVATAR_URLS, ABSTRACT_AVATAR_URL]);
-
 function hashUserId(userId: string): number {
   let hash = 2166136261;
   for (let i = 0; i < userId.length; i += 1) {
@@ -138,12 +135,17 @@ export function propertyHeading(
   };
 }
 
-/** True only when they uploaded their own photo. Stock faces and the abstract preset do not count. */
+/**
+ * True when the account has a photo stored. New real accounts start with
+ * `avatar_url` null (gray empty). Demo neighbors are seeded with a face, and
+ * that counts — it is their photo for the purpose of the page, even if the
+ * file is an Unsplash stand-in.
+ */
 export function hasOwnPhoto(input: { avatar_url: string | null | undefined }): boolean {
-  return Boolean(input.avatar_url && !STOCK_AVATARS.has(input.avatar_url));
+  return Boolean(input.avatar_url);
 }
 
-/** Their uploaded photo, or null. Never a stock face or anyone else's picture. */
+/** The stored photo, or null. Never invents a stock face for an empty account. */
 export function ownerPhoto(input: { avatar_url: string | null; user_id?: string | null }): string | null {
-  return hasOwnPhoto(input) ? input.avatar_url! : null;
+  return input.avatar_url || null;
 }

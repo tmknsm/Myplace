@@ -82,17 +82,17 @@ test("propertyHeading uses the town when the street is hidden, including for the
   });
 });
 
-test("ownerPhoto is empty until they upload their own picture", () => {
+test("ownerPhoto is empty only when nothing is stored; a seeded face still shows", () => {
   expect(ownerPhoto({ avatar_url: null, user_id: "usr_aaa" })).toBeNull();
-  expect(ownerPhoto({ avatar_url: DEFAULT_AVATAR_URL, user_id: "usr_zzz" })).toBeNull();
-  expect(ownerPhoto({ avatar_url: ABSTRACT_AVATAR_URL })).toBeNull();
+  expect(ownerPhoto({ avatar_url: DEFAULT_AVATAR_URL, user_id: "usr_zzz" })).toBe(DEFAULT_AVATAR_URL);
+  expect(ownerPhoto({ avatar_url: ABSTRACT_AVATAR_URL })).toBe(ABSTRACT_AVATAR_URL);
   expect(ownerPhoto({ avatar_url: "https://example.com/me.jpg" })).toBe("https://example.com/me.jpg");
 });
 
-test("hasOwnPhoto is false for a fresh account and the stock defaults", () => {
+test("hasOwnPhoto is false for a fresh account, true once a photo is stored", () => {
   expect(hasOwnPhoto({ avatar_url: null })).toBe(false);
-  expect(hasOwnPhoto({ avatar_url: DEFAULT_AVATAR_URL })).toBe(false);
-  expect(hasOwnPhoto({ avatar_url: defaultAvatarFor("usr_zzz") })).toBe(false);
-  expect(hasOwnPhoto({ avatar_url: ABSTRACT_AVATAR_URL })).toBe(false);
+  expect(hasOwnPhoto({ avatar_url: DEFAULT_AVATAR_URL })).toBe(true);
+  expect(hasOwnPhoto({ avatar_url: defaultAvatarFor("usr_zzz") })).toBe(true);
+  expect(hasOwnPhoto({ avatar_url: ABSTRACT_AVATAR_URL })).toBe(true);
   expect(hasOwnPhoto({ avatar_url: "https://example.com/me.jpg" })).toBe(true);
 });
