@@ -971,7 +971,13 @@ label.stack span { display: block; margin-bottom: 6px; font-size: 13px; color: v
    Same frame as sign-up (serif headline, fixed action bar on phones) so the
    claim reads as one continuous flow from the email code onward. */
 .onboard-page { --onboard-ease: cubic-bezier(0.2, 0.8, 0.2, 1); }
-.onboard-step { animation: onboard-in 440ms var(--onboard-ease, ease) both; }
+/* The entrance runs on the step's contents, never on the form itself: a filled
+   transform animation leaves its element a stacking context (WebKit keeps the
+   layer), which would trap the docked preview beneath the header's glass. The
+   sticky wrapper stays out of it; the chip inside it animates instead. */
+.onboard-step .auth-body > :not(.onboard-preview-dock, .onboard-reveal),
+.onboard-step .onboard-preview,
+.onboard-step .manage-cta { animation: onboard-in 440ms var(--onboard-ease, ease) both; }
 @keyframes onboard-in {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
@@ -1412,7 +1418,8 @@ html.onboard-docked .onboard-preview { box-shadow: inset 0 0 0 1px var(--hairlin
 .claim-hero-caption { margin: 8px 0 0; font-size: 14px; color: var(--ink-soft); font-style: italic; }
 
 @media (prefers-reduced-motion: reduce) {
-  .onboard-step, .onboard-reveal, .onboard-preview-name, .onboard-preview-address, .hero-drop img,
+  .onboard-step .auth-body > *, .onboard-step .onboard-preview, .onboard-step .manage-cta,
+  .onboard-reveal, .onboard-preview-name, .onboard-preview-address, .hero-drop img,
   .onboard-progress span.is-on::after { animation: none; }
   .onboard-hero-details, .onboard-card, .onboard-option, .onboard-option-check { transition: none; }
 }
