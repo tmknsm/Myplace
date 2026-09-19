@@ -2814,15 +2814,23 @@ body:has(.map-page) { overflow: hidden; }
   text-align: center;
   letter-spacing: 0;
 }
+.picker-card { position: relative; }
 .picker-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-left: 8px;
+  position: absolute;
+  left: 7px;
+  top: 21px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--accent);
-  vertical-align: 2px;
-  box-shadow: 0 0 0 2px var(--surface);
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 320ms ease, transform 320ms ease;
+  pointer-events: none;
+}
+.picker-dot.is-on { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .picker-dot { transition: none; }
 }
 .section-head-actions .section-scope { flex: 0 1 auto; }
 .inbox-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }

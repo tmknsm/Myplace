@@ -188,14 +188,17 @@ export function PropertyPicker({
                   if (carousel) scrollCardIntoView(property.property_id);
                 }}
               >
+                {/* At the card's edge so it shows in the sliver of the next house too. */}
+                <span
+                  className={`picker-dot${property.unseen > 0 ? " is-on" : ""}`}
+                  role={property.unseen > 0 ? "img" : undefined}
+                  aria-label={property.unseen > 0 ? "New notifications" : undefined}
+                  aria-hidden={property.unseen > 0 ? undefined : true}
+                  data-testid={property.unseen > 0 ? "picker-unseen" : undefined}
+                />
                 <span className="picker-copy">
                   <span className="picker-addr">
-                    <span className="row-label">
-                      {shortAddress(property)}
-                      {property.unseen > 0 && (
-                        <span className="picker-dot" role="img" aria-label="New notifications" data-testid="picker-unseen" />
-                      )}
-                    </span>
+                    <span className="row-label">{shortAddress(property)}</span>
                     {localityOf(property) && <span className="meta-line">{localityOf(property)}</span>}
                   </span>
                   {property.removed && <span className="badge">Removed</span>}
@@ -218,6 +221,7 @@ export function PropertyPicker({
 }
 
 const FEED_LIMIT = 5;
+const SEEN_AFTER_MS = 1200;
 
 /**
  * The selected house's notifications: neighbor requests, change requests,
@@ -234,8 +238,12 @@ export function NotificationsFeed({
   const propertyId = property?.property_id ?? null;
   const inbox = useInbox(propertyId, undefined, showToast);
   const unseen = property?.unseen ?? 0;
+  // A beat after the rows are on screen, the house counts as seen: the dot on
+  // its card and the count on your name fade rather than vanish on arrival.
   useEffect(() => {
-    if (propertyId && inbox.items && unseen > 0) markNotificationsSeen(propertyId);
+    if (!propertyId || !inbox.items || unseen === 0) return;
+    const timer = window.setTimeout(() => markNotificationsSeen(propertyId), SEEN_AFTER_MS);
+    return () => window.clearTimeout(timer);
   }, [propertyId, inbox.items, unseen]);
 
   const items = inbox.items;
