@@ -1442,67 +1442,94 @@ tr:last-child td { border-bottom: 0; }
 .profile-card-settings .meta-line.is-ok { color: var(--ok); }
 
 /* ---- Account: property picker ---------------------------------------- */
-.property-picker .picker-row {
-  padding: 0;
-  gap: 0;
-  align-items: stretch;
+.property-picker { --picker-peek: 22px; --picker-gap: 8px; }
+.property-picker-track {
+  display: flex;
+  gap: var(--picker-gap);
 }
-.property-picker .picker-row:hover { background: none; }
-.picker-choice {
+.property-picker.is-carousel .property-picker-track {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 0;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+.property-picker.is-carousel .property-picker-track::-webkit-scrollbar { display: none; }
+.picker-card {
   appearance: none;
   -webkit-appearance: none;
-  flex: 1;
+  flex: 0 0 100%;
   min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
   margin: 0;
-  padding: 11px 16px;
+  padding: 16px 18px;
   border: 0;
-  border-radius: 0;
-  background: none;
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
   color: var(--ink);
   font: inherit;
   text-align: left;
-  cursor: default;
+  cursor: pointer;
+}
+.property-picker.is-carousel .picker-card {
+  flex-basis: calc(100% - var(--picker-peek));
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+.property-picker.is-carousel .picker-card:last-child { scroll-snap-align: end; }
+.picker-card:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow), 0 0 0 2px color-mix(in srgb, var(--ink) 28%, transparent);
+}
+.picker-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 .picker-addr {
-  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
-.picker-addr .row-label { display: block; }
+.picker-addr .row-label {
+  display: block;
+  font-weight: 560;
+  color: var(--ink);
+}
+.picker-card:not(.is-selected) .row-label { color: var(--ink-soft); font-weight: 500; }
 .picker-addr .meta-line { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.picker-choice .badge { margin-left: 0; }
-.picker-row.is-selectable .picker-choice { cursor: pointer; }
-.picker-row.is-selectable .picker-choice:hover { background: var(--surface-2); }
-.picker-row.is-selectable .picker-choice:hover .row-avatars img { border-color: var(--surface-2); }
-.picker-row.is-selectable .picker-choice:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent);
-}
-.picker-row.is-selectable .row-label { color: var(--ink-soft); }
-.picker-row.is-selected .row-label { color: var(--ink); font-weight: 590; }
-.picker-row.is-selectable .picker-choice::after {
-  content: "";
-  flex: 0 0 18px;
-  width: 18px;
-  height: 18px;
+.picker-card .badge { margin-left: 0; }
+.picker-card .row-avatars img { border-color: var(--surface); }
+.picker-radio {
+  position: relative;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 1.5px var(--hairline);
-  transition: box-shadow 160ms ease, background 160ms ease;
+  box-shadow: inset 0 0 0 1.5px rgba(60, 56, 50, 0.28);
+  background: var(--surface);
 }
-.picker-row.is-selected .picker-choice::after {
+.picker-card.is-selected .picker-radio {
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.picker-card.is-selected .picker-radio::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
   background: var(--ink);
-  box-shadow: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12.5l4 4 8-9'/%3E%3C/svg%3E");
-  background-size: 12px 12px;
-  background-position: center;
-  background-repeat: no-repeat;
 }
+.property-picker + .group { margin-top: 10px; }
 .section-scope {
   font-size: 13px;
   color: var(--muted);

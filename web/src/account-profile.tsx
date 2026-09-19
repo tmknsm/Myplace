@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { formatHandle, ownerLabel, ownerPhoto, parseHandle } from "../../shared/profile";
 import { api, type MaintainedProperty, type User } from "./api";
 import { Spinner } from "./components";
@@ -69,58 +69,148 @@ export function ProfileCard({ user, onUser, showToast }: { user: User; onUser: (
 
 /**
  * The houses on the account. Choosing one scopes Visibility and Manage below
- * to it. With a single house there is nothing to choose, so it reads as a
- * plain list.
+ * to it. One house is a full-width card; more than one is a snap carousel
+ * whose focused card is the selection, with a sliver of the next house showing.
  */
 export function PropertyPicker({
   properties,
   selectedId,
   onSelect,
-  children,
 }: {
   properties: MaintainedProperty[];
   selectedId: string | null;
   onSelect: (propertyId: string) => void;
-  children?: ReactNode;
 }) {
-  const selectable = properties.length > 1;
+  const carousel = properties.length > 1;
+  const trackRef = useRef<HTMLDivElement>(null);
+  const ignoreScroll = useRef(false);
+
+  const focusedId = (track: HTMLElement) => {
+    const cards = [...track.querySelectorAll<HTMLElement>("[data-property-id]")];
+    if (cards.length === 0) return null;
+    const box = track.getBoundingClientRect();
+    let best = cards[0]!;
+    let bestDist = Infinity;
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      const dist = Math.min(Math.abs(rect.left - box.left), Math.abs(rect.right - box.right));
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = card;
+      }
+    }
+    return best.dataset.propertyId ?? null;
+  };
+
+  const scrollCardIntoView = (propertyId: string, instant = false) => {
+    const track = trackRef.current;
+    const card = track?.querySelector<HTMLElement>(`[data-property-id="${propertyId}"]`);
+    if (!track || !card) return;
+    const last = track.querySelector<HTMLElement>("[data-property-id]:last-child");
+    ignoreScroll.current = true;
+    card.scrollIntoView({
+      inline: card === last ? "end" : "start",
+      block: "nearest",
+      behavior: instant ? "auto" : "smooth",
+    });
+    window.setTimeout(() => { ignoreScroll.current = false; }, instant ? 50 : 420);
+  };
+
+  useEffect(() => {
+    if (!carousel || !selectedId) return;
+    const track = trackRef.current;
+    if (!track) return;
+    if (focusedId(track) === selectedId) return;
+    scrollCardIntoView(selectedId, true);
+  }, [carousel, selectedId, properties.length]);
+
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track || !carousel) return;
+    let timer = 0;
+    const pick = () => {
+      if (ignoreScroll.current) return;
+      const id = focusedId(track);
+      if (id) onSelect(id);
+    };
+    const onScroll = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(pick, 90);
+    };
+    track.addEventListener("scroll", onScroll, { passive: true });
+    track.addEventListener("scrollend", pick);
+    return () => {
+      window.clearTimeout(timer);
+      track.removeEventListener("scroll", onScroll);
+      track.removeEventListener("scrollend", pick);
+    };
+  }, [carousel, onSelect]);
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!carousel) return;
+    const index = properties.findIndex((property) => property.property_id === selectedId);
+    if (event.key === "ArrowRight" && index < properties.length - 1) {
+      event.preventDefault();
+      const next = properties[index + 1]!.property_id;
+      onSelect(next);
+      scrollCardIntoView(next);
+    }
+    if (event.key === "ArrowLeft" && index > 0) {
+      event.preventDefault();
+      const next = properties[index - 1]!.property_id;
+      onSelect(next);
+      scrollCardIntoView(next);
+    }
+  };
+
   return (
-    <div className="group property-picker" role={selectable ? "radiogroup" : undefined} aria-label={selectable ? "Properties" : undefined}>
-      {properties.map((property) => {
-        const selected = selectable && property.property_id === selectedId;
-        return (
-          <div
-            className={`row picker-row${selected ? " is-selected" : ""}${selectable ? " is-selectable" : ""}`}
-            key={property.property_id}
-            data-testid="owned-property"
-            data-selected={selected || undefined}
-          >
-            <button
-              type="button"
-              className="picker-choice"
-              role={selectable ? "radio" : undefined}
-              aria-checked={selectable ? selected : undefined}
-              aria-label={selectable ? `Settings for ${property.formatted ?? shortAddress(property)}` : undefined}
-              onClick={() => onSelect(property.property_id)}
-              data-testid="picker-choice"
-            >
-              <span className="picker-addr">
-                <span className="row-label">{shortAddress(property)}</span>
-                {localityOf(property) && <span className="meta-line">{localityOf(property)}</span>}
-              </span>
-              {property.removed && <span className="badge">Removed</span>}
-              {property.maintainers.length > 0 && !property.removed && (
-                <span className="row-avatars">
-                  {property.maintainers.map((person) => (
-                    <img key={person.user_id} src={person.photo_url} alt={person.label} />
-                  ))}
+    <div className={`property-picker${carousel ? " is-carousel" : ""}`}>
+      {properties.length > 0 && (
+        <div
+          ref={trackRef}
+          className="property-picker-track"
+          role={carousel ? "radiogroup" : undefined}
+          aria-label={carousel ? "Properties" : undefined}
+          onKeyDown={onKeyDown}
+        >
+          {properties.map((property) => {
+            const selected = property.property_id === selectedId;
+            return (
+              <button
+                type="button"
+                className={`picker-card${selected ? " is-selected" : ""}`}
+                key={property.property_id}
+                role={carousel ? "radio" : undefined}
+                aria-checked={carousel ? selected : undefined}
+                aria-label={property.formatted ?? shortAddress(property)}
+                data-property-id={property.property_id}
+                data-testid="owned-property"
+                data-selected={selected || undefined}
+                onClick={() => {
+                  onSelect(property.property_id);
+                  if (carousel) scrollCardIntoView(property.property_id);
+                }}
+              >
+                <span className="picker-copy">
+                  <span className="picker-addr">
+                    <span className="row-label">{shortAddress(property)}</span>
+                    {localityOf(property) && <span className="meta-line">{localityOf(property)}</span>}
+                  </span>
+                  {property.removed && <span className="badge">Removed</span>}
+                  {property.maintainers.length > 0 && !property.removed && (
+                    <span className="row-avatars">
+                      {property.maintainers.map((person) => (
+                        <img key={person.user_id} src={person.photo_url} alt={person.label} />
+                      ))}
+                    </span>
+                  )}
                 </span>
-              )}
-            </button>
-          </div>
-        );
-      })}
-      {children}
+                <span className="picker-radio" aria-hidden="true" />
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

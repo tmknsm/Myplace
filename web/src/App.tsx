@@ -580,17 +580,20 @@ function AccountPage() {
         <ProfileCard user={user} onUser={refresh} showToast={showToast} />
         <section className="section" data-testid="properties-section">
           <h2>Properties</h2>
-          <PropertyPicker properties={homes} selectedId={selected?.property_id ?? null} onSelect={setSelectedId}>
-            {properties && homes.length === 0 && openClaims.length === 0 && (
-              <div className="row"><span className="meta-line">None yet</span></div>
-            )}
-            {openClaims.map((claim) => (
-              <Link className="row" key={claim.claim_id} to={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
-                <span>{claim.formatted}</span>
-                <span className={`badge ${claim.status}`}>{claim.status}</span>
-              </Link>
-            ))}
-          </PropertyPicker>
+          <PropertyPicker properties={homes} selectedId={selected?.property_id ?? null} onSelect={setSelectedId} />
+          {properties && homes.length === 0 && openClaims.length === 0 && (
+            <div className="group"><div className="row"><span className="meta-line">None yet</span></div></div>
+          )}
+          {openClaims.length > 0 && (
+            <div className="group property-claims">
+              {openClaims.map((claim) => (
+                <Link className="row" key={claim.claim_id} to={`/property/${claim.property_id}/claim/${claim.claim_id}`}>
+                  <span>{claim.formatted}</span>
+                  <span className={`badge ${claim.status}`}>{claim.status}</span>
+                </Link>
+              ))}
+            </div>
+          )}
         </section>
         {properties && (
           <>
