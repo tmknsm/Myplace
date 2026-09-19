@@ -91,6 +91,8 @@ export const api = {
   startClaim: (id: string) => request<{ claim: Claim }>(`/api/properties/${id}/claims/start`, { method: "POST" }),
   patchClaim: (claimId: string, body: ClaimChoices) =>
     request<{ claim: Claim }>(`/api/claims/${claimId}`, { method: "PATCH", body: JSON.stringify(body) }),
+  /** Drop a draft or a postcard still in the mail. The house is unclaimed again. */
+  cancelClaim: (claimId: string) => request<{ ok: boolean }>(`/api/claims/${claimId}`, { method: "DELETE" }),
   claim: (id: string) => request<{ claim: Claim; documents: Doc[]; hero: ClaimHero | null }>(`/api/claims/${id}`),
   myClaims: async () => {
     const data = await request<{ claims: Claim[] }>("/api/me/claims");

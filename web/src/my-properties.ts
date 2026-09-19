@@ -96,6 +96,11 @@ export function markNotificationsSeen(propertyId: string): void {
   void api.markInboxSeen(propertyId).catch(() => {});
 }
 
+/** The pending chip is gone the moment they cancel, before the server answers. */
+export function dropMyClaim(claimId: string): void {
+  cachePatch<Claim[]>(queryKeys.meClaims(), (list) => list.filter((claim) => claim.claim_id !== claimId));
+}
+
 /** Same, for the notice under a house that is still waiting on its postcard. */
 export function markClaimNoticeSeen(claimId: string): void {
   cachePatch<Claim[]>(queryKeys.meClaims(), (list) => (

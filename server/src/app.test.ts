@@ -2668,3 +2668,35 @@ test("postcard: eight misses close the claim; a verified rival closes it too", a
   expect(late.status).toBe(409);
   expect((await sql<{ status: string }[]>`SELECT status FROM ownership_claims WHERE claim_id = ${second}`)[0]?.status).toBe("superseded");
 });
+
+test("postcard: cancelling a pending claim withdraws it, drops the staged photo, and lets them start over", async () => {
+  await seedProperty();
+  const cookie = await signIn("changed@example.com");
+  const json = { "content-type": "application/json", cookie };
+  const started = await app.request("http://localhost/api/properties/prop_test/claims/start", { method: "POST", headers: { cookie } });
+  const draft = (await started.json()).claim;
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const form = new FormData();
+  form.append("file", new File([png], "front.png", { type: "image/png" }));
+  form.append("claimId", draft.claim_id);
+  form.append("hero", "true");
+  const heroId = (await (await app.request("http://localhost/api/properties/prop_test/documents", { method: "POST", headers: { cookie }, body: form })).json()).documentId as string;
+  await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST", headers: json, body: JSON.stringify({ attestationAccepted: true }),
+  });
+
+  const stranger = await signIn("other@example.com");
+  expect((await app.request(`http://localhost/api/claims/${draft.claim_id}`, { method: "DELETE", headers: { cookie: stranger } })).status).toBe(403);
+
+  const cancelled = await app.request(`http://localhost/api/claims/${draft.claim_id}`, { method: "DELETE", headers: { cookie } });
+  expect(cancelled.status).toBe(200);
+  expect((await sql<{ status: string }[]>`SELECT status FROM ownership_claims WHERE claim_id = ${draft.claim_id}`)[0]?.status).toBe("withdrawn");
+  expect((await sql<{ removed_at: string | null }[]>`SELECT removed_at FROM documents WHERE document_id = ${heroId}`)[0]?.removed_at).not.toBeNull();
+  expect((await (await app.request("http://localhost/api/me/claims", { headers: { cookie } })).json()).claims).toEqual([]);
+  expect((await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie } })).json()).viewer.openClaim).toBeNull();
+  expect((await app.request(`http://localhost/api/claims/${draft.claim_id}`, { method: "DELETE", headers: { cookie } })).status).toBe(400);
+
+  const again = await app.request("http://localhost/api/properties/prop_test/claims/start", { method: "POST", headers: { cookie } });
+  expect(again.status).toBe(201);
+  expect((await again.json()).claim.claim_id).not.toBe(draft.claim_id);
+});

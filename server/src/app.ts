@@ -75,7 +75,7 @@ import {
   toggleCommentLike,
   toggleLike,
 } from "./services/engagement.ts";
-import { addCoMaintainer, closeDrafts, grantOwnership, revokeOwnership } from "./services/ownership.ts";
+import { addCoMaintainer, closeDrafts, grantOwnership, revokeOwnership, withdrawClaim } from "./services/ownership.ts";
 import {
   loadMyProperties,
   loadPropertyCore,
@@ -750,6 +750,19 @@ app.post("/api/properties/:id/claims/start", async (c) => {
 });
 
 /** Onboarding choices on an open claim. Applied to the house when the claim is verified. */
+/** The claimant cancelled: drop a draft or a postcard still in the mail. */
+app.delete("/api/claims/:id", async (c) => {
+  const user = requireUser(c);
+  const claim = await loadClaim(c.req.param("id"));
+  if (!claim) return c.json({ error: "Claim not found" }, 404);
+  if (claim.user_id !== user.user_id) return c.json({ error: "Forbidden" }, 403);
+  if (claim.status !== "draft" && claim.status !== "pending") {
+    return c.json({ error: "This claim is already closed." }, 400);
+  }
+  await withdrawClaim(claim.claim_id);
+  return c.json({ ok: true });
+});
+
 app.patch("/api/claims/:id", async (c) => {
   const user = requireUser(c);
   const claim = await loadClaim(c.req.param("id"));
@@ -1057,7 +1070,7 @@ app.get("/api/me/claims", async (c) => {
       ORDER BY is_cover DESC, created_at DESC
       LIMIT 1
     ) d ON TRUE
-    WHERE c.user_id = ${user.user_id} AND c.status <> 'draft'
+    WHERE c.user_id = ${user.user_id} AND c.status NOT IN ('draft', 'withdrawn')
     ORDER BY c.created_at DESC
   `;
   return c.json({

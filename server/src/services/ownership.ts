@@ -92,6 +92,26 @@ export async function closeDrafts(claimIds: string[]): Promise<void> {
 }
 
 /**
+ * The claimant changed their mind. A draft or a claim still waiting on its
+ * postcard is closed and its staged photos go with it, so the house is
+ * unclaimed again and they can start over if they want.
+ */
+export async function withdrawClaim(claimId: string): Promise<boolean> {
+  const sql = getSql();
+  const closed = await sql<{ claim_id: string }[]>`
+    UPDATE ownership_claims SET status = 'withdrawn'
+    WHERE claim_id = ${claimId} AND status IN ('draft', 'pending')
+    RETURNING claim_id
+  `;
+  if (!closed[0]) return false;
+  await sql`
+    UPDATE documents SET removed_at = now()
+    WHERE claim_id = ${claimId} AND removed_at IS NULL
+  `;
+  return true;
+}
+
+/**
  * Choices made during onboarding wait on the claim until it is verified, then
  * take effect at once: how the owner is named and where they are placed on
  * this house, whether the house is listed at all, and the hero photo. The

@@ -25,7 +25,8 @@ import {
   type TopicFieldKind,
 } from "./property-topics";
 import { ownerLabel, ownerPhoto, propertyHeading } from "../../shared/profile";
-import { dropDocument, liveRefresh, mapDocument, peekNeighbors, peekProperty, restoreDocument } from "./page-data";
+import { dropMyClaim } from "./my-properties";
+import { dropDocument, liveRefresh, mapDocument, peekNeighbors, peekProperty, rememberProperty, restoreDocument } from "./page-data";
 import { fieldsForRoom, ROOM_KIND_LABEL, ROOM_KINDS, ROOM_PAID_KEY, ROOM_PAID_PUBLIC_KEY, roomPaidCents, roomPaidPublic, type RoomField } from "../../shared/rooms";
 import { isTopicId } from "../../shared/topics";
 import {
@@ -291,6 +292,7 @@ export function PropertyPageView() {
   const [heroIndex, setHeroIndex] = useState(0);
   const [photoUploads, setPhotoUploads] = useState(0);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const load = useCallback(async (opts?: { allowDowngrade?: boolean }) => {
     if (!id) return;
@@ -512,6 +514,32 @@ export function PropertyPageView() {
     }
     startClaim();
   };
+  const cancelOpenClaim = async () => {
+    const claim = viewer.openClaim;
+    if (!claim || cancelling) return;
+    setCancelling(true);
+    setData((current) => {
+      if (!current || !id) return current;
+      const next = { ...current, viewer: { ...current.viewer, openClaim: null } };
+      rememberProperty(id, next);
+      return next;
+    });
+    dropMyClaim(claim.claim_id);
+    try {
+      await api.cancelClaim(claim.claim_id);
+      showToast("Claim cancelled.");
+    } catch (err) {
+      setData((current) => {
+        if (!current || !id) return current;
+        const next = { ...current, viewer: { ...current.viewer, openClaim: claim } };
+        rememberProperty(id, next);
+        return next;
+      });
+      showToast(err instanceof Error ? err.message : "Could not cancel that claim.");
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   const uploadPhotos = async (files: File[], options: { cover?: boolean } = {}) => {
     if (!files.length) return;
@@ -692,7 +720,18 @@ export function PropertyPageView() {
                 {(!maintained || viewer.openClaim || viewer.invitation?.role === "owner") && (
                   <div className="action-row compact">
                     {openClaimHref ? (
-                      <Link className={`btn${claimDraft ? "" : " secondary"}`} to={openClaimHref}>{openClaimLabel}</Link>
+                      <>
+                        <Link className={`btn${claimDraft ? "" : " secondary"}`} to={openClaimHref}>{openClaimLabel}</Link>
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          disabled={cancelling}
+                          data-testid="cancel-claim"
+                          onClick={() => void cancelOpenClaim()}
+                        >
+                          {cancelling ? "Cancelling…" : "Cancel claim"}
+                        </button>
+                      </>
                     ) : (
                       <button type="button" className="btn" data-testid="claim-button" onClick={startClaim}>
                         {viewer.invitation?.role === "owner" ? "Continue handoff" : "Claim this address"}
@@ -904,6 +943,8 @@ export function PropertyPageView() {
               openClaim={openClaimHref}
               openClaimLabel={openClaimLabel}
               onClaim={goClaim}
+              onCancel={() => void cancelOpenClaim()}
+              cancelling={cancelling}
             />
           )}
 
@@ -1046,12 +1087,16 @@ function ClaimPreview({
   openClaim,
   openClaimLabel,
   onClaim,
+  onCancel,
+  cancelling,
 }: {
   cards: typeof PREVIEW_CARDS;
   /** Link to the claim already open (its onboarding, or its review), when the viewer has one. */
   openClaim: string | null;
   openClaimLabel: string;
   onClaim: () => void;
+  onCancel?: () => void;
+  cancelling?: boolean;
 }) {
   return (
     <section className="section claim-preview" data-testid="claim-preview">
@@ -1077,7 +1122,14 @@ function ClaimPreview({
       </div>
       <div className="claim-preview-foot">
         {openClaim ? (
-          <Link className="btn secondary" to={openClaim}>{openClaimLabel}</Link>
+          <>
+            <Link className="btn secondary" to={openClaim}>{openClaimLabel}</Link>
+            {onCancel && (
+              <button type="button" className="btn secondary" disabled={cancelling} onClick={onCancel}>
+                {cancelling ? "Cancelling…" : "Cancel claim"}
+              </button>
+            )}
+          </>
         ) : (
           <button type="button" className="btn" data-testid="claim-preview-button" onClick={onClaim}>Claim this address</button>
         )}
