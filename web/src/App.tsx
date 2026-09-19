@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ManageCard, ProfileCard, PropertyPicker, shortAddress, VisibilityCard } from "./account-profile";
 import { api, type AdminClaim, type Claim, type ClaimHero, type Doc, type MailMessage, type MailSummary, type MaintainedProperty, type MapHome } from "./api";
@@ -215,6 +215,9 @@ function ClaimPage() {
   const [phase, setPhase] = useState<"identity" | "photo" | "verify">("identity");
   const [claim, setClaim] = useState<Claim | null>(null);
   const [step, setStep] = useState(1);
+  // Every step is the same route, so the router never resets scroll between
+  // them. Each one opens from the top, before its entrance paints.
+  useLayoutEffect(() => { window.scrollTo(0, 0); }, [phase, step]);
   const [method, setMethod] = useState("tax_bill");
   const [files, setFiles] = useState<File[]>([]);
   const [notes, setNotes] = useState("");
