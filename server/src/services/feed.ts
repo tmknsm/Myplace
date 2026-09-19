@@ -5,6 +5,12 @@ import { type PostAuthorRow, type PostRow, type PostView, type StoredDocumentRow
 
 export const FEED_PAGE_SIZE = 30;
 
+export type FeedScope = "all" | "neighbors";
+
+export function parseFeedScope(raw: string | undefined | null): FeedScope {
+  return raw === "neighbors" ? "neighbors" : "all";
+}
+
 /** The house a feed post is from, named the way its owners let it be named. */
 export interface FeedHouse {
   property_id: string;
@@ -102,6 +108,44 @@ async function feedHouses(userId: string): Promise<HouseRow[]> {
   `;
 }
 
+/** House rows for a page of posts: address, cover, hide-street, and whether it is the viewer's. */
+async function housesFor(userId: string, propertyIds: string[]): Promise<HouseRow[]> {
+  const ids = [...new Set(propertyIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+  const sql = getSql();
+  return sql<HouseRow[]>`
+    SELECT
+      p.property_id,
+      EXISTS (
+        SELECT 1 FROM property_maintainers m
+        WHERE m.property_id = p.property_id AND m.user_id = ${userId} AND m.revoked_at IS NULL
+      ) AS mine,
+      a.formatted,
+      p.municipality,
+      p.county,
+      p.state,
+      EXISTS (
+        SELECT 1 FROM property_maintainers m
+        WHERE m.property_id = p.property_id AND m.revoked_at IS NULL AND m.hide_street
+      ) AS hide_street,
+      d.document_id,
+      d.byte_size
+    FROM properties p
+    LEFT JOIN property_addresses a ON a.property_id = p.property_id AND a.is_current
+    LEFT JOIN LATERAL (
+      SELECT document_id, byte_size
+      FROM documents
+      WHERE property_id = p.property_id
+        AND removed_at IS NULL
+        AND visibility = 'public'
+        AND (mime_type LIKE 'image/%' OR document_type = 'photo')
+      ORDER BY is_cover DESC, created_at DESC
+      LIMIT 1
+    ) d ON TRUE
+    WHERE p.property_id IN ${sql(ids)} AND NOT p.removed
+  `;
+}
+
 function presentHouse(row: HouseRow): FeedHouse {
   const hideStreet = Boolean(row.hide_street);
   return {
@@ -121,29 +165,34 @@ function presentHouse(row: HouseRow): FeedHouse {
 }
 
 /**
- * Posts from the viewer's neighbors and their own houses, newest first.
- * Posts are public, so the only thing left out is a photo whose file is
- * gone. Each author is named the way that house knows them.
+ * Posts newest first. `all` is everyone on the network; `neighbors` is the
+ * houses next to yours (and your own). Posts are public, so the only thing
+ * left out is a photo whose file is gone. Each author is named the way that
+ * house knows them.
  */
 export async function loadFeed(
   userId: string,
-  options: { before?: Date | null; limit?: number } = {},
+  options: { scope?: FeedScope; before?: Date | null; limit?: number } = {},
 ): Promise<Feed> {
+  const scope = options.scope ?? "all";
   const limit = Math.max(1, Math.min(options.limit ?? FEED_PAGE_SIZE, 100));
-  const houses = await feedHouses(userId);
-  const homeCount = houses.filter((row) => row.mine).length;
-  const neighborCount = houses.length - homeCount;
-  if (houses.length === 0) return { posts: [], nextBefore: null, homeCount, neighborCount };
+  const street = await feedHouses(userId);
+  const homeCount = street.filter((row) => row.mine).length;
+  const neighborCount = street.length - homeCount;
+  if (scope === "neighbors" && street.length === 0) {
+    return { posts: [], nextBefore: null, homeCount, neighborCount };
+  }
 
   const sql = getSql();
-  const houseIds = houses.map((row) => row.property_id);
+  const houseIds = street.map((row) => row.property_id);
   const rows = await sql<(PostRow & Partial<PostAuthorRow>)[]>`
     SELECT p.post_id, p.property_id, p.created_by, p.body, p.created_at,
            u.user_id, u.display_name, u.first_name, u.last_name, u.handle, u.avatar_url
     FROM property_posts p
+    JOIN properties prop ON prop.property_id = p.property_id AND NOT prop.removed
     LEFT JOIN users u ON u.user_id = p.created_by
-    WHERE p.property_id IN ${sql(houseIds)}
-      AND p.removed_at IS NULL
+    WHERE p.removed_at IS NULL
+      AND ${scope === "neighbors" ? sql`p.property_id IN ${sql(houseIds)}` : sql`TRUE`}
       AND ${options.before ? sql`p.created_at < ${options.before}` : sql`TRUE`}
     ORDER BY p.created_at DESC, p.post_id DESC
     LIMIT ${limit + 1}
@@ -175,6 +224,9 @@ export async function loadFeed(
     hiddenByHouse.set(propertyId, await anonymizedOn(propertyId, authors));
   }));
 
+  const houses = scope === "neighbors"
+    ? street
+    : await housesFor(userId, page.map((row) => row.property_id));
   const houseById = new Map(houses.map((row) => [row.property_id, row]));
   const posts: FeedPost[] = [];
   for (const { user_id, display_name, first_name, last_name, handle, avatar_url, ...row } of page) {

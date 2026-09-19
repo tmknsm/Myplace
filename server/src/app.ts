@@ -59,7 +59,7 @@ import {
   setCoverPhoto,
   TRANSFERABLE_TYPES,
 } from "./services/owner.ts";
-import { loadFeed } from "./services/feed.ts";
+import { loadFeed, parseFeedScope } from "./services/feed.ts";
 import { loadMyNeighbors, loadPropertyNeighbors, neighborState, requestNeighborsOnProperty, reviewNeighbor } from "./services/neighbors.ts";
 import {
   addComment,
@@ -525,14 +525,15 @@ app.get("/api/me/neighbors", async (c) => {
   return c.json(await loadMyNeighbors(user.user_id));
 });
 
-// The signed-in landing page: posts from the houses next to yours, and your
-// own. `before` is the previous page's nextBefore.
+// The signed-in landing page. `scope=all` (default) is everyone on the
+// network; `scope=neighbors` is the houses next to yours. `before` is the
+// previous page's nextBefore.
 app.get("/api/me/feed", async (c) => {
   const user = requireUser(c);
   const raw = c.req.query("before");
   const before = raw ? new Date(raw) : null;
   if (before && Number.isNaN(before.getTime())) return c.json({ error: "before must be a timestamp." }, 400);
-  return c.json(await loadFeed(user.user_id, { before }));
+  return c.json(await loadFeed(user.user_id, { scope: parseFeedScope(c.req.query("scope")), before }));
 });
 
 app.get("/api/properties/:id/neighbors", async (c) => {

@@ -86,7 +86,13 @@ export const api = {
       body: JSON.stringify(body),
     }),
   myNeighbors: () => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>("/api/me/neighbors"),
-  feed: (before?: string | null) => request<Feed>(`/api/me/feed${before ? `?before=${encodeURIComponent(before)}` : ""}`),
+  feed: (opts: { scope?: FeedScope; before?: string | null } = {}) => {
+    const query = new URLSearchParams();
+    if (opts.scope === "neighbors") query.set("scope", "neighbors");
+    if (opts.before) query.set("before", opts.before);
+    const search = query.toString();
+    return request<Feed>(`/api/me/feed${search ? `?${search}` : ""}`);
+  },
   propertyNeighbors: (id: string) => request<{ incoming: NeighborPerson[]; outgoing: NeighborPerson[]; neighbors: NeighborPerson[] }>(`/api/properties/${id}/neighbors`),
   neighborStatus: (id: string) => request<{ neighbor: NeighborState }>(`/api/properties/${id}/neighbor`),
   neighborProperty: (id: string, fromPropertyId?: string) =>
@@ -483,6 +489,8 @@ export interface Post {
   author: { user_id: string; label: string; photo_url: string } | null;
   documents: Doc[];
 }
+
+export type FeedScope = "all" | "neighbors";
 
 export interface FeedHouse {
   property_id: string;

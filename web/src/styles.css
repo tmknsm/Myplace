@@ -3643,14 +3643,9 @@ html.peek-gated body {
 /* ---- Feed: the signed-in landing page --------------------------------- */
 /* One narrow column of posts, same mosaic and byline as a property page. */
 .page.feed-page { max-width: min(680px, 100%); }
-.feed-head { align-items: flex-end; margin-bottom: 20px; }
-.feed-head .kicker { font-size: 13px; }
-.feed-head h1 {
-  font-size: 28px;
-  letter-spacing: -0.02em;
-  font-weight: 650;
-  margin-top: 2px;
-}
+.feed-head { margin: 0 0 20px; }
+.feed-tabs { width: 100%; }
+.feed-tabs button { flex: 1; font-size: 14px; min-height: 34px; }
 .feed-empty { padding: 24px 20px 20px; }
 .feed-empty h2 {
   font-size: 22px;

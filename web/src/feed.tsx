@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { api, type Feed } from "./api";
+import { Link, useSearchParams } from "react-router-dom";
+import { api, type Feed, type FeedScope } from "./api";
 import { useAuth } from "./auth";
 import { PageSpinner, SearchBox } from "./components";
 import { PostCard } from "./property";
 import { useToast } from "./property-shared";
 
+function parseTab(raw: string | null): FeedScope {
+  return raw === "neighbors" ? "neighbors" : "all";
+}
+
 /**
- * The signed-in landing page: what the houses next to yours have posted,
- * newest first, with your own posts in the same stream. Each post links back
- * to its house.
+ * The signed-in landing page. All is everyone on the network. Neighbors is
+ * the houses next to yours, plus your own. Each post links back to its house.
  */
 export function FeedPage() {
   const { user } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const scope = parseTab(params.get("tab"));
   const [feed, setFeed] = useState<Feed | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -20,20 +25,29 @@ export function FeedPage() {
 
   const load = useCallback(async () => {
     try {
-      setFeed(await api.feed());
+      setFeed(await api.feed({ scope }));
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load your neighbors' posts.");
+      setError(err instanceof Error ? err.message : "Could not load posts.");
     }
-  }, []);
+  }, [scope]);
 
+  useEffect(() => { setFeed(null); }, [scope]);
   useEffect(() => { void load(); }, [load, user?.user_id]);
+
+  const setTab = (next: FeedScope) => {
+    if (next === scope) return;
+    const nextParams = new URLSearchParams(params);
+    if (next === "all") nextParams.delete("tab");
+    else nextParams.set("tab", next);
+    setParams(nextParams, { replace: true });
+  };
 
   const loadMore = async () => {
     if (!feed?.nextBefore || loadingMore) return;
     setLoadingMore(true);
     try {
-      const next = await api.feed(feed.nextBefore);
+      const next = await api.feed({ scope, before: feed.nextBefore });
       setFeed((current) => {
         if (!current) return next;
         const seen = new Set(current.posts.map((post) => post.post_id));
@@ -47,19 +61,19 @@ export function FeedPage() {
   };
 
   if (error) return <div className="page"><p className="error">{error}</p></div>;
-  if (!feed) return <PageSpinner label="Loading your street" />;
+  if (!feed) return <PageSpinner label={scope === "neighbors" ? "Loading your street" : "Loading posts"} />;
 
   return (
     <div className="page property-page feed-page" data-testid="feed-page">
-      <header className="section-head feed-head">
-        <div>
-          <div className="kicker">Your street</div>
-          <h1>Neighbors</h1>
+      <header className="feed-head">
+        <div className="segmented feed-tabs" role="tablist" aria-label="Feed">
+          <button type="button" role="tab" aria-selected={scope === "all"} className={scope === "all" ? "on" : ""} data-testid="feed-tab-all" onClick={() => setTab("all")}>All</button>
+          <button type="button" role="tab" aria-selected={scope === "neighbors"} className={scope === "neighbors" ? "on" : ""} data-testid="feed-tab-neighbors" onClick={() => setTab("neighbors")}>Neighbors</button>
         </div>
       </header>
       {toast && <div className="toast" role="status">{toast}</div>}
       {feed.posts.length === 0 ? (
-        <FeedEmpty feed={feed} />
+        <FeedEmpty feed={feed} scope={scope} />
       ) : (
         <div className="post-list feed-list">
           {feed.posts.map((post) => (
@@ -79,10 +93,17 @@ export function FeedPage() {
 }
 
 /**
- * Nothing to show yet, and why: no house, no neighbors, or a quiet street.
- * The first two get a search box, since the fix is to find an address.
+ * Nothing to show yet. Neighbors explains whether you still need a house or
+ * a pairing. All is just a quiet network.
  */
-function FeedEmpty({ feed }: { feed: Feed }) {
+function FeedEmpty({ feed, scope }: { feed: Feed; scope: FeedScope }) {
+  if (scope === "all") {
+    return (
+      <div className="group empty-card" data-testid="feed-empty-all">
+        Quiet so far. When someone posts, it shows up here.
+      </div>
+    );
+  }
   if (feed.homeCount === 0) {
     return (
       <div className="group feed-empty" data-testid="feed-empty-no-home">

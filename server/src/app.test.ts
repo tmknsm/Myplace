@@ -2063,8 +2063,12 @@ test("feed: the signed-in landing shows your neighbors' posts and your own, newe
     documents: Array<{ document_id: string }>;
   };
   type Feed = { posts: FeedPost[]; nextBefore: string | null; homeCount: number; neighborCount: number };
-  const feedFor = async (cookie: string, before?: string) => {
-    const res = await app.request(`http://localhost/api/me/feed${before ? `?before=${encodeURIComponent(before)}` : ""}`, { headers: { cookie } });
+  const feedFor = async (cookie: string, opts: { before?: string; scope?: "all" | "neighbors" } = {}) => {
+    const query = new URLSearchParams();
+    if (opts.scope) query.set("scope", opts.scope);
+    if (opts.before) query.set("before", opts.before);
+    const search = query.toString();
+    const res = await app.request(`http://localhost/api/me/feed${search ? `?${search}` : ""}`, { headers: { cookie } });
     expect(res.status).toBe(200);
     return await res.json() as Feed;
   };
@@ -2088,7 +2092,7 @@ test("feed: the signed-in landing shows your neighbors' posts and your own, newe
 
   const ownerPost = await postAs(ownerCookie, "prop_test", "New porch railings went in this weekend.", "2026-09-18T12:00:00Z");
   const visitorPost = await postAs(visitorCookie, "prop_home", "Finally painted the fence.", "2026-09-17T12:00:00Z");
-  await postAs(strangerCookie, "prop_far", "Nobody you know.", "2026-09-19T12:00:00Z");
+  const strangerPost = await postAs(strangerCookie, "prop_far", "Nobody you know.", "2026-09-19T12:00:00Z");
   const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
   const form = new FormData();
   form.append("file", new File([png], "railing.png", { type: "image/png" }));
@@ -2097,8 +2101,14 @@ test("feed: the signed-in landing shows your neighbors' posts and your own, newe
   expect(upload.status).toBe(201);
   const { documentId } = await upload.json() as { documentId: string };
 
-  // Before anyone is neighbors, a house alone sees only its own posts.
-  const alone = await feedFor(visitorCookie);
+  // All (the default) is the whole network, including people you have not paired with.
+  const network = await feedFor(visitorCookie);
+  expect(network.posts.map((post) => post.post_id)).toEqual([strangerPost, ownerPost, visitorPost]);
+  expect(network.posts.find((post) => post.post_id === strangerPost)?.house.property_id).toBe("prop_far");
+  expect((await feedFor(await signIn("nobody@example.com"))).posts.map((post) => post.post_id)).toEqual([strangerPost, ownerPost, visitorPost]);
+
+  // Neighbors, before anyone is paired, is only your own house.
+  const alone = await feedFor(visitorCookie, { scope: "neighbors" });
   expect(alone.homeCount).toBe(1);
   expect(alone.neighborCount).toBe(0);
   expect(alone.posts.map((post) => post.post_id)).toEqual([visitorPost]);
@@ -2114,7 +2124,7 @@ test("feed: the signed-in landing shows your neighbors' posts and your own, newe
   })).status).toBe(200);
 
   // Newest first, the neighbor's post and your own; the stranger's house is not on this street.
-  const feed = await feedFor(visitorCookie);
+  const feed = await feedFor(visitorCookie, { scope: "neighbors" });
   expect(feed.homeCount).toBe(1);
   expect(feed.neighborCount).toBe(1);
   expect(feed.nextBefore).toBeNull();
@@ -2129,16 +2139,17 @@ test("feed: the signed-in landing shows your neighbors' posts and your own, newe
   expect(feed.posts[1]).toMatchObject({ mine: true, author: { label: "Ada Visitor" }, house: { property_id: "prop_home" } });
 
   // The pairing reads the same from the other house.
-  const ownerFeed = await feedFor(ownerCookie);
+  const ownerFeed = await feedFor(ownerCookie, { scope: "neighbors" });
   expect(ownerFeed.posts.map((post) => [post.post_id, post.mine])).toEqual([[ownerPost, true], [visitorPost, false]]);
+  expect((await feedFor(visitorCookie)).posts.map((post) => post.post_id)).toEqual([strangerPost, ownerPost, visitorPost]);
 
   // Older posts page by the last timestamp shown.
-  const older = await feedFor(visitorCookie, feed.posts[0]!.created_at);
+  const older = await feedFor(visitorCookie, { scope: "neighbors", before: feed.posts[0]!.created_at });
   expect(older.posts.map((post) => post.post_id)).toEqual([visitorPost]);
 
   // The author and address are named the way that house allows.
   expect((await setVisibility(ownerCookie, "prop_test", { anonymize: true, hide_street: true })).status).toBe(200);
-  const hidden = await feedFor(visitorCookie);
+  const hidden = await feedFor(visitorCookie, { scope: "neighbors" });
   expect(hidden.posts[0]).toMatchObject({
     author: { label: "@samwrites" },
     house: { formatted: "Hudson, NY 12534", hide_street: true },
@@ -2146,9 +2157,9 @@ test("feed: the signed-in landing shows your neighbors' posts and your own, newe
 
   // A removed post leaves the feed; a house taken off Myplace takes its posts with it.
   expect((await app.request(`http://localhost/api/posts/${ownerPost}`, { method: "DELETE", headers: { cookie: ownerCookie } })).status).toBe(200);
-  expect((await feedFor(visitorCookie)).posts.map((post) => post.post_id)).toEqual([visitorPost]);
+  expect((await feedFor(visitorCookie, { scope: "neighbors" })).posts.map((post) => post.post_id)).toEqual([visitorPost]);
   await sql`UPDATE properties SET removed = true WHERE property_id = 'prop_test'`;
-  const gone = await feedFor(visitorCookie);
+  const gone = await feedFor(visitorCookie, { scope: "neighbors" });
   expect(gone.neighborCount).toBe(0);
   expect(gone.posts.map((post) => post.post_id)).toEqual([visitorPost]);
 });
