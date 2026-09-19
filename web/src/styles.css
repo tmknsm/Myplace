@@ -663,8 +663,8 @@ img, svg { max-width: 100%; }
   padding: 13px 16px;
   border-bottom: 1px solid var(--hairline);
   text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
 }
-.row:hover { background: var(--surface-2); }
 .row-label {
   min-width: 0;
   overflow: hidden;
@@ -700,8 +700,6 @@ img, svg { max-width: 100%; }
 .row-avatars .is-empty:nth-child(2) { z-index: 2; }
 .row-avatars img:nth-child(3),
 .row-avatars .is-empty:nth-child(3) { z-index: 1; }
-.row:hover .row-avatars img,
-.row:hover .row-avatars .is-empty { border-color: var(--surface-2); }
 .neighbor-row { justify-content: flex-start; align-items: flex-start; }
 .neighbor-row .neighbor-avatar { margin-top: 2px; }
 .neighbor-avatar {
@@ -2037,7 +2035,6 @@ body:has(.map-page) { overflow: hidden; }
   width: 100%;
   text-align: left;
 }
-.profile-card-settings .row:hover { background: none; }
 .profile-card-settings strong {
   font-size: 13px;
   font-weight: 600;
