@@ -22,6 +22,23 @@ export function OnboardingProgress({ step }: { step: number }) {
   );
 }
 
+/** True for a field the soft keyboard opens for; not buttons, radios, or file pickers. */
+function opensKeyboard(target: EventTarget | null): boolean {
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (!(target instanceof HTMLInputElement)) return false;
+  return !["button", "submit", "reset", "checkbox", "radio", "file", "range", "color"].includes(target.type);
+}
+
+/**
+ * Whether typing brings up a soft keyboard. Mobile Safari shrinks the visual
+ * viewport for it but leaves the layout viewport alone, so a bar stuck to
+ * `bottom: 0` lands somewhere behind or above the keyboard rather than at the
+ * screen's edge. While a field has focus the bar sits in the flow instead.
+ */
+function softKeyboard(): boolean {
+  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+}
+
 /** Frame shared by every onboarding step: progress, headline, body, one fixed action row. */
 export function OnboardingStep({
   step,
@@ -40,12 +57,19 @@ export function OnboardingStep({
   actions: ReactNode;
   onSubmit?: () => void;
 }) {
+  const [typing, setTyping] = useState(false);
   return (
     <form
-      className="auth-form onboard-step"
+      className={`auth-form onboard-step${typing ? " is-typing" : ""}`}
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit?.();
+      }}
+      onFocus={(event) => {
+        if (opensKeyboard(event.target) && softKeyboard()) setTyping(true);
+      }}
+      onBlur={(event) => {
+        if (opensKeyboard(event.target)) setTyping(false);
       }}
     >
       <div className="auth-body">
