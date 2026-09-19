@@ -1451,7 +1451,7 @@ tr:last-child td { border-bottom: 0; }
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory;
-  scroll-padding-inline: 0;
+  scroll-padding: var(--picker-shade);
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
   /* overflow-x makes the other axis clip too; pad so the card shadow can sit
