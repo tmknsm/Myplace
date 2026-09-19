@@ -2477,3 +2477,37 @@ test("onboarding: hiding the listing takes the house off the map when verified; 
   const mine = await (await app.request("http://localhost/api/me/properties", { headers: { cookie } })).json();
   expect(mine.properties[0]).toEqual(expect.objectContaining({ property_id: "prop_test", removed: true }));
 });
+
+test("onboarding: the house goes to whoever finishes first; idle drafts on it close", async () => {
+  await seedProperty();
+  const slow = await signIn("slow@example.com");
+  const started = await app.request("http://localhost/api/properties/prop_test/claims/start", { method: "POST", headers: { cookie: slow } });
+  const draft = (await started.json()).claim;
+  const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const form = new FormData();
+  form.append("file", new File([png], "mine.png", { type: "image/png" }));
+  form.append("claimId", draft.claim_id);
+  form.append("hero", "true");
+  const hero = await app.request("http://localhost/api/properties/prop_test/documents", { method: "POST", headers: { cookie: slow }, body: form });
+  const heroId = (await hero.json()).documentId as string;
+  const before = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: slow } })).json();
+  expect(before.viewer.openClaim).toEqual(expect.objectContaining({ claim_id: draft.claim_id, status: "draft" }));
+
+  // Someone else submits and is verified while the draft sits.
+  await verifiedOwner("quick@example.com");
+
+  const closed = await sql<{ status: string }[]>`SELECT status FROM ownership_claims WHERE claim_id = ${draft.claim_id}`;
+  expect(closed[0]?.status).toBe("superseded");
+  const staged = await sql<{ removed_at: string | null }[]>`SELECT removed_at FROM documents WHERE document_id = ${heroId}`;
+  expect(staged[0]?.removed_at).not.toBeNull();
+  // No "finish claiming" on somebody else's house, and no way to reopen the draft.
+  const after = await (await app.request("http://localhost/api/properties/prop_test", { headers: { cookie: slow } })).json();
+  expect(after.viewer.openClaim).toBeNull();
+  expect(after.property.maintainers).toEqual([expect.objectContaining({ primary_email: "quick@example.com" })]);
+  const reopen = await app.request("http://localhost/api/properties/prop_test/claims/start", { method: "POST", headers: { cookie: slow } });
+  expect(reopen.status).toBe(409);
+  const submit = await app.request("http://localhost/api/properties/prop_test/claims", {
+    method: "POST", headers: { "content-type": "application/json", cookie: slow }, body: JSON.stringify({ method: "tax_bill", attestationAccepted: true }),
+  });
+  expect(submit.status).toBe(409);
+});

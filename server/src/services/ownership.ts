@@ -42,6 +42,7 @@ export async function grantOwnership(input: {
       AND claim_id <> ${input.claimId}
       AND status = 'verified'
   `;
+  await closeStaleDrafts(input.propertyId, input.userId);
   for (const row of displaced) {
     await emitEvent({
       propertyId: input.propertyId,
@@ -58,6 +59,36 @@ export async function grantOwnership(input: {
     actorId: input.actorId,
     payload: { claim_id: input.claimId, user_id: input.userId },
   });
+}
+
+/**
+ * The house goes to whoever finishes claiming it first. Once someone is
+ * verified, everyone else's unfinished drafts on it are closed, along with the
+ * photos they had staged against them, so nobody is left with a "finish
+ * claiming" button on a home that is now somebody else's. Claims already
+ * submitted for review stay open: those are real competing claims for the
+ * desk to weigh, not abandoned starts.
+ */
+export async function closeStaleDrafts(propertyId: string, ownerId: string): Promise<void> {
+  const stale = await getSql()<{ claim_id: string }[]>`
+    SELECT claim_id FROM ownership_claims
+    WHERE property_id = ${propertyId} AND user_id <> ${ownerId} AND status = 'draft'
+  `;
+  await closeDrafts(stale.map((row) => row.claim_id));
+}
+
+/** Mark drafts superseded and drop whatever was uploaded against them. */
+export async function closeDrafts(claimIds: string[]): Promise<void> {
+  if (!claimIds.length) return;
+  const sql = getSql();
+  await sql`
+    UPDATE ownership_claims SET status = 'superseded'
+    WHERE claim_id IN ${sql(claimIds)} AND status = 'draft'
+  `;
+  await sql`
+    UPDATE documents SET removed_at = now()
+    WHERE claim_id IN ${sql(claimIds)} AND removed_at IS NULL
+  `;
 }
 
 /**

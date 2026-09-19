@@ -73,7 +73,7 @@ import {
   toggleCommentLike,
   toggleLike,
 } from "./services/engagement.ts";
-import { addCoMaintainer, grantOwnership, revokeOwnership } from "./services/ownership.ts";
+import { addCoMaintainer, closeDrafts, grantOwnership, revokeOwnership } from "./services/ownership.ts";
 import {
   loadMyProperties,
   loadPropertyCore,
@@ -710,9 +710,15 @@ app.post("/api/properties/:id/claims/start", async (c) => {
   const core = await loadPropertyCore(propertyId);
   if (!core) return c.json({ error: "Property not found" }, 404);
   const existing = await openClaimFor(user.user_id, propertyId);
-  if (existing) return c.json({ claim: existing });
+  if (existing?.status === "pending") return c.json({ claim: existing });
   const blocked = await claimBlocker(user, propertyId);
-  if (blocked) return c.json({ error: blocked }, 409);
+  if (blocked) {
+    // Someone else finished first while this draft sat idle. Close it rather
+    // than hand it back, so the door shuts here the same way it did there.
+    if (existing) await closeDrafts([existing.claim_id]);
+    return c.json({ error: blocked }, 409);
+  }
+  if (existing) return c.json({ claim: existing });
   const claimId = id("clm");
   await getSql()`
     INSERT INTO ownership_claims (claim_id, property_id, user_id, method, status)
@@ -791,7 +797,10 @@ app.post("/api/properties/:id/claims", async (c) => {
   }
 
   const blocked = await claimBlocker(user, propertyId);
-  if (blocked) return c.json({ error: blocked }, 409);
+  if (blocked) {
+    if (existing) await closeDrafts([existing.claim_id]);
+    return c.json({ error: blocked }, 409);
+  }
 
   // Onboarding opened a draft ahead of this; submitting fills it in rather than
   // starting a second record, so its choices and hero photo come along.
