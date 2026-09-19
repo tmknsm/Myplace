@@ -1382,7 +1382,11 @@ html.onboard-docked .onboard-preview { box-shadow: inset 0 0 0 1px var(--hairlin
   position: sticky;
   left: auto;
   right: auto;
-  bottom: 0;
+  /* --keyboard-inset is the gap between the layout viewport and the visual
+     one (written by useVisualViewportBottom). Pinning `bottom` to it puts
+     the bar on the keyboard's top while the keys are up, and at 0 when they
+     are not — no focus tracking, so a swipe-to-dismiss cannot leave it high. */
+  bottom: var(--keyboard-inset, 0px);
   width: auto;
   max-width: none;
   margin: 0 calc(-1 * var(--page-inline-end)) 0 calc(-1 * var(--page-inline-start));
@@ -1392,9 +1396,6 @@ html.onboard-docked .onboard-preview { box-shadow: inset 0 0 0 1px var(--hairlin
   backdrop-filter: var(--chrome-blur);
   -webkit-backdrop-filter: var(--chrome-blur);
 }
-/* Keyboard up on a touch device: the bar rests at the end of the step. Its flow
-   position is unchanged, so nothing above it moves when it lets go. */
-.onboard-page .onboard-step.is-typing .manage-cta { position: static; }
 .onboard-cta { gap: 10px; justify-content: center; }
 .onboard-cta .onboard-back { flex: 0 0 auto; margin: 0; min-width: 92px; }
 .onboard-cta .btn:not(.onboard-back) { margin: 0; max-width: 420px; }
