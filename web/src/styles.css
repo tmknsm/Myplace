@@ -144,6 +144,14 @@ img, svg { max-width: 100%; }
 }
 /* The stacked search row is for narrow screens only; never show it on desktop. */
 .header-search.narrow-only { display: none; }
+/*
+ * The property page's bar is one row on every screen: brand at the left,
+ * share / settings / quick add at the right where the links usually sit.
+ * Without a search row the chips dock straight under it, so the hand-off
+ * below (search row tucking, sheet sliding) has nothing to move and the
+ * grow step alone carries the glass over the chips.
+ */
+.topbar.is-property .topbar-end { gap: 18px; }
 .brand {
   text-decoration: none;
   display: flex;
@@ -4813,11 +4821,13 @@ html.chrome-search-tucked .chrome-glass::before {
        posts page removes the timeline's source, and a timeline with no source
        would otherwise hold the row wherever it was when you left. */
     body:has(.profile-grid) .chrome-glass::before {
-      /* Constant size once docking begins (a one-off step), then only translates. */
+      /* Constant size once docking begins (a one-off step), then only translates.
+         The property page's bar has no search row, so its travel is 0; the 1px
+         floor keeps the range open so the step still fires at the hand-off. */
       animation: chrome-sheet-grow both, chrome-sheet-slide both;
       animation-timing-function: steps(1, jump-start), linear;
       animation-timeline: --profile-grid;
-      animation-range: cover 0px cover var(--search-row-height);
+      animation-range: cover 0px cover max(var(--search-row-height), 1px);
     }
     body:has(.profile-grid) .topbar .header-search.narrow-only {
       animation: search-row-tuck linear both;

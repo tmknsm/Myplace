@@ -27,7 +27,11 @@ function Layout({ children }: { children: React.ReactNode }) {
   const onAuth = /^\/(signin|signup)/.test(location.pathname);
   // Claiming is a focused flow (identity, photo, proof, review): no search bar.
   const onboarding = /^\/property\/[^/]+\/claim(\/|$)/.test(location.pathname);
-  const headerSearch = !isLanding && !onAuth && !onboarding && !/^\/(dev|admin)/.test(location.pathname);
+  // On a house itself the bar is one row: the brand, then share, settings or
+  // neighbor, and the quick add. Searching and the account are a tap back.
+  const propertyId = location.pathname.match(/^\/property\/([^/]+)\/?$/)?.[1] ?? null;
+  const propertyChrome = Boolean(propertyId);
+  const headerSearch = !isLanding && !onAuth && !onboarding && !propertyChrome && !/^\/(dev|admin)/.test(location.pathname);
   // Notifications waiting on any house light a count on the name. Re-checked
   // as you move around the app, not more than every half minute.
   const { homes } = useMyProperties(location.pathname);
@@ -39,12 +43,11 @@ function Layout({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     if (navigationType !== "POP") window.scrollTo(0, 0);
   }, [location.pathname, navigationType]);
-  // Share, then settings (your houses) or neighbor (everyone else's), ride
-  // beside the search on the property page itself. Keyed on the id so the
-  // slots re-open on page load, not after the record arrives. The empty slot
-  // after them is where the property page mounts its quick-add button once
-  // the owner's add buttons scroll away.
-  const propertyId = location.pathname.match(/^\/property\/([^/]+)\/?$/)?.[1] ?? null;
+  // Share, then settings (your houses) or neighbor (everyone else's), at the
+  // right end of the property page's bar. Keyed on the id so the slots
+  // re-open on page load, not after the record arrives. The empty slot after
+  // them is where the property page mounts its quick-add button once the
+  // owner's add buttons scroll away.
   const share = propertyId ? (
     <>
       <div className="header-share" key={`share-${propertyId}`}>
@@ -85,11 +88,11 @@ function Layout({ children }: { children: React.ReactNode }) {
       window.visualViewport?.removeEventListener("resize", sync);
       window.visualViewport?.removeEventListener("scroll", sync);
     };
-  }, [headerSearch, user, meta?.debug, onAuth]);
+  }, [headerSearch, propertyChrome, user, meta?.debug, onAuth]);
   return (
     <>
       <div className="chrome-glass" aria-hidden="true" />
-      <header className={`topbar${onAuth ? " is-auth" : ""}`} ref={topbarRef}>
+      <header className={`topbar${onAuth ? " is-auth" : ""}${propertyChrome ? " is-property" : ""}`} ref={topbarRef}>
         <div className="topbar-main">
           <Link to="/" className="brand">
             <i className="mark" aria-hidden="true" />
@@ -108,32 +111,41 @@ function Layout({ children }: { children: React.ReactNode }) {
             </div>
           )}
           <div className="topbar-end">
-            <nav className="top-links">
-              <Link to="/map">Map</Link>
-              {user?.is_admin && <Link to="/admin" className="wide-only">Admin</Link>}
-              {meta?.debug && (
-                <button type="button" className="text-btn debug-link" data-testid="debug-link" onClick={() => setDebugOpen(true)}>Debug</button>
-              )}
-              {user ? (
-                <>
-                  <Link to="/account" className="account-link" aria-label={unseen ? `Account, ${unseen} new notification${unseen === 1 ? "" : "s"}` : undefined}>
-                    {user.first_name || user.display_name?.split(" ")[0] || "Account"}
-                    {unseen > 0 && <span className="nav-badge" data-testid="nav-unseen">{unseen > 9 ? "9+" : unseen}</span>}
-                  </Link>
-                  <button className="text-btn wide-only" onClick={() => signOut()}>Sign out</button>
-                </>
-              ) : (
-                <Link to="/signup">Sign up</Link>
-              )}
-            </nav>
-            {/* Desktop: share and quick add sit at the right edge, after the links. */}
-            {share && <div className="header-actions wide-only">{share}</div>}
+            {propertyChrome ? (
+              // The house's own bar: no links, just its buttons. Debug stays in development.
+              <>
+                {meta?.debug && (
+                  <nav className="top-links">
+                    <button type="button" className="text-btn debug-link" data-testid="debug-link" onClick={() => setDebugOpen(true)}>Debug</button>
+                  </nav>
+                )}
+                <div className="header-actions">{share}</div>
+              </>
+            ) : (
+              <nav className="top-links">
+                <Link to="/map">Map</Link>
+                {user?.is_admin && <Link to="/admin" className="wide-only">Admin</Link>}
+                {meta?.debug && (
+                  <button type="button" className="text-btn debug-link" data-testid="debug-link" onClick={() => setDebugOpen(true)}>Debug</button>
+                )}
+                {user ? (
+                  <>
+                    <Link to="/account" className="account-link" aria-label={unseen ? `Account, ${unseen} new notification${unseen === 1 ? "" : "s"}` : undefined}>
+                      {user.first_name || user.display_name?.split(" ")[0] || "Account"}
+                      {unseen > 0 && <span className="nav-badge" data-testid="nav-unseen">{unseen > 9 ? "9+" : unseen}</span>}
+                    </Link>
+                    <button className="text-btn wide-only" onClick={() => signOut()}>Sign out</button>
+                  </>
+                ) : (
+                  <Link to="/signup">Sign up</Link>
+                )}
+              </nav>
+            )}
           </div>
         </div>
         {headerSearch && (
           <div className="header-search narrow-only">
             <SearchBox />
-            {share}
           </div>
         )}
       </header>
